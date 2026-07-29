@@ -84,6 +84,10 @@ See the **[operator guide](docs/operator-guide.md)** for the full surface:
 configuration reference, CLI, channels, routines, the web panel, and
 troubleshooting.
 
+Deploying it with an AI agent? Hand it **[docs/LLM.md](docs/LLM.md)** — the same
+install, configure and verify path written as an executable runbook, with a
+check after every step.
+
 ## How it works (one paragraph)
 
 The filesystem is the source of truth: every participant owns a maildir-style
