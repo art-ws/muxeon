@@ -8,7 +8,7 @@ import { FilterNote } from "./FilterNote";
 import { MessageText } from "./MessageText";
 import { RzArrows } from "./RzArrows";
 import { TokenMeter } from "./TokenMeter";
-import { agentAction, blobUrl, clearHistory, exportHistoryUrl } from "./api";
+import { agentAction, blobUrl, clearHistory, exportHistoryUrl, setAgentPaused } from "./api";
 import { usePinnedFeed } from "./feed-pin";
 import { matchesQuery } from "./filter";
 import { useT } from "./i18n-context";
@@ -19,6 +19,8 @@ import {
   IconFile,
   IconGroup,
   IconKebab,
+  IconPause,
+  IconPlay,
   IconPower,
   IconRotate,
   IconSend,
@@ -82,12 +84,21 @@ export function ChatView(props: {
   return (
     <>
       <header className="chat-header">
-        <span className={`status-dot ${peer?.status ?? "unknown"}`} />
+        <span
+          className={`status-dot ${peer?.status ?? "unknown"}${peer?.paused === true ? " paused" : ""}`}
+        />
         {/* rendezvous markers (FR-105): after the activity dot, before the name */}
         {peer !== undefined && <RzArrows peer={peer} />}
         <strong className={peer?.atWipLimit === true ? "at-wip" : undefined}>
           {peer?.name ?? ""}
         </strong>
+        {/* Pause chip (§16.6, FR-120): the operator-declared do-not-disturb, shown
+            BESIDE the live status — the session may well be idle or busy. */}
+        {peer?.paused === true && (
+          <span className="paused-chip" title={t("messages to this agent are rejected")}>
+            <IconPause size={12} /> {t("paused")}
+          </span>
+        )}
         <span className="chat-status">
           {peer?.status === "busy" ? (
             <>
@@ -276,6 +287,8 @@ function ChatActionsMenu(props: { peer: PeerInfo }): React.JSX.Element {
   const peer = props.peer;
   const canReload = peer.actions?.reload === true;
   const canShutdown = peer.actions !== undefined && peer.status !== "down";
+  // Pause needs no live session (§16.6) — it gates the transport, not the console.
+  const canPause = peer.actions?.pause === true;
   return (
     <span className="filter-anchor chat-actions">
       <button
@@ -311,6 +324,13 @@ function ChatActionsMenu(props: { peer: PeerInfo }): React.JSX.Element {
               onConfirm={() => clearHistory(peer.name)}
               onDone={() => setOpen(false)}
             />
+            {canPause && (
+              <PauseItem
+                peer={peer.name}
+                paused={peer.paused === true}
+                onDone={() => setOpen(false)}
+              />
+            )}
             {canReload && (
               <LifecycleItem
                 label="Reload"
@@ -332,6 +352,53 @@ function ChatActionsMenu(props: { peer: PeerInfo }): React.JSX.Element {
         </>
       )}
     </span>
+  );
+}
+
+// The pause toggle (§16.6, FR-120) — a menuitemCHECKBOX, not a lifecycle item:
+// pausing is REVERSIBLE and destroys nothing, so it carries NO two-click confirm
+// (unlike Shutdown / Clear chat). The checked state comes from the server (the
+// `paused` flag on the peer, refreshed by the WS status push), so a flip made in
+// another tab is reflected here; a failure flashes "Failed" in place and keeps the
+// menu open. The request always states the DESIRED value, never a toggle (§16.4).
+function PauseItem(props: {
+  peer: string;
+  paused: boolean;
+  onDone: () => void;
+}): React.JSX.Element {
+  const t = useT();
+  const [busy, setBusy] = useState(false);
+  const [failed, setFailed] = useState<string | undefined>(undefined);
+  const label = props.paused ? "Resume" : "Pause";
+
+  const click = async (): Promise<void> => {
+    if (busy) return;
+    setBusy(true);
+    setFailed(undefined);
+    try {
+      await setAgentPaused(props.peer, !props.paused);
+      props.onDone();
+    } catch (error) {
+      setFailed(error instanceof Error ? error.message : "failed");
+      setTimeout(() => setFailed(undefined), 4000);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <button
+      type="button"
+      role="menuitemcheckbox"
+      aria-checked={props.paused}
+      className="filter-option"
+      disabled={busy}
+      title={failed ?? t("block/unblock message delivery to this agent")}
+      onClick={() => void click()}
+    >
+      {props.paused ? <IconPlay size={14} /> : <IconPause size={14} />}{" "}
+      {failed !== undefined ? t("Failed") : busy ? "…" : t(label)}
+    </button>
   );
 }
 

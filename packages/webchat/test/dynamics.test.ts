@@ -38,12 +38,16 @@ class FakePorts implements WebchatPorts {
   groups = new Map<string, string>(); // agent → group (§15)
   tagsByAgent = new Map<string, string[]>(); // agent → tags (§15)
   broadcast: BroadcastPeer[] = []; // group/tag peers (§15); default none
+  paused = new Set<string>(); // operator-declared pause (§16, FR-119)
 
   listPeers(): readonly string[] {
     return this.peers;
   }
   peerStatus(name: string): AgentStatus | undefined {
     return this.statuses.get(name);
+  }
+  peerPaused(name: string): boolean {
+    return this.paused.has(name);
   }
   async queueDepth(name: string): Promise<number> {
     return this.depths.get(name) ?? 0;
@@ -518,6 +522,131 @@ describe("WS /api/ws push feed (§12.4)", () => {
         const viaPost = await connector.handleRequest(post(path, {}, { cookie }));
         expect(viaPost.status).toBe(404);
       }
+    } finally {
+      await connector.stop();
+    }
+  });
+});
+
+describe("pause on the panel surface (§16.5/§16.6, FR-119/FR-120)", () => {
+  /** A lifecycle port whose pause flag lives in the shared FakePorts set. */
+  const pausingLifecycle = (opts: { wired?: boolean } = {}): WebchatLifecycle => ({
+    actions: () => ({ shutdown: true, reload: false, pause: true }),
+    shutdown: async () => "down" as AgentStatus,
+    reload: async () => "idle" as AgentStatus,
+    commands: () => [],
+    runCommand: async () => "",
+    ...(opts.wired === false
+      ? {}
+      : {
+          pause: async (name: string, paused: boolean): Promise<boolean> => {
+            if (paused) ports.paused.add(name);
+            else ports.paused.delete(name);
+            return ports.paused.has(name);
+          },
+        }),
+  });
+
+  test("/api/peers carries `paused` and `actions.pause` per agent peer", async () => {
+    const connector = await startedConnector({ lifecycle: pausingLifecycle() });
+    try {
+      ports.paused.add("writer");
+      const cookie = await login(connector);
+      const response = await connector.handleRequest(get("/api/peers", { cookie }));
+      const { peers } = (await response.json()) as {
+        peers: { name: string; paused: boolean; status: string; actions?: { pause?: boolean } }[];
+      };
+      expect(peers.map((p) => [p.name, p.paused])).toEqual([
+        ["researcher", false],
+        ["writer", true],
+      ]);
+      // the status is untouched by the pause (§16.1) and the action is offered
+      expect(peers[1]?.status).toBe("down");
+      expect(peers[1]?.actions?.pause).toBe(true);
+    } finally {
+      await connector.stop();
+    }
+  });
+
+  test("POST /api/agents/:name/pause sets the DESIRED state and is idempotent", async () => {
+    const connector = await startedConnector({ lifecycle: pausingLifecycle() });
+    try {
+      const cookie = await login(connector);
+      for (const _ of [1, 2]) {
+        const res = await connector.handleRequest(
+          post("/api/agents/writer/pause", { paused: true }, { cookie }),
+        );
+        expect(res.status).toBe(200);
+        expect(await res.json()).toEqual({ ok: true, paused: true });
+      }
+      const resumed = await connector.handleRequest(
+        post("/api/agents/writer/pause", { paused: false }, { cookie }),
+      );
+      expect(await resumed.json()).toEqual({ ok: true, paused: false });
+      expect(ports.paused.has("writer")).toBe(false);
+    } finally {
+      await connector.stop();
+    }
+  });
+
+  test("a non-neighbour is 404, a non-boolean body is 400, an unwired port is 503", async () => {
+    const connector = await startedConnector({ lifecycle: pausingLifecycle() });
+    try {
+      const cookie = await login(connector);
+      const stranger = await connector.handleRequest(
+        post("/api/agents/ghost/pause", { paused: true }, { cookie }),
+      );
+      expect(stranger.status).toBe(404); // structural neighbour gate (§10.2)
+      const bad = await connector.handleRequest(
+        post("/api/agents/writer/pause", { paused: "yes" }, { cookie }),
+      );
+      expect(bad.status).toBe(400);
+    } finally {
+      await connector.stop();
+    }
+    const unwired = await startedConnector({ lifecycle: pausingLifecycle({ wired: false }) });
+    try {
+      const cookie = await login(unwired);
+      const res = await unwired.handleRequest(
+        post("/api/agents/writer/pause", { paused: true }, { cookie }),
+      );
+      expect(res.status).toBe(503);
+    } finally {
+      await unwired.stop();
+    }
+  });
+
+  test("the pause endpoint is behind the auth gate (§10.12)", async () => {
+    const connector = await startedConnector({ lifecycle: pausingLifecycle() });
+    try {
+      const res = await connector.handleRequest(post("/api/agents/writer/pause", { paused: true }));
+      expect(res.status).toBe(401);
+      expect(ports.paused.has("writer")).toBe(false); // never reached the port
+    } finally {
+      await connector.stop();
+    }
+  });
+
+  test("a pause flip pushes a `status` event carrying `paused` — every tab repaints", async () => {
+    const connector = await startedConnector({ lifecycle: pausingLifecycle() });
+    try {
+      const cookie = await login(connector);
+      const events: WebchatEvent[] = [];
+      const socket = new WebSocket(`ws://127.0.0.1:${connector.port}/api/ws`, {
+        headers: { cookie },
+      });
+      socket.addEventListener("message", (event) => {
+        events.push(JSON.parse(String(event.data)) as WebchatEvent);
+      });
+      await new Promise((resolve) => socket.addEventListener("open", resolve, { once: true }));
+      // the first poll tick establishes the baseline for both peers
+      await waitFor(() => events.filter((e) => e.type === "status").length >= 2);
+      events.length = 0;
+      ports.paused.add("writer");
+      await waitFor(() =>
+        events.some((e) => e.type === "status" && e.peer === "writer" && e.paused === true),
+      );
+      socket.close();
     } finally {
       await connector.stop();
     }

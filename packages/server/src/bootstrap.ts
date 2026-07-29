@@ -69,6 +69,7 @@ import {
   commandFanout,
   createBlobStore,
   createExchange,
+  createFsPauseStore,
   createFsRendezvousStore,
   createRetention,
   ensureSessionQueue,
@@ -77,6 +78,7 @@ import {
   parseRetainAge,
   probeSession,
   resolveTokenConfig,
+  seedPauseRegistry,
   sessionPaths,
   settleExchangeDir,
   startTokenSampler,
@@ -235,6 +237,28 @@ export async function bootstrap(options: BootstrapOptions = {}): Promise<TeamaiS
     const limit = wipLimitByAgent.get(name);
     return limit !== undefined && limit > 0 ? limit : null;
   };
+  // Agent pause (§16, FR-116): rehydrate the operator-declared do-not-disturb set
+  // from state/paused.json — a declared refusal must not be silently undone by a
+  // restart (§16.4). A name that is no longer a configured agent is dropped with a
+  // warning; only agents can be paused (operators/groups/tags never are, §16.1), so
+  // the predicate below answers false for every non-agent name by construction.
+  const pauseStore = createFsPauseStore(location.stateDir);
+  const isConfiguredAgent = (name: string): boolean => agentTmuxByName.has(name);
+  const { registry: pauseRegistry, dropped: droppedPauses } = seedPauseRegistry(
+    await pauseStore.read(),
+    isConfiguredAgent,
+  );
+  for (const name of droppedPauses) {
+    process.stderr.write(
+      `teamai: warning: dropping the persisted pause of "${name}" — no such agent in the config (§16.4)\n`,
+    );
+  }
+  const isPaused = (name: string): boolean => pauseRegistry.has(name);
+  const pausePort = {
+    has: isPaused,
+    set: (name: string, paused: boolean): boolean => pauseRegistry.set(name, paused),
+    persist: (): Promise<void> => pauseStore.write(pauseRegistry.snapshot()),
+  };
 
   // 4. ensure every participant's queue exists (routing to a down agent / not-yet-
   //    connected operator just accumulates, NFR-4).
@@ -304,6 +328,8 @@ export async function bootstrap(options: BootstrapOptions = {}): Promise<TeamaiS
     root,
     queueKeyOf,
     wipLimitOf,
+    // Pause gate (§16.2, FR-117) — checked after the edge, before the WIP cap.
+    isPaused,
     resolveBroadcast,
     onRouted: (message) => {
       nudger.recordSend(message.from, message.to);
@@ -396,6 +422,10 @@ export async function bootstrap(options: BootstrapOptions = {}): Promise<TeamaiS
     const dispatcher = new Dispatcher({
       paths: sessionPaths(root, agent.tmux),
       driver,
+      // The pause hold (§16.3, FR-118): while paused this loop injects nothing —
+      // no dequeue, no cur/ re-send, no lazy revive. A running turn still finishes,
+      // and the control lane keeps draining (commands/lifecycle stay available).
+      isPaused: () => isPaused(agent.name),
       // Raw mode (FR-88, §14.1): the operator's text reaches the terminal
       // verbatim — no attribution/exchange wrapping; otherwise the normal render.
       render: (message, ctx) =>
@@ -564,6 +594,9 @@ export async function bootstrap(options: BootstrapOptions = {}): Promise<TeamaiS
                 topology,
                 router,
                 peerStatus,
+                // Pause, read-only for agents (§16.5, FR-119): a caller sees that a
+                // neighbour is paused; setting it stays operator-only (§10.10).
+                peerPaused: isPaused,
                 // Peer kind (§15.5, FR-111): a group/tag is derived from the same
                 // resolver the router fans out with; anything else is an "agent".
                 peerType: (name) => resolveBroadcast(name)?.kind ?? "agent",
@@ -614,6 +647,8 @@ export async function bootstrap(options: BootstrapOptions = {}): Promise<TeamaiS
     const makePorts = (operator: string): WebchatPorts => ({
       listPeers: () => topology.neighbors(operator).filter((name) => agents.has(name)),
       peerStatus,
+      // Pause marker (§16.6, FR-119/FR-120) — beside the status, not inside it.
+      peerPaused: isPaused,
       // Broadcast surface (§15, FR-112): a peer's kind + an agent's group/tags for the
       // sidebar tree, and the operator's group/tag neighbors with resolved members.
       peerType: (name) => resolveBroadcast(name)?.kind ?? "agent",
@@ -698,6 +733,9 @@ export async function bootstrap(options: BootstrapOptions = {}): Promise<TeamaiS
       control: sessionControl,
       configDir: location.configDir,
       ...(config.types !== undefined ? { types: config.types } : {}),
+      // Pause (§16.5, FR-119): the operator's mutation surface over the same
+      // registry the router and the dispatchers read.
+      pause: pausePort,
     });
     // Forward-wire the agent-plane command port (FR-94/FR-95) now that the runner
     // exists — the SAME control-lane path the operator/webchat use, the catalog IS
@@ -749,16 +787,22 @@ export async function bootstrap(options: BootstrapOptions = {}): Promise<TeamaiS
       actions: (name) => {
         const runtime = agents.get(name);
         if (runtime === undefined || !topology.neighbors(operator).includes(name)) {
-          return { shutdown: false, reload: false };
+          return { shutdown: false, reload: false, pause: false };
         }
         return {
           // a live session to tear down; reload additionally needs a way back up
           shutdown: runtime.state.status !== "down",
           reload: runtime.agent.provision?.command !== undefined,
+          // Pause needs no session (§16.6, FR-120) — a transport flag, available on
+          // an idle, busy or down neighbour alike.
+          pause: true,
         };
       },
       shutdown: (name) => lifecycleAdmin.shutdown(name),
       reload: (name) => lifecycleAdmin.reload(name),
+      // Pause / resume of a NEIGHBOUR (§16.5, FR-119): the §10.12 capability set
+      // grows by a strictly weaker action than the shutdown it already had.
+      pause: (name, paused) => lifecycleAdmin.pause(name, paused),
       // slash commands: merged type ∪ agent config list (FR-66) + internal
       // commands (FR-67, e.g. /screenshot — every agent); the list IS the
       // allowlist — runCommand refuses anything outside it
@@ -991,6 +1035,9 @@ export async function bootstrap(options: BootstrapOptions = {}): Promise<TeamaiS
           idleMs,
           status: () => runtime.state.status,
           isSystemRaised: () => runtime.state.origin === "system",
+          // A paused agent is not reaped (§16.3, FR-118): the pause is what stopped
+          // its transport, so counting that as idleness would make the pause kill it.
+          isPaused: () => isPaused(runtime.name),
           teardown: () =>
             runtime.dispatcher.control.submit(async () => {
               // The lane drains between turns (§8.5): status is idle or down here,

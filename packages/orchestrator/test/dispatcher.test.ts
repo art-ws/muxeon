@@ -548,3 +548,112 @@ describe("shutdown abort mid-turn (T66, §10.9)", () => {
     expect(jsonFiles(paths.cur)).toHaveLength(1); // the claim stays for re-send
   });
 });
+
+describe("pause hold (§16.3, §10.20, FR-118)", () => {
+  /** A dispatcher whose pause flag the test flips at will. */
+  function pausable(
+    driver: SessionDriver,
+    paused: { value: boolean },
+    extra: { reviveDown?: () => Promise<void> } = {},
+  ): Dispatcher {
+    return new Dispatcher({
+      paths,
+      driver,
+      render: defaultRender,
+      state: new AgentState("idle"),
+      doneIds: new Set<string>(),
+      isPaused: () => paused.value,
+      ...(extra.reviveDown !== undefined ? { reviveDown: extra.reviveDown } : {}),
+    });
+  }
+
+  test("while paused, pump injects nothing and the queue keeps its records", async () => {
+    const injected: string[] = [];
+    await put("a");
+    await put("b");
+    const dispatcher = pausable(okDriver(injected), { value: true });
+    expect(await dispatcher.pump()).toBe(0);
+    expect(injected).toHaveLength(0);
+    expect(jsonFiles(paths.pending)).toHaveLength(2); // nothing claimed
+    expect(jsonFiles(paths.cur)).toHaveLength(0);
+  });
+
+  test("the resume drains everything that piled up (§10.3/§10.9 — no loss)", async () => {
+    const injected: string[] = [];
+    await put("a");
+    await put("b");
+    const paused = { value: true };
+    const dispatcher = pausable(okDriver(injected), paused);
+    expect(await dispatcher.pump()).toBe(0);
+    paused.value = false;
+    expect(await dispatcher.pump()).toBe(2);
+    expect(injected).toHaveLength(2);
+    expect(jsonFiles(paths.done)).toHaveLength(2);
+  });
+
+  test("a pause set mid-drain stops the NEXT turn, never the running one (§10.1)", async () => {
+    const injected: string[] = [];
+    await put("a");
+    await put("b");
+    const paused = { value: false };
+    // The driver pauses the agent DURING the first turn: the turn must still
+    // complete normally, the second must not start.
+    const driver: SessionDriver = {
+      inject: async (text) => {
+        injected.push(text);
+        paused.value = true;
+      },
+      awaitTurn: async () => undefined,
+    };
+    const dispatcher = pausable(driver, paused);
+    expect(await dispatcher.pump()).toBe(1);
+    expect(injected).toHaveLength(1);
+    expect(jsonFiles(paths.done)).toHaveLength(1); // the running turn finished
+    expect(jsonFiles(paths.pending)).toHaveLength(1); // the next one waits
+  });
+
+  test("an in-flight cur/ is NOT re-sent while paused, and is re-sent after the resume", async () => {
+    const injected: string[] = [];
+    await put("crashed");
+    take(await dequeue(paths, { skipIds: new Set<string>() })); // leave it in cur/
+    const paused = { value: true };
+    const dispatcher = pausable(okDriver(injected), paused);
+    await dispatcher.recover();
+    expect(injected).toHaveLength(0);
+    expect(jsonFiles(paths.cur)).toHaveLength(1);
+    paused.value = false;
+    await dispatcher.recover();
+    expect(injected).toHaveLength(1);
+    expect(jsonFiles(paths.done)).toHaveLength(1);
+  });
+
+  test("the lazy auto-revive (FR-51) is suppressed while paused — nothing would be injected", async () => {
+    await put("work");
+    let revives = 0;
+    const paused = { value: true };
+    const dispatcher = pausable(okDriver(), paused, {
+      reviveDown: async () => {
+        revives += 1;
+      },
+    });
+    await dispatcher.maybeRevive();
+    expect(revives).toBe(0);
+    paused.value = false;
+    await dispatcher.maybeRevive();
+    expect(revives).toBe(1); // work queued + unpaused ⇒ the normal one attempt
+  });
+
+  test("control ops keep draining while paused — commands/lifecycle stay available (§16.3)", async () => {
+    await put("held");
+    const paused = { value: true };
+    const dispatcher = pausable(okDriver(), paused);
+    let ran = false;
+    const submitted = dispatcher.control.submit(async () => {
+      ran = true;
+    });
+    await dispatcher.pump(); // pumps nothing, but drains the lane
+    await submitted;
+    expect(ran).toBe(true);
+    expect(jsonFiles(paths.pending)).toHaveLength(1); // still held
+  });
+});

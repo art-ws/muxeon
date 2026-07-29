@@ -58,6 +58,12 @@ export interface WebchatPorts {
   /** Live agent status (§5.1); undefined for an unknown name. */
   peerStatus(name: string): AgentStatus | undefined;
   /**
+   * Is the agent PAUSED (§16, FR-119)? Orthogonal to `peerStatus` — a paused agent
+   * can be idle, busy or down (§16.1), so the panel marks it beside the status dot,
+   * never instead of the status. Absent ⇒ no pause marking.
+   */
+  peerPaused?(name: string): boolean;
+  /**
    * A peer's kind (§15, FR-112): "agent" (operators included), "group", or "tag".
    * Absent ⇒ "agent" (no groups/tags). Used to reject raw mode to a group/tag and to
    * skip queue-phase tracking for a one-directional broadcast.
@@ -124,6 +130,13 @@ export interface PeerActions {
   readonly shutdown: boolean;
   /** A provision block exists to come back up after the teardown. */
   readonly reload: boolean;
+  /**
+   * Pause/resume is available for this peer (§16.6, FR-120). Unlike shutdown it
+   * does NOT require a live session — pause is a transport flag, so the menu item
+   * works on a `down` agent too. Optional: absent ⇒ the item does not render (an
+   * older server, or pause not wired).
+   */
+  readonly pause?: boolean;
 }
 
 /**
@@ -140,6 +153,13 @@ export interface WebchatLifecycle {
   shutdown(name: string): Promise<AgentStatus>;
   /** Graceful restart (FR-64): teardown, then provision through the lane. */
   reload(name: string): Promise<AgentStatus>;
+  /**
+   * Pause / resume the peer's communications (§16.5, FR-119): the DESIRED state,
+   * idempotent, never a toggle — two panel tabs must not invert each other (§16.4).
+   * Resolves to the flag as it now stands. Optional: absent ⇒ the endpoint answers
+   * 503 and no menu item renders.
+   */
+  pause?(name: string, paused: boolean): Promise<boolean>;
   /** The peer's slash commands (FR-66 config ∪ FR-67 internal) — the dropdown. */
   commands(name: string): readonly string[];
   /** Run an ALLOWED slash command; resolves to the console output as-is. */

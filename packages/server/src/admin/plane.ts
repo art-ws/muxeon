@@ -7,6 +7,7 @@
 //   GET    /admin/agents
 //   POST   /admin/agents/<name>/(provision|kill|restart|shutdown|reload)
 //   POST   /admin/agents/<name>/command                 {slash} → {output} (FR-66)
+//   POST   /admin/agents/<name>/pause                    {paused} → {ok, name, paused} (FR-119)
 //   POST   /admin/agents/command                         {slash, selectors[]} → command-fanout (FR-115)
 //   GET    /admin/channels
 //   POST   /admin/signals/send
@@ -88,6 +89,15 @@ function requireStringArray(body: Record<string, unknown>, field: string): reado
   return value as readonly string[];
 }
 
+/** A required boolean body field (§16.5: `paused` is explicit, never inferred). */
+function requireBooleanField(body: Record<string, unknown>, field: string): boolean {
+  const value = body[field];
+  if (typeof value !== "boolean") {
+    throw new AdminError(400, `"${field}" (boolean) is required`, "BAD_REQUEST");
+  }
+  return value;
+}
+
 export function createAdminHandler(deps: AdminDeps): (req: Request) => Promise<Response> {
   const route = async (req: Request, segments: readonly string[]): Promise<Response> => {
     const [section, ...rest] = segments;
@@ -118,6 +128,12 @@ export function createAdminHandler(deps: AdminDeps): (req: Request) => Promise<R
         if (action === "command") {
           const slash = requireStringField(await readJsonBody(req), "slash");
           return json({ output: await deps.lifecycle.command(name, slash) });
+        }
+        // pause / resume (§16.5, FR-119): the DESIRED state, not a toggle — two
+        // operator surfaces must not invert each other (§16.4).
+        if (action === "pause") {
+          const paused = requireBooleanField(await readJsonBody(req), "paused");
+          return json({ ok: true, name, paused: await deps.lifecycle.pause(name, paused) });
         }
       }
     }

@@ -29,3 +29,5 @@ export * from "./token-sampler";
 export * from "./rendezvous";
 export * from "./rendezvous-state";
 export * from "./rendezvous-coordinator";
+export * from "./pause";
+export * from "./pause-state";

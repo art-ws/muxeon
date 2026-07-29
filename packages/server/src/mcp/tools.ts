@@ -37,6 +37,13 @@ export interface AgentPlaneDeps {
    */
   peerType?(name: string): "agent" | "group" | "tag";
   /**
+   * Is a peer PAUSED (§16.5, FR-119)? Read-only for the agent plane: a caller sees
+   * that a neighbour is paused (so it can stop hammering a wall) but can never set
+   * or clear the flag — pausing is an operator operation and no new bridge into the
+   * operator plane is opened (§10.10). Absent ⇒ nobody is paused.
+   */
+  peerPaused?(name: string): boolean;
+  /**
    * The caller's message history with one peer (T126, FR-87): the last `limit`
    * records of the pair, both directions, chronological — the transport log
    * (§8.2) read-only. Absent ⇒ get_history answers UNAVAILABLE (tests, mcp
@@ -272,8 +279,15 @@ async function dispatch(
       // Each neighbor carries its type (§15.5); groups/tags are input-only — no status.
       const peers = deps.topology.neighbors(caller).map((name) => {
         const type = typeOf(name);
+        // `paused` (§16.5) rides beside the status, never inside it — the two are
+        // orthogonal (§16.1); a group/tag has neither.
         return type === "agent"
-          ? { name, type, status: deps.peerStatus(name) ?? "down" }
+          ? {
+              name,
+              type,
+              status: deps.peerStatus(name) ?? "down",
+              paused: deps.peerPaused?.(name) ?? false,
+            }
           : { name, type };
       });
       return ok({ peers });
@@ -289,7 +303,10 @@ async function dispatch(
       // A group/tag has no status (§15.5) — report it plainly, not a fake "down".
       if (typeOf(name) !== "agent")
         return fail("NOT_STATUSABLE", `"${name}" is a ${typeOf(name)} — it has no status`);
-      return ok({ status: deps.peerStatus(name) ?? "down" });
+      return ok({
+        status: deps.peerStatus(name) ?? "down",
+        paused: deps.peerPaused?.(name) ?? false, // §16.5 — orthogonal to the status
+      });
     }
 
     case "get_history": {
@@ -341,6 +358,14 @@ async function dispatch(
           return fail(
             result.code,
             `"${to}" is at its WIP limit (${result.limit}); ${result.depth} in flight — retry when it drains`,
+          );
+        }
+        // Pause (§16.2, FR-117): an operator-declared refusal, and the message was
+        // DROPPED — say both, so the caller retries later instead of assuming delivery.
+        if (result.code === "AGENT_PAUSED") {
+          return fail(
+            result.code,
+            `"${to}" is paused by the operator — the message was discarded, retry when it resumes`,
           );
         }
         return fail(result.code, `delivery to "${to}" not permitted`);

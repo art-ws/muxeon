@@ -545,6 +545,8 @@ function Panel(props: {
             onScreen={() => api.fetchAgentScreen(openChat)}
             /* a group/tag has no terminal — raw mode is off (server-rejected, §15) */
             raw={openIsBroadcast ? false : raw}
+            /* the pause note (§16.6, FR-120); a group/tag is never paused (§16.1) */
+            paused={openIsBroadcast ? false : openPeer?.paused === true}
           />
           {commandOpen && (
             <CommandFanout

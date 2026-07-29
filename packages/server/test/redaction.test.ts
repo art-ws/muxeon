@@ -175,6 +175,8 @@ describe("admin error boundary (§8.7)", () => {
         reload: async () => "idle" as const,
         commands: () => [],
         command: async () => "",
+        pause: async () => false,
+        isPaused: () => false,
       }),
       commandFanout: async (slash: string, selectors: readonly string[]) => ({
         ok: true as const,

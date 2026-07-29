@@ -66,6 +66,16 @@ export function createSignalsAdmin(deps: SignalsAdminDeps): SignalsAdmin {
             result.code,
           );
         }
+        if (result.code === "AGENT_PAUSED") {
+          // Pause (§16.2, FR-117): a state CONFLICT, not overload — 409, so the
+          // operator distinguishes "busy" (429) from "paused" and the message was
+          // dropped, not queued.
+          throw new AdminError(
+            409,
+            `"${input.to}" is paused — the message was discarded (§16.2)`,
+            result.code,
+          );
+        }
         throw new AdminError(403, `no topology edge ${input.from} — ${input.to}`, result.code);
       }
       return { id: message.id, queued: true };

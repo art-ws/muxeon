@@ -99,13 +99,14 @@ export async function routeExchangeReply(
     origin: "exchange",
   });
   if (!result.ok) {
-    // A reply is gated like any send under the WIP cap (FR-104, operator's choice).
-    // It was produced but not delivered — never drop it silently; warn so the
-    // refusal is visible (the reply is not retried — the accepted trade-off).
+    // A reply is gated like any send — under the WIP cap (FR-104, operator's choice)
+    // and under the recipient's pause (§16.2, FR-117). It was produced but not
+    // delivered — never drop it silently; warn so the refusal is visible (the reply
+    // is not retried — the accepted trade-off).
     warn(
       `teamai: warning: reply from ${deps.agent} to "${message.from}" refused (${result.code}${
         result.code === "WIP_LIMIT" ? `, limit ${result.limit}, ${result.depth} in flight` : ""
-      }) — not delivered (FR-104)`,
+      }) — not delivered (${result.code === "AGENT_PAUSED" ? "§16.2" : "FR-104"})`,
     );
   }
   return true;

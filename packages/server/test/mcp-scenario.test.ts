@@ -68,7 +68,8 @@ describe.skipIf(!LOOPBACK_DIRECT)("§3.1 two-agent coordination via the booted s
     try {
       // discovery: researcher sees only writer (loner is not a neighbor)
       expect(structured(await researcher.callTool({ name: "list_peers", arguments: {} }))).toEqual({
-        peers: [{ name: "writer", type: "agent", status: "idle" }],
+        // `paused` (§16.5, FR-119) rides beside the status — nothing is paused here.
+        peers: [{ name: "writer", type: "agent", status: "idle", paused: false }],
       });
 
       // coordinate over the edge → enqueued into writer's queue

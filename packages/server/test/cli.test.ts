@@ -101,6 +101,34 @@ describe("teamai CLI (§7.4, §8.5, FR-32)", () => {
     expect(out).toEqual(["researcher (researcher-s): idle", "writer (writer-s): idle"]);
   });
 
+  test("pause / resume block and unblock delivery; agents marks the paused one (§16.5, FR-119)", async () => {
+    expect(await cli("pause", "researcher")).toBe(0);
+    expect(out).toEqual(["researcher: paused"]);
+    out = [];
+    // The marker sits BESIDE the status — the session is still idle (§16.1).
+    expect(await cli("agents")).toBe(0);
+    expect(out).toEqual(["researcher (researcher-s): idle [paused]", "writer (writer-s): idle"]);
+    out = [];
+    // Delivery to the paused agent is refused (§16.2) — the CLI surfaces the reason.
+    expect(await cli("signals", "send", "--from", "writer", "--to", "researcher", "ping")).toBe(1);
+    expect(err.join("\n")).toContain("paused");
+    out = [];
+    err = [];
+    expect(await cli("resume", "researcher")).toBe(0);
+    expect(out).toEqual(["researcher: not paused"]);
+    out = [];
+    expect(await cli("signals", "send", "--from", "writer", "--to", "researcher", "ping")).toBe(0);
+    expect(out[0]).toMatch(/^queued .+ → researcher$/);
+  });
+
+  test("pause / resume are reserved subcommands and need an agent name", async () => {
+    expect(CLI_COMMANDS.has("pause")).toBe(true);
+    expect(CLI_COMMANDS.has("resume")).toBe(true);
+    // Same shape as kill/restart without a name: exit 1 with the missing-arg usage.
+    expect(await cli("pause")).toBe(1);
+    expect(err.join("\n")).toContain("missing <agent>");
+  });
+
   test("kill / restart / provision drive lifecycle and report the new status", async () => {
     expect(await cli("kill", "researcher")).toBe(0);
     expect(await cli("restart", "researcher")).toBe(0);

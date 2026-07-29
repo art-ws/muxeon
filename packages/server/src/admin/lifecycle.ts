@@ -43,6 +43,8 @@ export interface AgentSummary {
   readonly name: string;
   readonly session: string;
   readonly status: AgentStatus;
+  /** Operator-declared do-not-disturb (§16.1, FR-119) — orthogonal to `status`. */
+  readonly paused: boolean;
 }
 
 export interface LifecycleAdmin {
@@ -61,6 +63,13 @@ export interface LifecycleAdmin {
   commands(name: string): readonly CommandConfig[];
   /** Run an allowed slash command; resolves to the captured pane output as-is. */
   command(name: string, slash: string): Promise<string>;
+  /**
+   * Set the agent's pause flag (§16.5, FR-119) — the desired state, idempotent, NOT
+   * a toggle. Persists on a change. Resolves to the flag as it now stands.
+   */
+  pause(name: string, paused: boolean): Promise<boolean>;
+  /** Is the agent paused? — the read half of the same flag. */
+  isPaused(name: string): boolean;
 }
 
 export interface LifecycleAdminDeps {
@@ -69,6 +78,19 @@ export interface LifecycleAdminDeps {
   readonly configDir: string;
   /** Per-type defaults (config `types`, §7.1) — the teardown fallback (FR-64). */
   readonly types?: Readonly<Record<string, AgentTypeConfig>>;
+  /**
+   * Agent pause (§16, FR-116/FR-119): the registry plus its persistence. The flag
+   * lives in the orchestrator's registry (the router and the dispatchers read it);
+   * this admin is the operator's mutation surface. Absent ⇒ no pause support:
+   * `list()` reports `paused:false` and `pause()` refuses with 503.
+   */
+  readonly pause?: {
+    has(name: string): boolean;
+    /** Applies the desired state; true when it changed (persist only then, §16.4). */
+    set(name: string, paused: boolean): boolean;
+    /** Mirror the snapshot to state/paused.json (§16.4) — atomic, best-effort. */
+    persist(): Promise<void>;
+  };
 }
 
 /** Strategy resolution (FR-64): the agent override wins, the type default backs it. */
@@ -141,6 +163,9 @@ export function createLifecycleAdmin(deps: LifecycleAdminDeps): LifecycleAdmin {
         name,
         session: target.agent.tmux,
         status: target.state.status,
+        // Pause rides ALONGSIDE the status, never inside it (§16.1) — the two are
+        // orthogonal: a paused agent can be idle, busy or down.
+        paused: deps.pause?.has(name) ?? false,
       })),
 
     provision: (name) => {
@@ -225,5 +250,31 @@ export function createLifecycleAdmin(deps: LifecycleAdminDeps): LifecycleAdmin {
         lane.submit(() => runCommand(target, { control: deps.control, command: allowed })),
       );
     },
+
+    // Pause / resume (§16.5, FR-119). NOT a lane op: the flag touches no console and
+    // cannot race the dequeue (the loop re-reads it every iteration, §16.4), so it
+    // applies immediately — unlike a queue edit (§8.5). Idempotent: a repeated pause
+    // changes nothing and skips the write.
+    pause: async (name, paused) => {
+      runtime(name); // 404 for an unknown/non-agent name — same gate as lifecycle
+      const pause = deps.pause;
+      if (pause === undefined) throw new AdminError(503, "pause is not wired", "UNAVAILABLE");
+      if (pause.set(name, paused)) {
+        // A failed mirror must not fail the operator's command: the flag is already
+        // in effect in-process; persistence is what makes it survive a restart.
+        await pause
+          .persist()
+          .catch((error: unknown) =>
+            process.stderr.write(
+              `teamai: warning: could not persist the pause state (§16.4): ${
+                error instanceof Error ? error.message : String(error)
+              }\n`,
+            ),
+          );
+      }
+      return pause.has(name);
+    },
+
+    isPaused: (name) => deps.pause?.has(name) ?? false,
   };
 }

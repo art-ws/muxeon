@@ -94,6 +94,16 @@ export interface DispatcherOptions {
   readonly reviveDown?: () => Promise<void>;
   /** The agent's file exchange (§13, FR-52); absent → plain payload injection. */
   readonly exchange?: TurnExchangePort;
+  /**
+   * Is this agent PAUSED (§16.3, FR-118)? While it answers true the loop injects
+   * NOTHING: no dequeue from pending/, no re-send of an in-flight cur/ and no lazy
+   * revive (FR-51) — the ingress gate alone (§16.2) would still let a backlog
+   * accumulated BEFORE the pause drain into the agent. A turn already running is
+   * never interrupted (§10.1): pause is not a kill. The control lane keeps draining,
+   * so slash commands and lifecycle stay available on a paused agent (§16.3).
+   * Absent ⇒ never paused (the operator egress pseudo-session, tests).
+   */
+  readonly isPaused?: () => boolean;
 }
 
 const defaultSleep = (ms: number): Promise<void> =>
@@ -114,6 +124,7 @@ export class Dispatcher {
   readonly #afterTurn: ((message: Signal) => Promise<void>) | undefined;
   readonly #reviveDown: (() => Promise<void>) | undefined;
   readonly #exchange: TurnExchangePort | undefined;
+  readonly #isPaused: (() => boolean) | undefined;
 
   constructor(options: DispatcherOptions) {
     this.#paths = options.paths;
@@ -129,6 +140,12 @@ export class Dispatcher {
     this.#afterTurn = options.afterTurn;
     this.#reviveDown = options.reviveDown;
     this.#exchange = options.exchange;
+    this.#isPaused = options.isPaused;
+  }
+
+  /** Operator-declared do-not-disturb (§16.3, FR-118) — the drain hold. */
+  get paused(): boolean {
+    return this.#isPaused?.() === true;
   }
 
   /** The control-op lane this loop drains (§8.5); admin submits, never executes. */
@@ -148,6 +165,7 @@ export class Dispatcher {
 
   /** Re-send an in-flight cur/ file after a crash (at-least-once, §10.9). */
   async recover(signal?: AbortSignal): Promise<void> {
+    if (this.paused) return; // pause injects nothing, re-sends included (§16.3)
     if (this.#state.status !== "idle") return;
     const item = await readCur(this.#paths);
     if (item !== null) await this.processOne(item, signal);
@@ -158,6 +176,10 @@ export class Dispatcher {
     let processed = 0;
     while (this.#state.status === "idle") {
       await this.#control.drain(); // control ops apply between turns (§8.5)
+      // The pause hold (§16.3, FR-118) is re-read every iteration — a pause set
+      // mid-drain stops the NEXT turn, never the running one; the queue keeps its
+      // records and drains in full on resume (§10.3/§10.9).
+      if (this.paused) break;
       const item = await dequeue(this.#paths, { skipIds: this.#doneIds });
       if (item === null) break; // empty, or cur busy
       if ((await this.processOne(item, signal)) === "aborted") break; // shutdown (T66)
@@ -303,6 +325,7 @@ export class Dispatcher {
    */
   async maybeRevive(): Promise<void> {
     if (this.#reviveDown === undefined) return;
+    if (this.paused) return; // nothing will be injected anyway (§16.3, FR-118)
     const hasWork =
       (await readCur(this.#paths)) !== null || (await listPendingOrdered(this.#paths)).length > 0;
     if (hasWork) await this.#reviveDown();
