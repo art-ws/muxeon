@@ -50,16 +50,10 @@
 
   "channels": [
     {
-      "type": "telegram",
-      "token": { "$env": "TELEGRAM_TOKEN" },
-      "bindOperator": "operator",
-      "defaultTarget": "researcher"
-    },
-    {
       "type": "webchat",
       "port": 8091,
       "basePath": "/team",
-      "bindOperator": "operator-web",
+      "bindOperator": "operator",
       "auth": { "password": { "$env": "TEAMAI_WEB_PASSWORD" } }
     }
   ]

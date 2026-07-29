@@ -239,8 +239,9 @@ missing variable fails the boot.
 In the config, reference the variable:
 
 ```json
-{ "type": "telegram", "token": { "$env": "TELEGRAM_TOKEN" },
-  "bindOperator": "operator", "defaultTarget": "researcher" }
+{ "type": "webchat", "port": 8091, "basePath": "/team",
+  "bindOperator": "operator",
+  "auth": { "password": { "$env": "TEAMAI_WEB_PASSWORD" } } }
 ```
 
 Put the value in `<ROOT>/.env`:
@@ -249,7 +250,6 @@ Put the value in `<ROOT>/.env`:
 cd <ROOT>
 umask 077
 cat > .env <<'EOF'
-TELEGRAM_TOKEN=<value the human gave you>
 TEAMAI_WEB_PASSWORD=<value the human gave you>
 EOF
 chmod 600 .env
@@ -402,28 +402,40 @@ including the pane contents.
 
 A channel connects a human. Each channel binds **one** operator.
 
+**Default to `webchat`.** It is the only channel that needs nothing outside this
+machine — a port and a password — so it is the right answer unless the human
+named a different one. The others require an account, a bot registration or a
+public endpoint, and none of that is yours to invent.
+
 ```jsonc
 "channels": [
-  { "type": "telegram", "token": { "$env": "TELEGRAM_TOKEN" },
-    "bindOperator": "operator", "defaultTarget": "researcher" },
-
-  { "type": "slack", "token": { "$env": "SLACK_TOKEN" },
-    "channel": "C0123456", "bindOperator": "ops2" },
-
-  { "type": "web", "port": 8090, "deliverUrl": "https://hooks.example/teamai",
-    "secret": { "$env": "WEB_HOOK_SECRET" }, "bindOperator": "ops3" },
-
   { "type": "webchat", "port": 8091, "basePath": "/team",
-    "bindOperator": "operator-web",
+    "bindOperator": "operator",
     "auth": { "password": { "$env": "TEAMAI_WEB_PASSWORD" } } }
 ]
 ```
 
+The other types, for when the human asks for one and supplies the credential:
+
+```jsonc
+{ "type": "telegram", "token": { "$env": "TELEGRAM_TOKEN" },
+  "bindOperator": "ops-tg", "defaultTarget": "researcher" }
+
+{ "type": "slack", "token": { "$env": "SLACK_TOKEN" },
+  "channel": "C0123456", "bindOperator": "ops-slack" }
+
+{ "type": "web", "port": 8090, "deliverUrl": "https://hooks.example/teamai",
+  "secret": { "$env": "WEB_HOOK_SECRET" }, "bindOperator": "ops-hook" }
+```
+
 Notes that save a debugging cycle:
 
-- Inbound text is addressed by a leading `@agent`; without one it goes to
-  `defaultTarget`. No `@agent` and no `defaultTarget` ⇒ the message is refused
-  and the human is told why.
+- **`webchat` rejects `defaultTarget`** — the panel picks the recipient in the
+  UI, so the field is a config error there, not a harmless extra. It belongs to
+  the text channels (telegram / slack / web) only.
+- In those text channels, inbound text is addressed by a leading `@agent`;
+  without one it goes to `defaultTarget`. Neither present ⇒ the message is
+  refused and the human is told why.
 - The `@agent` must be a **topology neighbour of that operator**, or delivery is
   refused.
 - With `basePath: "/team"` the panel lives at `http://host:8091/team/` and the

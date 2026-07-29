@@ -7,9 +7,9 @@
 TEAMAI is a **transport and coordinator** for local CLI agents (`claude`,
 `codex`, …) running in **tmux sessions**. It is not an agent itself: it
 connects agents, tracks their lifecycle, routes messages between them along a
-declared topology, and lets a human operator reach them through channels
-(Telegram, Slack, a web panel, a minimal webhook) — the operator is modeled as
-just another agent.
+declared topology, and lets a human operator reach them through channels (a web
+panel out of the box; Telegram, Slack and a minimal webhook when you bring the
+credentials) — the operator is modeled as just another agent.
 
 TypeScript monorepo on [bun](https://bun.sh). MIT licensed.
 
@@ -49,7 +49,7 @@ cp teamai.config.example.json teamai.config.json
 bun packages/server/src/index.ts
 ```
 
-A minimal config is two agents and an edge between them:
+A minimal config is one agent, a human, and the edge between them:
 
 ```json
 {
@@ -59,11 +59,17 @@ A minimal config is two agents and an edge between them:
   ],
   "topology": { "researcher": ["operator"] },
   "channels": [
-    { "type": "telegram", "token": { "$env": "TELEGRAM_TOKEN" },
-      "bindOperator": "operator", "defaultTarget": "researcher" }
+    { "type": "webchat", "port": 8091, "basePath": "/team",
+      "bindOperator": "operator",
+      "auth": { "password": { "$env": "TEAMAI_WEB_PASSWORD" } } }
   ]
 }
 ```
+
+That gives you the web panel on `http://localhost:8091/team/` — the quickest way
+in, since it needs nothing but a password. `operator` is not a free-standing
+name: an operator exists because a channel binds it, so the channel and the
+topology edge arrive together.
 
 Channel secrets are `$env`-only — an inline token fails validation, a missing
 variable fails the boot.
