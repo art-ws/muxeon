@@ -1,4 +1,8 @@
-# TEAMAI
+<p align="center">
+  <img src="assets/logo/teamai-mark.png" alt="" width="110" />
+</p>
+
+<h1 align="center">TEAMAI</h1>
 
 TEAMAI is a **transport and coordinator** for local CLI agents (`claude`,
 `codex`, …) running in **tmux sessions**. It is not an agent itself: it
