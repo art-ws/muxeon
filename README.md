@@ -30,14 +30,15 @@ curl -o teamai.config.json \
 
 # run it straight from npm — no install. The config is found by convention
 # (./teamai.config.json, then upward), or pass a path / --config
-npx teamai
+npx @art-ws/teamai
 ```
 
-`bunx teamai` works too and skips the Node shim entirely. To install it once:
+`bunx @art-ws/teamai` works too and skips the Node shim entirely. To install it
+once:
 
 ```bash
-npm i -g teamai     # or: bun i -g teamai
-teamai agents       # operator subcommands, see below
+npm i -g @art-ws/teamai     # or: bun i -g @art-ws/teamai
+teamai agents               # the command is `teamai`, scope or not
 ```
 
 From a clone, run it from source instead:
