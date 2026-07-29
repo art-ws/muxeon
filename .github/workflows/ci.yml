@@ -35,9 +35,12 @@ jobs:
       - name: Build panel bundle
         run: bun run build:ui
 
+      # `bun run test`, not `bun test` — the script carries --timeout 30000. The
+      # 5s default is below what the tmux/HTTP integration tests legitimately
+      # need, and a test killed mid-flight leaks its server and wedges the run.
       - name: Test
         timeout-minutes: 15
-        run: bun test
+        run: bun run test
 
       # Build exactly what `npm publish` would ship, and assert the two files the
       # package is useless without: the server bundle and the panel it serves.

@@ -63,6 +63,14 @@ export class TmuxSessionDriver implements SessionDriver {
   readonly #sendLiteral: (session: string, text: string) => Promise<void>;
   readonly #sendKeys: (session: string, ...keys: string[]) => Promise<void>;
   readonly #readStatus: (path: string) => Promise<NativeStatus | null>;
+  /**
+   * Set by inject() when the agent answered INSIDE the submit-confirmation window
+   * — a turn shorter than SUBMIT_CONFIRM_MS is already over before awaitTurn gets
+   * to look, and the output front (busy→ready) it waits for has been and gone.
+   * Consumed once by awaitTurn, which would otherwise wait for a front that will
+   * never come again and strand the message in cur/ (§10.1).
+   */
+  #turnObservedDuringInject = false;
 
   constructor(options: TmuxDriverOptions) {
     this.#session = options.session;
@@ -76,8 +84,23 @@ export class TmuxSessionDriver implements SessionDriver {
   }
 
   async inject(text: string): Promise<void> {
+    this.#turnObservedDuringInject = false; // never let a previous turn's flag leak
     await this.#sendLiteral(this.#session.name, text);
     await this.#sleep(SUBMIT_SETTLE_MS);
+    // Baseline: the pane with the text typed but NOT yet submitted. "Ready" alone
+    // cannot prove the Enter was swallowed — an agent whose turn is SHORTER than
+    // SUBMIT_CONFIRM_MS has already answered and returned to its prompt by the
+    // time we look. Re-pressing there submits an EMPTY turn, and since no busy
+    // front ever follows the real one, awaitTurn waits forever and the message
+    // stays in cur/ (§10.1). A swallowed Enter leaves the pane frozen, so it is
+    // the pane CHANGING — not the prompt vanishing — that proves submission.
+    // Best-effort: if the capture fails we fall back to the prompt-only check.
+    let baseline: string | undefined;
+    try {
+      baseline = (await this.#capture(this.#session.name)).trimEnd();
+    } catch {
+      baseline = undefined;
+    }
     await this.#sendKeys(this.#session.name, "Enter");
     // Best-effort confirmation (T78): a capture/send hiccup must not fail an
     // already-typed injection — from here the §5.2 detectors own the turn, and
@@ -87,6 +110,12 @@ export class TmuxSessionDriver implements SessionDriver {
         await this.#sleep(SUBMIT_CONFIRM_MS);
         const pane = (await this.#capture(this.#session.name)).trimEnd();
         if (!this.#adapter.detect.readyPrompt.test(pane)) return; // busy — submitted
+        if (baseline !== undefined && pane !== baseline) {
+          // Output appeared AND the prompt is back: the whole turn happened inside
+          // this window. Tell awaitTurn, or it waits for a front already spent.
+          this.#turnObservedDuringInject = true;
+          return;
+        }
         await this.#sendKeys(this.#session.name, "Enter");
       }
     } catch {
@@ -95,6 +124,10 @@ export class TmuxSessionDriver implements SessionDriver {
   }
 
   async awaitTurn(turnToken: string, signal?: AbortSignal): Promise<void> {
+    if (this.#turnObservedDuringInject) {
+      this.#turnObservedDuringInject = false; // one turn, one consumption
+      return;
+    }
     const detect = this.#adapter.detect;
     const statusPath = detect.statusFile?.(this.#session);
     if (statusPath === undefined || signal?.aborted === true) {

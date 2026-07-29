@@ -153,10 +153,25 @@ describe("TmuxSessionDriver submit confirmation (T78, FR-58)", () => {
 
   test("a swallowed Enter is re-pressed until the busy front appears", async () => {
     const sent: string[] = [];
-    // two captures still show the ready prompt (text sits unsubmitted), the third is busy
-    const driver = injectDriver(["READY> ", "READY> ", "working..."], sent);
+    // capture 1 is the pre-Enter baseline; two more still show the SAME ready pane
+    // (the text sits unsubmitted — nothing moved), the fourth is busy.
+    const driver = injectDriver(["READY> ", "READY> ", "READY> ", "working..."], sent);
     await driver.inject("hello");
     expect(sent).toEqual(["literal:hello", "keys:Enter", "keys:Enter", "keys:Enter"]);
+  });
+
+  // The counterpart trap: an agent whose turn is shorter than the confirm delay is
+  // already back at its prompt when we look. Reading that as "not submitted" and
+  // re-pressing injects an empty turn AND strands the real message in cur/ — the
+  // pane MOVED, so submission is proven even though the prompt is back.
+  test("a turn shorter than the confirm delay is not mistaken for a swallowed Enter", async () => {
+    const sent: string[] = [];
+    const driver = injectDriver(
+      ["READY> hello", "[working: hello]\n[done]\nREADY> "], // baseline, then answered
+      sent,
+    );
+    await driver.inject("hello");
+    expect(sent).toEqual(["literal:hello", "keys:Enter"]); // exactly one Enter, no empty turn
   });
 
   test("retries are bounded — a never-busy pane does not loop forever", async () => {
@@ -208,8 +223,8 @@ describe("TmuxSessionDriver submit confirmation (T78, FR-58)", () => {
       },
     });
     await driver.inject("hello");
-    // literal → settle pause → Enter → confirm pause → capture (busy ⇒ done)
-    expect(events).toEqual(["literal", "sleep:200", "enter", "sleep:350", "capture"]);
+    // literal → settle pause → baseline capture → Enter → confirm pause → capture (busy ⇒ done)
+    expect(events).toEqual(["literal", "sleep:200", "capture", "enter", "sleep:350", "capture"]);
   });
 });
 
