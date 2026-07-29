@@ -83,8 +83,22 @@ The npm package is the **root** package: `bin/teamai.js` (a Node shim that
 re-execs `bun`) plus `dist/` (the bundled server and the panel under `dist/ui`).
 `files` in `package.json` is the allowlist — nothing under `packages/` ships.
 
-Publishing needs an `NPM_TOKEN` repository secret; `GITHUB_TOKEN` is provided by
-Actions.
+### Authentication: trusted publishing, no token
+
+Publishing uses npm **trusted publishing** (OIDC). There is deliberately **no
+`NPM_TOKEN` secret**: the workflow requests a short-lived GitHub Actions identity
+token (`id-token: write`) and `@semantic-release/npm` exchanges it for a
+registry credential valid for that run alone. Nothing long-lived to store,
+leak or rotate. `GITHUB_TOKEN` is provided by Actions.
+
+For this to work, the trusted publisher registered on npmjs.com must name this
+repository **and this workflow file** — `release.yml`. The filename is part of
+the match, so renaming the workflow breaks publishing until the publisher is
+updated. A failure here surfaces as `EINVALIDNPMTOKEN`, which in this setup
+means "the OIDC claim did not match a trusted publisher", not "the secret is
+missing".
+
+Requirements the workflow already pins: Node ≥ 22.14 and npm CLI ≥ 11.5.1.
 
 ## Style
 

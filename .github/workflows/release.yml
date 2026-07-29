@@ -14,7 +14,7 @@ on:
 
 permissions:
   contents: write # semantic-release commits CHANGELOG + version bump and creates the tag/release
-  id-token: write # npm provenance (OIDC)
+  id-token: write # REQUIRED: npm trusted publishing (OIDC) + provenance
 
 jobs:
   release:
@@ -32,10 +32,20 @@ jobs:
           bun-version: "1.2.22"
       - uses: actions/setup-node@v4
         with:
-          # semantic-release requires Node >=22.14 || >=24.10. This is the CI
-          # runner only — the published shim supports Node >=20 (package.json
-          # "engines"), which ci.yml exercises.
+          # semantic-release needs Node >=22.14 || >=24.10; trusted publishing
+          # needs >=22.14 too. This is the CI runner only — the published shim
+          # supports Node >=20 (package.json "engines"), which ci.yml exercises.
           node-version: 24
+          registry-url: "https://registry.npmjs.org" # required for OIDC
+          package-manager-cache: false # never cache in a release build
+
+      # Trusted publishing needs npm CLI >=11.5.1. Node 24 ships an 11.x npm, but
+      # pin it explicitly so a runner image change cannot silently drop OIDC back
+      # to token auth (which would then fail, since no NPM_TOKEN exists).
+      - name: Ensure an OIDC-capable npm
+        run: |
+          npm install -g npm@^11
+          npm --version
 
       - run: bun install --frozen-lockfile
 
@@ -49,8 +59,15 @@ jobs:
           test -f dist/index.js
           test -f dist/ui/index.html
 
+      # No NPM_TOKEN on purpose: @semantic-release/npm (>=13) detects the Actions
+      # OIDC context and exchanges it for a short-lived registry credential, so
+      # there is no long-lived secret to store or rotate. It falls back to token
+      # auth when no OIDC context is established — so an EINVALIDNPMTOKEN failure
+      # here means the trusted publisher did not match, NOT a missing secret.
+      #
+      # The trusted publisher on npmjs.com must name THIS repository and THIS
+      # workflow file (release.yml) exactly — the filename is part of the match.
       - name: semantic-release
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: npx semantic-release ${{ inputs.dry_run && '--dry-run' || '' }}
