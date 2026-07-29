@@ -1,0 +1,56 @@
+name: Release
+
+# Manual-only release. There is NO push/tag trigger: every `npm publish` happens
+# solely on an operator-initiated workflow_dispatch. `dry_run: true` computes the
+# next version + changelog with no tag / GitHub Release / publish side effects —
+# run that first, always.
+on:
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Dry run: compute next version + changelog preview, no tag/release/publish"
+        type: boolean
+        default: true
+
+permissions:
+  contents: write # semantic-release commits CHANGELOG + version bump and creates the tag/release
+  id-token: write # npm provenance (OIDC)
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # full history: semantic-release analyzes commits since the last tag
+
+      # Two runtimes on purpose: bun builds the artifact (this is a Bun project),
+      # node runs semantic-release, which is a Node tool.
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.2.22"
+      - uses: actions/setup-node@v4
+        with:
+          # semantic-release requires Node >=22.14 || >=24.10. This is the CI
+          # runner only — the published shim supports Node >=20 (package.json
+          # "engines"), which ci.yml exercises.
+          node-version: 24
+
+      - run: bun install --frozen-lockfile
+
+      # Build BEFORE publish: dist/ must exist (and carry the panel) before
+      # @semantic-release/npm packs the tarball. `files` ships bin/ + dist/ only.
+      - run: bun run build:dist
+
+      - name: Verify the packed artifact
+        run: |
+          npm pack --dry-run
+          test -f dist/index.js
+          test -f dist/ui/index.html
+
+      - name: semantic-release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: npx semantic-release ${{ inputs.dry_run && '--dry-run' || '' }}

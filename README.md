@@ -13,15 +13,38 @@ just another agent.
 
 TypeScript monorepo on [bun](https://bun.sh). MIT licensed.
 
+## Requirements
+
+- **[Bun](https://bun.sh) ≥ 1.2** — TEAMAI is a Bun application (the HTTP
+  surfaces, process control and static serving are all Bun APIs). The `npx`
+  entry point is a thin Node shim that hands over to `bun`; it will tell you so
+  if bun is missing. Set `TEAMAI_BUN` to use a bun outside `PATH`.
+- **tmux** — that is where the agents live.
+
 ## Quick start
 
 ```bash
+# describe your team
+curl -o teamai.config.json \
+  https://raw.githubusercontent.com/art-ws/teamai/main/teamai.config.example.json
+
+# run it straight from npm — no install. The config is found by convention
+# (./teamai.config.json, then upward), or pass a path / --config
+npx teamai
+```
+
+`bunx teamai` works too and skips the Node shim entirely. To install it once:
+
+```bash
+npm i -g teamai     # or: bun i -g teamai
+teamai agents       # operator subcommands, see below
+```
+
+From a clone, run it from source instead:
+
+```bash
 bun install
-
-# describe your team (start from the shipped example)
 cp teamai.config.example.json teamai.config.json
-
-# launch (finds teamai.config.json by convention; or pass a path / --config)
 bun packages/server/src/index.ts
 ```
 

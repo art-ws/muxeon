@@ -43,10 +43,11 @@ bun run lint          # biome; `bun run lint:fix` to autofix
 bun test
 ```
 
-All four must pass before a pull request is ready. `bun run build` (server
-bundle) and `bun run --cwd packages/webchat-ui build` (panel bundle) gate in CI
-as well — the panel-serving test exercises the real built bundle, so build it
-locally if you touch the SPA.
+All four must pass before a pull request is ready. `bun run build:dist` — which
+builds the panel, bundles the server and stages the panel into `dist/ui` — gates
+in CI as well; the panel-serving test exercises the real built bundle, so build
+it locally if you touch the SPA. A `secretlint` job scans the tree for secret
+values and fails the build on any finding (`bun run secretlint` runs it locally).
 
 Environment notes:
 
@@ -56,6 +57,34 @@ Environment notes:
   instance is already running locally — stop it first.
 - If your shell exports `HTTP_PROXY`, run the suite as `env -u HTTP_PROXY bun
   test` so loopback requests are not intercepted by the proxy.
+
+## Releasing
+
+Releases are **manual and operator-initiated** — there is no push or tag
+trigger. The `Release` workflow (`workflow_dispatch`) runs
+[semantic-release](https://semantic-release.gitbook.io/): it derives the next
+version from the commits since the last tag, writes `CHANGELOG.md`, tags, and
+publishes to npm with provenance.
+
+`dry_run` defaults to **true** — run it that way first to see the computed
+version and changelog with no tag, release or publish side effects.
+
+How commit subjects map to a version bump:
+
+| Subject | Bump |
+|---|---|
+| `T<nn>: …` (this project's task convention) | patch |
+| `fix: …`, `perf: …` | patch |
+| `feat: …` | minor |
+| any type with `BREAKING CHANGE:` in the body | major |
+| `docs: …`, `chore: …` | no release |
+
+The npm package is the **root** package: `bin/teamai.js` (a Node shim that
+re-execs `bun`) plus `dist/` (the bundled server and the panel under `dist/ui`).
+`files` in `package.json` is the allowlist — nothing under `packages/` ships.
+
+Publishing needs an `NPM_TOKEN` repository secret; `GITHUB_TOKEN` is provided by
+Actions.
 
 ## Style
 

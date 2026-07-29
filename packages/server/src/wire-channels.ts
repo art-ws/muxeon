@@ -140,10 +140,18 @@ export async function wireChannels(options: WireChannelsOptions): Promise<Channe
   };
 }
 
-// The built SPA (§12.7): @teamai/webchat-ui's dist, when the workspace package is
-// present AND built. A soft asset lookup, not a runtime import — webchat-ui stays
-// out of the §8 dependency graph; absence just means the panel serves API-only.
+// The built SPA (§12.7): a soft asset lookup, not a runtime import — webchat-ui
+// stays out of the §8 dependency graph; absence just means the panel serves
+// API-only. Two layouts have to work:
+//
+//   workspace  packages/server/src/… → resolve @teamai/webchat-ui, take its dist/
+//   published  dist/index.js         → dist/ui/ (npm tarball: no workspace to resolve)
+//
+// The published layout is checked FIRST because it is unambiguous: if `ui/` sits
+// next to the running bundle, that is the panel that shipped with it.
 function resolveUiDist(): string | undefined {
+  const shipped = join(import.meta.dir, "ui");
+  if (existsSync(join(shipped, "index.html"))) return shipped;
   try {
     const pkg = Bun.resolveSync("@teamai/webchat-ui/package.json", import.meta.dir);
     const dist = join(pkg, "..", "dist");
