@@ -1,0 +1,419 @@
+# TEAMAI operator guide
+
+How to run a team, talk to it, and keep it healthy.
+
+> `§`/`FR-` markers in parentheses are traceability labels pointing into the
+> project's internal specification, which is not part of this repository. This
+> guide is self-contained — you never need the spec to operate TEAMAI.
+
+## 1. Launching
+
+```
+teamai [path/to/config.json]      # or: teamai --config <path>
+```
+
+Without a path the config is discovered by convention (§7.4): the current
+directory, then upward, looking for `teamai.config.json`, then
+`.teamai/config.json`. The directory of the found config is `<config_dir>` —
+the base for queues (`<config_dir>/queue`), routine state
+(`<config_dir>/state`), central routines (`<config_dir>/routines`) and
+relative `$ref`s.
+
+Boot is fail-fast on configuration (every §7.5 rule), but tolerant on agents:
+a missing tmux session makes the agent `down`, not the boot fatal — its queue
+accumulates until you bring it up. You can start (or kill) a session **by hand**
+at any time after boot: a liveness sweep (FR-93, §5.1) re-probes every non-busy
+session every `livenessProbeMs` and reconciles its status (`down` → `idle` on a
+hand-start, `idle` → `down` on a hand-kill), so the panel reflects reality
+without a server restart. The sweep is attach-only — it never starts a session
+itself (bring-up stays `provision`/auto-revive/operator territory).
+
+## 2. Configuration reference (§7)
+
+```jsonc
+{
+  "name": "prod-cluster",         // optional (FR-90): a label for this instance — shown in
+                                  //   the panel topbar next to the logo and in the page title
+                                  //   ("<name> - TeamAI"); omitted ⇒ the server's hostname()
+  "server": {
+    "port": 8080,                 // both planes share this port (§8.1)
+    "mcp": true,                  // agent-plane gate; false = no agent coordination
+    "queueDir": "./queue",        // queue root override (default <config_dir>/queue)
+    "retain": { "age": "7d", "count": 1000 },   // done/-window double cap (§5.4)
+    "cadence": {                  // NFR-10, calibrated defaults — all optional
+      "outputPollMs": 100, "downProbeMs": 1000,
+      "routineTickMs": 1000, "routineRescanMs": 30000, "retentionSweepMs": 60000,
+      "idleTeardownSweepMs": 60000,  // idle auto-teardown sweep (§5.1/FR-92)
+      "livenessProbeMs": 2000        // liveness re-probe of non-busy sessions (§5.1/FR-93)
+    }
+  },
+  "agents": [
+    {
+      "name": "researcher",       // topology identity
+      "type": "claude",           // adapter
+      "tmux": "researcher-session", // the stable session name = queue key
+      "cwd": "/path/to/repo",     // optional; enables cwd routines (§6.2)
+      "provision": {
+        "command": ["claude"], "cwd": "...", "env": {},   // argv, no shell
+        "auto": true,                                     // provision on boot (FR-50)
+        "teardown": { "slash": "exit", "graceMs": 5000,   // graceful shutdown (FR-64)
+          "idle": "1h" }            // auto-teardown after 1h idle (FR-92); true = 1h
+      },
+      "retain": { "age": "3d" }   // optional per-agent retention override
+    }
+  ],
+  "topology": {                   // undirected: an edge = permission to talk
+    "researcher": ["writer", "operator"]
+  },
+  "commandGrants": {              // opt. (FR-94/95): who may run which slash commands on whom
+    "writer": { "researcher": ["clear", "compact"] },  // directed: <from>: { <to>: [<slash>] }
+    "*": { "researcher": ["*"] }  // "*" = any sender / any recipient / every command
+  },
+  "sessionGrants": {              // opt. (FR-96/97): who may start/stop/… whose session
+    "writer": { "researcher": ["restart", "stop"] },   // directed: <from>: { <to>: [<action>] }
+    "*": { "researcher": ["*"] }  // "*" = any sender / any recipient / every action
+  },
+  "channels": [                   // one channel binds ONE operator (§7.5)
+    { "type": "telegram", "token": { "$env": "TELEGRAM_TOKEN" },
+      "bindOperator": "operator", "defaultTarget": "researcher" },
+    { "type": "slack", "token": { "$env": "SLACK_TOKEN" }, "channel": "C0123456",
+      "bindOperator": "ops2" },
+    { "type": "web", "port": 8090, "deliverUrl": "https://hooks.example/teamai",
+      "secret": { "$env": "WEB_HOOK_SECRET" }, "bindOperator": "ops3" },
+    { "type": "webchat", "port": 8091, "bindOperator": "operator-web",
+      "auth": { "password": { "$env": "TEAMAI_WEB_PASSWORD" } } }  // web panel (§12, section 8)
+  ]
+}
+```
+
+- **Secrets only via `$env`** (§7.3) — an inline token fails validation; a
+  missing variable fails the boot. Resolved secrets never appear in queue
+  records, logs, or error responses (§8.7).
+- Operators are declared implicitly by `bindOperator` and become topology
+  nodes; give them edges or they can neither send nor receive (warning at boot).
+- **Agent→agent slash commands (`commandGrants`, FR-94/95)** let one agent run
+  another's slash commands over MCP (`send_command`), and introspect what it may
+  run (`list_commands`). The grant is **directed** — `{ "<from>": { "<to>":
+  ["<slash>"] } }` — and only NARROWS: a command still needs a topology edge
+  (§10.2) **and** the command in the recipient's catalog (its `commands` ∪ the
+  internal ones). `"*"` is a wildcard for any sender, any recipient, or every
+  command. No block ⇒ no agent→agent commands (the default). An operator is never
+  a sender or recipient (it commands via the operator-plane / CLI, section 4).
+  Validation is fail-fast: unknown agent, an explicit pair without an edge, or an
+  unknown command name all fail the boot (§7.5).
+- **Agent→agent session control (`sessionGrants`, FR-96/97)** let one agent
+  start/stop/restart a peer's tmux session over MCP (`control_session`), and
+  introspect what it may do (`list_controls`) — agents hard-managing each other
+  (forced restart, emergency shutdown). The grant is the **directed** twin of
+  `commandGrants` — `{ "<from>": { "<to>": ["<action>"] } }` — where `<action>` is
+  one of `start` (=provision), `stop` (=kill, immediate), `shutdown` (graceful),
+  `restart` (=kill+provision), `reload` (graceful). It only NARROWS: an action
+  still needs a topology edge (§10.2) **and** to be applicable to the recipient
+  (`stop`/`shutdown` work on any session; `start`/`restart`/`reload` need a
+  `provision` command). `"*"` wildcards any sender/recipient/action. No block ⇒ no
+  agent→agent session control (the default); an operator is never a sender or
+  recipient. Fail-fast validation: unknown agent, an explicit pair without an edge,
+  an unknown action, or `start`/`restart`/`reload` on a provision-less recipient all
+  fail the boot (§7.5).
+- The config may be split across files with local `$ref` (§7.2); the monolith
+  stays equivalent.
+- **Idle auto-teardown (`teardown.idle`, FR-92)** retires an agent **the system
+  raised** (a `provision`ed session — not one you attached to) after it has been
+  idle with no transport traffic for the window (`"1h"`/`"30m"`/…, or `true` = 1h).
+  `idle` lives in the `teardown` block, so it resolves agent → `types.<type>`
+  like the rest of the strategy, and uses that strategy to close gracefully
+  (an idle-only block ⇒ a hard kill). A new message later lazy-revives the agent
+  (FR-51) — a bring-up/idle-down cycle. Hand-started / attach-only sessions are
+  left alone (the liveness sweep marks them `external` precisely so this holds).
+
+## 3. Talking to agents through a channel (§3.2)
+
+Address an agent with `@name` anywhere in the message — the first matching
+token wins; with no match the channel's `defaultTarget` applies; with neither
+you get a clear error back in the same chat. Attach files/media: they are
+stored as blobs and delivered to the agent as opaque references. Agent replies
+come back on the same channel, attributed `[agent-name] …`.
+
+Delivery is **at-least-once**: after a crash or a channel outage the same
+message may be pushed twice; dedup by id suppresses most repeats.
+
+### 3.1 Agent replies: the file exchange (§13, FR-52..56) — the default path
+
+Every agent gets an **exchange directory** (`agent.exchangeDir` → `<cwd>/.teamai`
+→ `<queue root>/<session>/exchange`) and needs NOTHING configured — no MCP, no
+hooks. Each delivered message materializes as
+`<exchange>/inbox/<id>/message.json`, and the injected text is a self-sufficient
+instruction telling the agent the contract:
+
+- write the answer into `reply.md` next to `message.json` (plain text/markdown),
+  **in the same language as the request** (mirror request language; the
+  instruction text itself is always English — an invariant protocol surface);
+- any **other files** created in that folder go back to the sender as
+  attachments (capped at 25 MiB each);
+- **delete `message.json`** as the **very last step** — deleting it ends the
+  turn immediately (file-detect, FR-53), so anything written afterwards is no
+  longer collected; an agent that forgets to delete is still finished by the
+  output detector (§5.2).
+
+The collected reply routes back to the sender as the agent's own message
+(`<id>:reply`); with no `reply.md` the console-scrape/nudge chain (FR-47/45)
+applies as before. To **initiate** a send (not a reply), the agent drops a file
+into `<exchange>/outbox/`:
+
+```jsonc
+// <exchange>/outbox/anything.json
+{ "to": "writer", "payload": "текст", "files": ["report.pdf"] } // files optional, cwd-relative
+```
+
+The system picks it up (cadence `outboxPollMs`), validates the topology edge and
+file containment, and routes it as the folder's owner. A refused message comes
+back as `<name>.rejected.json` in the same folder with a logged reason.
+
+### 3.2 Optional acceleration: connecting an agent to the agent-plane MCP (§8.6, FR-44)
+
+The MCP client is **no longer required** for replies (before §13 an agent
+without one was receive-only). It remains useful for mid-turn
+reactions/progress, `get_status`, and tool-style sends. Connecting it is the
+**owner's deliberate action** — TEAMAI never touches agent configuration
+(FR-11b). Step by step:
+
+1. **Prerequisites.** `server.mcp` must not be `false` in `teamai.config.json`
+   (default `true`); know the agent's **topology name** (`agents[].name`) and
+   its workspace (`agents[].cwd` — the dir its CLI runs in) and `server.port`.
+2. **Register the shim** in the agent's own MCP-client config. A CLI agent's
+   native MCP client cannot declare the agent's topology name at `initialize`,
+   so use the shipped stdio-shim. For claude/openclaude — `.mcp.json` in the
+   agent's workspace (MERGE with existing `mcpServers`, don't clobber them; use
+   an absolute path to the shim):
+
+   ```jsonc
+   {
+     "mcpServers": {
+       "teamai": {
+         "command": "bun",
+         "args": ["/path/to/team-ai/packages/server/src/mcp/shim.ts"],
+         "env": {
+           "TEAMAI_AGENT_NAME": "researcher",            // agents[].name, EXACTLY
+           "TEAMAI_MCP_URL": "http://127.0.0.1:8080/mcp" // server.port
+         }
+       }
+     }
+   }
+   ```
+
+3. **Restart the agent** so its client picks the config up: `teamai restart
+   <name>` (CLI §4) or restart its CLI inside the tmux session by hand. A
+   mid-turn restart re-sends the in-flight message after the agent is back
+   (§10.9). (This is needed once, to load `.mcp.json` — NOT after every server
+   restart; see the durability note below.)
+4. **Verify.** The agent now sees the five §8.6 tools
+   (`whoami`/`list_peers`/`send`/`get_status`/`get_history`): in its session run `/mcp` (the
+   client's server list) or ask it to call `whoami` — the echo must be the
+   topology name. On the server side a rebind under an existing name logs
+   `identity … taken over` (FR-44b).
+
+**Durable across server restarts (FR-89).** The shim is a self-healing stdio
+interface: it connects to the agent-plane lazily and reconnects on any upstream
+failure, so a TEAMAI **server** restart (a deploy) no longer severs agents — you
+do NOT need to `teamai restart <name>` afterwards. The next tool call simply
+re-initializes (the old session 404s, the shim re-handshakes); during the blip
+`get_status`/`send` return a retryable `UPSTREAM_UNAVAILABLE`, and `tools/list`
+serves the last-known set. A shim started **before** the server warms up in the
+background and surfaces the tools (`tools/list_changed`) once the server appears.
+
+**Operational notes.** A crashed agent/shim does NOT lock its name: a new
+`initialize` under the same name takes the identity over (FR-44b); the same log
+line is your trace of a duplicate-name misconfiguration (two live agents
+claiming one name). The shim bypasses local `*_PROXY` interception itself
+(re-exec with a clean env).
+
+**Disconnecting** is the reverse: remove the `teamai` entry from the agent's
+`.mcp.json` (delete the file if it held nothing else) and restart the agent.
+The exchange path (§3.1) keeps working either way.
+
+## 4. Operator CLI (§7.4/§8.5)
+
+The CLI talks to the loopback HTTP-admin on `server.port` (`/admin`). It reads
+the port from the discovered config (`--config <path>` to point elsewhere) or
+takes `--url http://127.0.0.1:8080/admin` explicitly.
+
+```
+teamai agents                                  # list: name (session): status
+teamai provision|kill|restart <agent>          # lifecycle (§4)
+teamai channels                                # operator bindings + deliver status
+teamai signals send --from <node> --to <node> [--id <id>] [--reply-to <id>] <text…>
+teamai queues peek <participant>               # pending/ + cur/ records
+teamai queues cancel <participant> <id>        # remove from pending (cur is refused)
+teamai queues requeue <participant> <id>       # failed/ → pending tail, same id
+teamai routines list [<owner>]
+teamai routines get|delete|enable|disable|run-once <owner> <id>
+teamai routines put <owner> <id> <file.md>
+```
+
+Notes:
+
+- `kill` is the interrupt: it works mid-turn; the in-flight message stays in
+  `cur/` and is re-sent after `restart`/`provision` (at-least-once, §10.9).
+- `provision`/`restart` and queue mutations run **inside the session's own
+  loop** between turns — a mid-turn restart waits for the current turn.
+- `requeue` of an id already in the done/ window is an explicit no-op.
+- `signals send` requires `--from` to be an existing agent/operator (§8.7).
+
+## 5. Routines (§6)
+
+A routine is a Markdown file with YAML frontmatter; the body is the signal text
+sent to the agent:
+
+```markdown
+---
+id: nightly-report
+schedule: "0 9 * * *"     # cron, or the literal "once"
+at: "2026-07-01T09:00:00" # optional, for schedule: once
+tz: "Europe/Moscow"       # optional IANA zone (default UTC), DST-aware
+target: writer            # optional; default = the owning agent (self)
+enabled: true
+---
+Compile the nightly report.
+```
+
+Two locations, merged by id (§6.2):
+
+- **central** — `<config_dir>/routines/<agent>/*.md`, owned by the operator
+  (this is what the CLI CRUD edits);
+- **cwd** — `<agent.cwd>/.teamai/routines/*.md`, versioned with the agent's
+  repo.
+
+Central wins a collision — in particular a central `enabled: false` is the
+kill-switch for an agent-native routine. Missed ticks during server downtime
+are skipped, never replayed; a `once` routine survives restarts as "done".
+Edits take effect within one re-scan interval (default 30s). `run-once` fires
+immediately, ignores `enabled: false`, and does not touch the schedule state.
+
+## 6. Queues on disk (§5.3, NFR-9)
+
+Everything is inspectable under `<root>/<session>/`:
+
+```
+tmp/      in-progress writes        pending/  the queue (FIFO by filename)
+cur/      the ONE in-flight record  done/     archive = the dedup window
+failed/   render/inject errors (requeue-able)
+```
+
+`done/` and `failed/` are pruned by `retain.age`/`retain.count`; blobs under
+`<root>/blobs/` are garbage-collected once unreferenced and older than
+`retain.age`. Editing queue files by hand while the server runs is unsupported
+— use `teamai queues …`, which serializes through the owning dispatcher.
+
+## 7. Troubleshooting
+
+| Symptom | Likely cause / action |
+|---|---|
+| Agent shows `down` at boot | tmux session absent — `teamai provision <agent>` (needs a `provision` block) or start the session and `restart`. |
+| Agent stuck `busy` | The turn never finished (no per-message timeout in baseline) — `teamai kill <agent>` then `restart`; the in-flight message is re-sent. |
+| Operator gets no replies | `teamai channels` — `pending` means the connector has not registered its deliver port; for telegram the bot cannot initiate: write to it once first. |
+| Message sits in `pending/` | Recipient down or busy — queues drain on idle; `teamai queues peek` to confirm. |
+| "no topology edge" errors | Add the edge in `topology` and restart the server (config is read at boot). |
+| A routine never fires | `teamai routines get <owner> <id>` — check `enabled`, `tz`, and that the owner directory name is a configured agent. |
+
+## 8. Web panel (`webchat`, §12)
+
+A ChatGPT-style chat with any topology neighbor of the panel's operator: text,
+files, voice notes (microphone), photos/clips (camera); per-agent history with
+live status and message-lifecycle ticks. It runs on its **own port** and is
+meant to face the internet only through a TLS reverse-proxy.
+
+The topbar shows the instance label next to the logo and the browser tab reads
+`<name> - TeamAI`, where `<name>` is the optional top-level `name` (§2) or, when
+omitted, the server's hostname — handy for telling apart several panels.
+
+The **Settings** page has a build-info footer (FR-91): the server version, the
+deployed commit, and its date (the server runs from source, so "build time" is
+the HEAD commit's date). It is served behind auth, so it never leaks the version
+to unauthenticated visitors; a non-git deployment simply shows the version.
+
+### 8.1 Configuration (§12.2)
+
+```jsonc
+{
+  "type": "webchat",
+  "bindOperator": "operator-web",   // its topology edges = the visible agents (§10.2)
+  "port": 8091,                     // REQUIRED, ≠ server.port
+  "bind": "127.0.0.1",              // default; keep loopback, proxy from outside
+  "auth": { "password": { "$env": "TEAMAI_WEB_PASSWORD" } },  // REQUIRED, $env only
+  "upload": { "maxBytes": 26214400, "mime": ["image/*", "audio/*", "video/*",
+              "application/pdf", "text/*"] },                 // defaults shown
+  "history": { "retain": { "age": "90d", "count": 10000 } }   // defaults shown
+}
+```
+
+`defaultTarget` is rejected here — the recipient is always chosen in the UI.
+Chat history lives in `<config_dir>/webchat/history/<operator>/<agent>.jsonl`
+(append-only; survives restarts; pruned by `history.retain`; its blob
+references keep media alive past the queue's `done/` window).
+
+**Raw mode (§14, FR-88) — driving the terminal directly.** Toggle "Raw mode" on
+the Settings page (`#/settings`). While it is on, what you type is sent to the
+agent's terminal **as-is** (no protocol wrapping) and the **console snapshot**
+comes back as the reply, rendered monospace. Media is disabled in this mode. It
+goes through the normal queue (one turn at a time), so it never collides with a
+running turn. By default the panel stabilizes and captures the visible pane; to
+customize the capture (e.g. navigate a pager before snapping) set a key-DSL rule
+— the SAME grammar as slash-command `keys` (FR-80) — per type or per agent:
+
+```jsonc
+"types": { "claude": { "raw": { "keys": "capture" } } }   // default = stabilize + capture
+// "agents": [{ ..., "raw": { "keys": "C-b capture q" } }]  // per-agent override
+```
+
+Raw mode is direct terminal access for the (already trusted, loopback+auth)
+operator; it adds no new capability to agents (the flag is operator-side only).
+
+### 8.2 Building the UI
+
+The SPA ships as a workspace package and is served automatically once built:
+
+```
+cd packages/webchat-ui && bun install && bun run build   # → dist/, auto-served
+```
+
+Without a build the panel still answers its API (useful for scripting); the
+browser shell just 404s.
+
+### 8.3 Reverse-proxy reference (NGINX)
+
+```nginx
+server {
+  listen 443 ssl;
+  server_name team.example.com;
+  # ... ssl_certificate / ssl_certificate_key ...
+  client_max_body_size 25m;                  # ≥ upload.maxBytes
+
+  location / {
+    proxy_pass http://127.0.0.1:8091;        # the webchat port
+    proxy_set_header Host $host;
+    proxy_set_header X-Forwarded-Proto $scheme;   # turns on Secure cookies
+    proxy_set_header X-Forwarded-Host $host;
+    proxy_http_version 1.1;                  # WebSocket (§12.4)
+    proxy_set_header Upgrade $http_upgrade;
+    proxy_set_header Connection "upgrade";
+    proxy_read_timeout 300s;                 # keep the push feed open
+  }
+}
+```
+
+Checklist before exposing it:
+
+- `TEAMAI_WEB_PASSWORD` is long and unique — everyone holding it acts as the
+  same operator (one shared credential; per-user logins are OOS-14).
+- TLS terminates at the proxy; the panel itself stays on loopback.
+- Login is rate-limited app-side; add proxy-side request-rate caps for depth
+  (`limit_req`) — there is no per-message flood cap past login (OOS-5).
+- Sessions are durable with a TTL (FR-57): a server restart does NOT log
+  browsers out; a session lives `auth.session.ttl` (default `1d`, same duration
+  grammar as `retain.age`). The store under `<config_dir>/webchat/sessions/`
+  keeps only SHA-256 hashes of the tokens — delete the file to force a global
+  logout.
+
+Security posture, the trust boundary and the reporting process are documented in
+[SECURITY.md](../SECURITY.md); the invariants the test suite defends are listed
+in [CONTRIBUTING.md](../CONTRIBUTING.md).

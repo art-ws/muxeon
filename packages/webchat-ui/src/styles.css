@@ -1,0 +1,2071 @@
+/* TEAMAI panel (§12.7) — a compact chat layout. Two themes (FR-59): light is
+   the DEFAULT (:root), dark is the [data-theme="dark"] override set on <html>
+   by the topbar toggle; every color below goes through these variables. */
+
+:root {
+  --bg: #f4f6f9;
+  --bg-raised: #ffffff;
+  --bg-hover: #e9eef4;
+  --border: #d5dce4;
+  --text: #1d2430;
+  --text-dim: #5f6c7d;
+  --accent: #3372e0;
+  --mine: #d8e7ff;
+  --theirs: #e9edf2;
+  --idle: #1a7f37;
+  --busy: #b07d10;
+  --down: #8b95a3;
+  --failed: #d1242f;
+}
+
+:root[data-theme="dark"] {
+  --bg: #111418;
+  --bg-raised: #1a1f26;
+  --bg-hover: #232a33;
+  --border: #2c343f;
+  --text: #e6e9ee;
+  --text-dim: #8b95a3;
+  --accent: #4f8cff;
+  --mine: #2b4a78;
+  --theirs: #222933;
+  --idle: #3fb950;
+  --busy: #d29922;
+  --down: #6e7681;
+  --failed: #f85149;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+  font: 14px / 1.45 -apple-system, "Segoe UI", Roboto, sans-serif;
+  background: var(--bg);
+  color: var(--text);
+}
+
+/* --- app shell + topbar (FR-59) ---------------------------------------- */
+
+.app {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+.topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-shrink: 0;
+  padding: 8px 16px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-raised);
+}
+
+/* logo + configuration label (FR-90), grouped at the left of the topbar */
+.topbar-brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+/* the instance label (FR-90) next to the logo — truncates rather than crowds the bar */
+.brand-name {
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* the brand mark (transparent background, no plate) — rounded corners only
+   shape the hover glow (.brand-button:hover) on the dark theme */
+.brand-logo {
+  display: block;
+  height: 32px;
+  border-radius: 6px;
+}
+
+/* the logo doubles as the sidebar collapse toggle (FR-68) */
+.brand-button {
+  border: none;
+  background: none;
+  padding: 0;
+  cursor: pointer;
+  border-radius: 6px;
+}
+.brand-button:hover .brand-logo {
+  box-shadow: 0 0 0 2px var(--accent);
+}
+
+.login-logo {
+  display: block;
+  width: 96px;
+  align-self: center;
+  border-radius: 10px;
+  margin-bottom: 4px;
+}
+
+/* --- message filtering (T97, FR-71) ------------------------------------- */
+
+/* the GLOBAL search field — filters chats and the transport feed alike */
+.topbar-search {
+  position: relative;
+  flex: 1;
+  max-width: 420px;
+  margin: 0 16px;
+}
+
+.topbar-search input {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 7px 32px 7px 14px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--bg);
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+}
+
+.topbar-search input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.topbar-search input::-webkit-search-cancel-button {
+  display: none; /* the custom × button is the one clear control */
+}
+
+.search-clear {
+  position: absolute;
+  right: 6px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 22px;
+  height: 22px;
+  border: none;
+  border-radius: 50%;
+  background: none;
+  color: var(--text-dim);
+  font-size: 15px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.search-clear:hover {
+  background: var(--bg-hover);
+  color: var(--text);
+}
+
+/* the hidden-count strip: a filtered list must never pass for the full one */
+.filter-note {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  flex-shrink: 0;
+  padding: 5px 18px;
+  font-size: 12px;
+  color: var(--text-dim);
+  background: var(--bg-raised);
+  border-bottom: 1px solid var(--border);
+}
+
+.filter-note-icon {
+  display: inline-flex;
+  color: var(--accent);
+}
+
+/* the transport-own from/to multi-selects in its header toolbar */
+.transport-filters {
+  margin-left: auto;
+  display: flex;
+  gap: 8px;
+}
+
+.filter-anchor {
+  position: relative;
+  display: inline-flex;
+}
+
+.filter-button {
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--text-dim);
+  border-radius: 8px;
+  padding: 4px 10px;
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.filter-button:hover {
+  background: var(--bg-hover);
+}
+
+.filter-button.active {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.filter-caret {
+  font-size: 9px;
+}
+
+.filter-menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 5;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 160px;
+  max-height: 50vh;
+  overflow-y: auto;
+  padding: 6px;
+  background: var(--bg-raised);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  box-shadow: 0 8px 28px rgb(0 0 0 / 28%);
+}
+
+.filter-option {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border: none;
+  background: none;
+  color: var(--text);
+  text-align: left;
+  border-radius: 8px;
+  padding: 6px 10px;
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+  white-space: nowrap;
+  text-decoration: none; /* the export item is an <a> download link (FR-84) */
+}
+
+.filter-option:hover {
+  background: var(--bg-hover);
+}
+
+.filter-option.picked {
+  color: var(--accent);
+}
+
+.filter-check {
+  width: 14px;
+  flex-shrink: 0;
+  text-align: center;
+}
+
+/* the shared stroke icons (T112): inline alignment in text-flow containers
+   (flex containers align them by themselves) */
+.peer-name svg,
+.file-card svg,
+.tick svg,
+.filter-option svg,
+.msg-action svg {
+  vertical-align: -2px;
+}
+
+/* iOS-style switch: the settings-page rows (FR-62, FR-59, FR-76 — T110) */
+.switch {
+  position: relative;
+  width: 38px;
+  height: 22px;
+  flex-shrink: 0;
+  border: 1px solid var(--border);
+  border-radius: 11px;
+  background: var(--bg-hover);
+  cursor: pointer;
+  padding: 0;
+  transition: background 0.18s, border-color 0.18s;
+}
+
+.switch[aria-checked="true"] {
+  background: var(--idle);
+  border-color: var(--idle);
+}
+
+.switch-knob {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 1px 2px rgb(0 0 0 / 35%);
+  transition: left 0.18s;
+}
+
+.switch[aria-checked="true"] .switch-knob {
+  left: 18px;
+}
+
+/* --- the settings page (T110, FR-76) ----------------------------------- */
+
+.settings-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+/* build info (FR-91): a quiet line pinned to the bottom of the settings page */
+.settings-footer {
+  margin-top: auto;
+  padding-top: 8px;
+  text-align: center;
+  font-size: 12px;
+  color: var(--text-dim);
+  user-select: text;
+}
+
+.settings-section {
+  max-width: 520px;
+  width: 100%;
+  margin: 0 auto;
+  background: var(--bg-raised);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 6px 18px 14px;
+}
+
+.settings-section h2 {
+  font-size: 13px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-dim);
+  margin: 12px 0 4px;
+}
+
+.settings-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 10px 0;
+  border-top: 1px solid var(--border);
+}
+
+.settings-row:first-of-type {
+  border-top: none;
+}
+
+.settings-label {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 14px;
+}
+
+.settings-hint {
+  font-size: 12px;
+  color: var(--text-dim);
+}
+
+/* the language selector (T114, FR-78) — a plain themed select */
+.settings-select {
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--text);
+  border-radius: 8px;
+  padding: 6px 10px;
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+/* the visibility checklist — only when "show only selected" is ON */
+.agent-checklist {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 6px 0 2px;
+  border-top: 1px solid var(--border);
+}
+
+.agent-check {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 8px;
+  border-radius: 8px;
+  font-size: 14px;
+}
+
+.agent-check:hover {
+  background: var(--bg-hover);
+}
+
+/* the name pushes the per-agent switch to the right edge of the row */
+.agent-check-name {
+  flex: 1;
+}
+
+.agent-check .peer-avatar {
+  width: 24px;
+  height: 24px;
+  font-size: 12px;
+}
+
+/* --- login ------------------------------------------------------------ */
+
+.login-screen {
+  flex: 1;
+  display: grid;
+  place-items: center;
+}
+
+.login-card {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  width: 280px;
+  padding: 28px;
+  background: var(--bg-raised);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+}
+
+.login-card h1 {
+  margin: 0 0 4px;
+  font-size: 20px;
+  text-align: center;
+}
+
+.login-card input {
+  padding: 10px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--text);
+}
+
+.login-card button {
+  padding: 10px 16px;
+  border: none;
+  border-radius: 8px;
+  background: var(--accent);
+  color: #fff;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.login-card button:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.error {
+  color: var(--failed);
+  margin: 0;
+  font-size: 12px;
+}
+
+/* --- layout ----------------------------------------------------------- */
+
+.panel {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+}
+
+.peer-list {
+  width: 260px;
+  flex-shrink: 0;
+  border-right: 1px solid var(--border);
+  background: var(--bg-raised);
+  display: flex;
+  flex-direction: column;
+}
+
+/* the rows scroll inside their own container (T109): the account footer stays
+   pinned and its popup menu is not clipped by the scrollbar's overflow */
+.peer-scroll {
+  flex: 1;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+}
+
+.peer-empty {
+  color: var(--text-dim);
+  padding: 12px 16px;
+}
+
+.peer-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 10px 12px;
+  border: none;
+  background: none;
+  color: var(--text);
+  text-align: left;
+  cursor: pointer;
+}
+
+.peer-row:hover {
+  background: var(--bg-hover);
+}
+.peer-row.selected {
+  background: var(--bg-hover);
+  box-shadow: inset 3px 0 var(--accent);
+}
+
+.peer-info {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+.peer-name {
+  font-weight: 600;
+}
+.queue-depth {
+  color: var(--text-dim);
+  font-weight: 400;
+}
+
+.peer-preview {
+  color: var(--text-dim);
+  font-size: 12px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.unread-badge {
+  background: var(--accent);
+  color: #fff;
+  border-radius: 10px;
+  font-size: 11px;
+  font-weight: 700;
+  padding: 2px 7px;
+}
+
+.status-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  background: var(--down);
+}
+.status-dot.idle {
+  background: var(--idle);
+}
+.status-dot.busy {
+  background: var(--busy);
+  animation: pulse 1.2s infinite;
+}
+.status-dot.down {
+  background: var(--down);
+}
+
+@keyframes pulse {
+  50% {
+    opacity: 0.35;
+  }
+}
+
+/* Rendezvous markers (§8.2, FR-105): small red arrows before an agent name — ↑ when
+   it is waiting to reach a peer ("я жду"), ↓ when a peer is waiting for it ("меня
+   ждут"). Sit after the status dot, before the name. */
+.rz-arrows {
+  display: inline-flex;
+  align-items: center;
+  gap: 1px;
+  flex-shrink: 0;
+  line-height: 1;
+}
+.rz-arrow {
+  color: var(--failed);
+  font-size: 11px;
+  font-weight: 700;
+}
+/* An agent whose queue has reached its WIP cap (FR-104): red name, both places. */
+.peer-name.at-wip,
+.chat-header strong.at-wip {
+  color: var(--failed);
+}
+
+/* --- collapsed sidebar: the icon rail (FR-68) -------------------------- */
+
+.peer-list.collapsed {
+  width: 64px;
+}
+
+.peer-list.collapsed .peer-row {
+  position: relative; /* anchors the unread badge to the button corner */
+  justify-content: center;
+  padding: 8px 0;
+}
+
+.peer-avatar {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  background: var(--bg-hover);
+  border: 1px solid var(--border);
+  font-weight: 700;
+}
+
+/* the live status dot rides the avatar's corner on the rail */
+.peer-avatar .status-dot {
+  position: absolute;
+  right: -1px;
+  bottom: -1px;
+  border: 2px solid var(--bg-raised);
+  width: 11px;
+  height: 11px;
+}
+
+.peer-list.collapsed .unread-badge {
+  position: absolute;
+  top: 2px;
+  right: 6px;
+}
+
+/* --- broadcast tree: groups & tags (§15, FR-106/FR-107) ---------------- */
+
+/* the tree indent: each nesting level shifts the row's left padding; groups and
+   agent leaves share the same --tree-depth so their glyphs line up per level */
+.peer-row.group-row,
+.peer-row.peer-accent,
+.peer-row.tag-row {
+  padding-left: calc(12px + var(--tree-depth, 0) * 16px);
+}
+/* the accent edge keeps its 3px, so an indented agent loses 3px of that padding */
+.peer-row.peer-accent {
+  padding-left: calc(9px + var(--tree-depth, 0) * 16px);
+}
+
+/* a group header row: the chevron + a folder icon + the name — no status dot,
+   no unread, no queue (a group is an input-only broadcast target) */
+.peer-row.group-row {
+  gap: 6px;
+}
+.peer-row.group-row.selected {
+  background: var(--bg-hover);
+  box-shadow: inset 3px 0 var(--accent);
+}
+
+/* the disclosure chevron: a right caret that rotates down when the row is open */
+.group-chevron {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  padding: 2px;
+  border: none;
+  background: none;
+  color: var(--text-dim);
+  cursor: pointer;
+  border-radius: 4px;
+  transition: transform 0.12s ease;
+}
+.group-chevron:hover {
+  background: var(--bg-hover);
+  color: var(--text);
+}
+.group-chevron.open {
+  transform: rotate(90deg);
+}
+
+/* the group label (the clickable name opens the broadcast chat) */
+.group-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+  min-width: 0;
+  cursor: pointer;
+  color: var(--text-dim);
+}
+.group-label:hover {
+  color: var(--text);
+}
+.peer-name.group-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* the collapsed-rail group glyph wears a neutral square-ish folder look */
+.peer-avatar.group-avatar,
+.peer-avatar.tag-avatar {
+  color: var(--text-dim);
+}
+
+/* a collapsible section header ("Tags") over the flat tag rows */
+.peer-section-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 8px 12px 4px;
+  border: none;
+  background: none;
+  color: var(--text-dim);
+  text-transform: uppercase;
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  cursor: pointer;
+}
+.peer-section-header:hover .peer-section-title {
+  color: var(--text);
+}
+.peer-section-title {
+  font-weight: 700;
+}
+
+/* a tag row: the tag glyph + name + a member-names subtitle — no status/unread */
+.peer-row.tag-row .tag-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  color: var(--text-dim);
+}
+.peer-row.tag-row.selected {
+  background: var(--bg-hover);
+  box-shadow: inset 3px 0 var(--accent);
+}
+
+/* the collapsed rail separates the tags from the tree with a hairline */
+.rail-divider {
+  align-self: center;
+  width: 24px;
+  height: 1px;
+  margin: 4px 0;
+  background: var(--border);
+}
+
+/* the group/tag broadcast chat header (§15): an icon + name + a "broadcast →"
+   subheader — no status dot, no token meter, no lifecycle kebab */
+.broadcast-icon {
+  display: inline-flex;
+  align-items: center;
+  color: var(--text-dim);
+}
+.chat-status.broadcast-target {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+/* the operator's account row (FR-68, T109) — pinned to the sidebar bottom,
+   opens the account menu; Sign out lives inside as a separate item */
+.operator-anchor {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+}
+.operator-anchor .operator-entry {
+  width: 100%;
+  border-top: 1px solid var(--border);
+}
+.operator-menu {
+  position: absolute;
+  bottom: calc(100% + 6px);
+  left: 8px;
+  z-index: 5;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 160px;
+  padding: 6px;
+  background: var(--bg-raised);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  box-shadow: 0 8px 28px rgb(0 0 0 / 28%);
+}
+.filter-option.danger:hover {
+  color: var(--failed);
+}
+
+/* --- agent colors (T99, FR-73) ----------------------------------------- */
+
+/* the collapsed-rail avatar wears the agent's accent as its circle */
+.peer-avatar.tinted {
+  color: #fff;
+  border-color: transparent;
+}
+
+/* expanded rows: a thin colored left edge — present but unobtrusive */
+.peer-row.peer-accent {
+  border-left: 3px solid var(--peer-color);
+  padding-left: 9px; /* 12px visual padding preserved next to the 3px edge */
+}
+.peer-row.peer-accent.selected {
+  background: color-mix(in srgb, var(--peer-color) 12%, var(--bg));
+  box-shadow: inset 3px 0 var(--peer-color); /* widens the edge, same hue */
+}
+
+/* the open chat is washed with the agent's accent: a soft DIAGONAL gradient,
+   top-left corner → bottom-right (T100) */
+.chat-pane.tinted {
+  background: linear-gradient(
+    135deg,
+    color-mix(in srgb, var(--agent-color) 14%, var(--bg)) 0%,
+    color-mix(in srgb, var(--agent-color) 5%, var(--bg)) 45%,
+    var(--bg) 100%
+  );
+}
+
+/* the header and the composer sit on the wash with a matching tint */
+.chat-pane.tinted .chat-header,
+.chat-pane.tinted .composer {
+  background: color-mix(in srgb, var(--agent-color) 9%, var(--bg-raised));
+}
+
+/* thinking (busy): BREATHING (T101) — the moving-gradient loops had a visible
+   restart seam (the toolbar "jerk"). Instead, a fixed deeper-tint overlay
+   FADES in and out (opacity has no positional seam — guaranteed smooth, and
+   the browser composites it on the GPU). Both panes inhale in sync: the pane's
+   diagonal deepens, the toolbar swells around its center — slow water-like
+   surge. The overlays sit ABOVE the background but UNDER the content
+   (isolation + negative z-index), so text and bubbles stay untouched. */
+.chat-pane.tinted.thinking,
+.chat-pane.tinted.thinking .chat-header {
+  position: relative;
+  isolation: isolate;
+}
+
+.chat-pane.tinted.thinking::before,
+.chat-pane.tinted.thinking .chat-header::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  opacity: 0;
+  animation: agent-breathe 6s ease-in-out infinite;
+}
+
+/* the pane inhales along the same diagonal as the base wash */
+.chat-pane.tinted.thinking::before {
+  background: linear-gradient(
+    135deg,
+    color-mix(in srgb, var(--agent-color) 16%, transparent),
+    transparent 50%,
+    color-mix(in srgb, var(--agent-color) 9%, transparent)
+  );
+}
+
+/* the toolbar swells around its center with the same tint */
+.chat-pane.tinted.thinking .chat-header::before {
+  background: linear-gradient(
+    90deg,
+    transparent,
+    color-mix(in srgb, var(--agent-color) 22%, transparent),
+    transparent
+  );
+}
+
+@keyframes agent-breathe {
+  0%,
+  100% {
+    opacity: 0;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .chat-pane.tinted.thinking::before,
+  .chat-pane.tinted.thinking .chat-header::before {
+    animation: none;
+  }
+}
+
+/* --- chat ------------------------------------------------------------- */
+
+.chat-pane {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.chat-pane.empty {
+  display: grid;
+  place-items: center;
+  color: var(--text-dim);
+}
+
+.chat-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 18px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-raised);
+  /* the header is a LAYER above the feed (T116): its popovers (kebab, the
+     transport From/To filters) must not sink under positioned bubbles — the
+     T101 isolation otherwise locks their z-index inside the header's context */
+  position: relative;
+  z-index: 6;
+}
+
+.chat-status {
+  color: var(--text-dim);
+  font-size: 12px;
+  /* the histogram (flex:1) must never squeeze the status onto a second line */
+  white-space: nowrap;
+  flex: 0 0 auto;
+}
+
+/* the per-second "thinking…" timer (FR-63) */
+.busy-timer {
+  font-variant-numeric: tabular-nums;
+  color: var(--busy);
+}
+
+/* token meter (§12.8, FR-103): a full-width bar histogram that eats the free
+   header span, then the health orb + token count pinned to the right edge. */
+.token-meter {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+/* the histogram fills ALL free horizontal space; bars fill the height, no padding */
+.token-hist {
+  flex: 1 1 auto;
+  min-width: 0;
+  height: 22px;
+  line-height: 0;
+}
+.token-hist svg {
+  display: block;
+}
+
+/* orb + count: a horizontal pair, vertically centred, pinned right (last in row) */
+.token-orb-wrap {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* the mental-health orb: colour set inline (green→yellow→red), a slow calm pulse */
+.token-orb {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  display: block;
+  flex: 0 0 auto;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .token-orb {
+    animation: token-orb-pulse 5s ease-in-out infinite;
+  }
+}
+@keyframes token-orb-pulse {
+  0%,
+  100% {
+    transform: scale(1);
+    opacity: 1;
+  }
+  50% {
+    transform: scale(0.86);
+    opacity: 0.7;
+  }
+}
+
+.token-orb-label {
+  font-size: 11px;
+  color: var(--text-dim);
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+/* the chat-header actions menu (FR-65, T113): one kebab button, items inside */
+.chat-actions {
+  margin-left: auto;
+}
+
+.kebab-button {
+  border: none;
+  background: none;
+  color: var(--text-dim);
+  border-radius: 8px;
+  padding: 4px 6px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+}
+
+.kebab-button:hover,
+.kebab-button[aria-expanded="true"] {
+  color: var(--text);
+  background: var(--bg-hover);
+}
+
+/* the armed ("Sure?") state of a lifecycle menu item */
+.filter-option.armed {
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.filter-option.danger.armed {
+  color: var(--failed);
+}
+
+.filter-option:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+.feed {
+  flex: 1;
+  overflow-y: auto;
+  padding: 16px 18px;
+}
+
+/* the scrollable content wrapper (T106) — the ResizeObserver pin target;
+   carries the column layout the .feed itself used to have */
+.feed-content {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+/* deep-linked message flash (T107, FR-75) — an accent ring fading out */
+.bubble.anchored {
+  animation: anchor-flash 2.4s ease-out;
+}
+
+@keyframes anchor-flash {
+  0%,
+  40% {
+    box-shadow: 0 0 0 3px var(--accent);
+  }
+  100% {
+    box-shadow: 0 0 0 3px transparent;
+  }
+}
+
+.load-older {
+  align-self: center;
+  background: var(--bg-raised);
+  color: var(--text-dim);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 4px 14px;
+  cursor: pointer;
+  font-size: 12px;
+}
+
+.bubble-row {
+  display: flex;
+}
+.bubble-row.mine {
+  justify-content: flex-end;
+}
+
+.bubble {
+  position: relative;
+  max-width: 70%;
+  padding: 8px 12px;
+  border-radius: 12px;
+  background: var(--theirs);
+  word-break: break-word;
+}
+
+.bubble-row.mine .bubble {
+  background: var(--mine);
+}
+
+/* --- message body: markdown view + raw source (FR-61) ------------------ */
+
+.markdown > :first-child {
+  margin-top: 0;
+}
+.markdown > :last-child {
+  margin-bottom: 0;
+}
+
+.markdown p {
+  margin: 0 0 6px;
+}
+
+.markdown h1,
+.markdown h2,
+.markdown h3,
+.markdown h4,
+.markdown h5,
+.markdown h6 {
+  margin: 8px 0 6px;
+  line-height: 1.25;
+}
+.markdown h1 {
+  font-size: 17px;
+}
+.markdown h2 {
+  font-size: 16px;
+}
+.markdown h3,
+.markdown h4,
+.markdown h5,
+.markdown h6 {
+  font-size: 15px;
+}
+
+.markdown ul,
+.markdown ol {
+  margin: 0 0 6px;
+  padding-left: 22px;
+}
+
+.markdown blockquote {
+  margin: 0 0 6px;
+  padding: 2px 0 2px 10px;
+  border-left: 3px solid var(--border);
+  color: var(--text-dim);
+}
+
+.markdown hr {
+  border: none;
+  border-top: 1px solid var(--border);
+  margin: 8px 0;
+}
+
+.markdown a {
+  color: var(--accent);
+}
+
+.markdown code,
+.msg-source {
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 12.5px;
+}
+
+.markdown code {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 0 4px;
+}
+
+.markdown pre.code-block {
+  margin: 0 0 6px;
+  padding: 8px 10px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow-x: auto;
+}
+
+.markdown pre.code-block code {
+  border: none;
+  background: none;
+  padding: 0;
+  white-space: pre;
+}
+
+/* GFM tables (FR-98) */
+.markdown .md-table {
+  border-collapse: collapse;
+  margin: 0 0 6px;
+  display: block;
+  width: max-content;
+  max-width: 100%;
+  overflow-x: auto;
+  font-size: 0.95em;
+}
+
+.markdown .md-table th,
+.markdown .md-table td {
+  border: 1px solid var(--border);
+  padding: 4px 8px;
+  text-align: left;
+}
+
+.markdown .md-table th {
+  background: var(--bg);
+  font-weight: 600;
+}
+
+.markdown .md-table tr:nth-child(even) td {
+  background: color-mix(in srgb, var(--bg) 45%, transparent);
+}
+
+/* LaTeX via KaTeX (FR-99): block math scrolls horizontally rather than overflow */
+.markdown .katex-block {
+  display: block;
+  overflow-x: auto;
+  overflow-y: hidden;
+  margin: 0 0 6px;
+  padding: 2px 0;
+}
+
+.markdown .katex-inline {
+  overflow-x: auto;
+}
+
+/* Mermaid diagrams (FR-100): center the rendered SVG; the pending/error fallback
+   reuses the code-block look, with a subtle hint while the diagram loads */
+.markdown .mermaid-block {
+  margin: 0 0 6px;
+  overflow-x: auto;
+  text-align: center;
+}
+
+.markdown .mermaid-block svg {
+  max-width: 100%;
+  height: auto;
+}
+
+.markdown pre.mermaid-pending {
+  opacity: 0.7;
+}
+
+.msg-source {
+  margin: 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+/* hover actions: copy + source toggle (FR-61) — chat bubbles AND transport rows */
+.msg-actions {
+  position: absolute;
+  top: -10px;
+  right: 8px;
+  display: flex;
+  gap: 4px;
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+
+.bubble:hover .msg-actions,
+.transport-row:hover .msg-actions,
+.msg-actions:focus-within {
+  opacity: 1;
+}
+
+.msg-action {
+  border: 1px solid var(--border);
+  background: var(--bg-raised);
+  color: var(--text-dim);
+  border-radius: 6px;
+  padding: 1px 7px;
+  font-size: 11px;
+  line-height: 1.5;
+  cursor: pointer;
+}
+
+.msg-action:hover {
+  color: var(--text);
+  background: var(--bg-hover);
+}
+
+.msg-action.active {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+
+.bubble-meta {
+  display: block;
+  margin-top: 4px;
+  font-size: 10px;
+  color: var(--text-dim);
+  text-align: right;
+}
+
+.tick.done {
+  color: var(--idle);
+}
+.tick.failed {
+  color: var(--failed);
+}
+
+.media {
+  max-width: 100%;
+  border-radius: 8px;
+  margin-top: 6px;
+  display: block;
+}
+
+.file-card {
+  display: inline-block;
+  margin-top: 6px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--text);
+  text-decoration: none;
+  background: var(--bg-raised);
+}
+
+.file-size {
+  color: var(--text-dim);
+  font-size: 12px;
+}
+
+/* --- composer ----------------------------------------------------------- */
+
+.composer {
+  display: flex;
+  gap: 10px;
+  align-items: flex-end;
+  flex-wrap: wrap;
+  padding: 12px 18px;
+  border-top: 1px solid var(--border);
+  background: var(--bg-raised);
+}
+
+/* the "+" menu (T94, FR-70): one anchor, an upward panel, a slash SUBMENU */
+.plus-anchor,
+.submenu-anchor {
+  position: relative;
+  display: inline-flex;
+}
+
+.menu-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 4; /* click-away closes the menu */
+}
+
+.composer-menu {
+  position: absolute;
+  bottom: calc(100% + 10px);
+  left: 0;
+  z-index: 5;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 200px;
+  padding: 6px;
+  background: var(--bg-raised);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  box-shadow: 0 8px 28px rgb(0 0 0 / 28%);
+}
+
+/* the slash submenu (FR-66) opens to the right of its parent row */
+.composer-menu.submenu {
+  bottom: -6px;
+  left: calc(100% + 6px);
+  min-width: 150px;
+}
+
+.menu-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  border: none;
+  background: none;
+  color: var(--text);
+  text-align: left;
+  border-radius: 10px;
+  padding: 8px 12px;
+  font: inherit;
+  font-size: 13.5px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.menu-item:hover,
+.menu-item.active {
+  background: var(--bg-hover);
+}
+
+.menu-item:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+.menu-icon {
+  width: 20px;
+  text-align: center;
+  flex-shrink: 0;
+}
+
+.submenu-anchor .menu-item {
+  width: 100%;
+}
+
+.submenu-arrow {
+  margin-left: auto;
+  color: var(--text-dim);
+}
+
+.menu-separator {
+  height: 1px;
+  margin: 4px 8px;
+  background: var(--border);
+}
+
+.command-output {
+  width: 100%;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--bg);
+  overflow: hidden;
+}
+
+.command-output-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 4px 10px;
+  border-bottom: 1px solid var(--border);
+  color: var(--text-dim);
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 12px;
+}
+
+.command-output pre {
+  margin: 0;
+  padding: 8px 10px;
+  max-height: 320px;
+  overflow: auto;
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 12px;
+  line-height: 1.4;
+  white-space: pre; /* as-is: no wrapping, no formatting (FR-66) */
+}
+
+/* the raw-mode note under the composer (FR-88, §14.3) */
+.composer-note {
+  margin: 6px 12px 0;
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--text-dim);
+}
+
+/* raw bubble: the captured console / verbatim command rendered as-is (§14.3) */
+.bubble .raw-output {
+  margin: 0;
+  max-width: 100%;
+  overflow-x: auto;
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 12px;
+  line-height: 1.4;
+  white-space: pre; /* as-is: no wrapping, no markdown (§14.3) */
+}
+
+/* borderless inside the pill — the shell carries the visual frame (T94) */
+/* scope to the pill's own input: the expand/screen-live overlays are DOM
+   children of .composer too, and the leaky `.composer textarea` used to cap
+   the full-screen editor at 50vh + force a resize handle over .expand-textarea */
+.composer-shell textarea {
+  flex: 1;
+  min-width: 200px;
+  /* manual vertical resize is part of the persisted state (FR-69) */
+  resize: vertical;
+  min-height: 38px;
+  max-height: 50vh;
+  padding: 8px 4px;
+  border: none;
+  outline: none;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+}
+
+/* --- attachments + capture (T50, §12.5) -------------------------------- */
+
+/* the pill shell (T94, FR-70): one rounded container for + / text / mic / ↑ */
+.composer-shell {
+  display: flex;
+  gap: 6px;
+  align-items: flex-end;
+  width: 100%;
+  padding: 6px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 26px;
+}
+
+.composer-shell:focus-within {
+  border-color: var(--accent);
+}
+
+.plus-button,
+.send-button {
+  width: 38px;
+  height: 38px;
+  flex-shrink: 0;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  font-size: 19px;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0;
+}
+
+.plus-button {
+  border: none;
+  background: transparent;
+  color: var(--text);
+  transition: transform 0.15s ease, background 0.15s ease;
+}
+
+.plus-button:hover {
+  background: var(--bg-hover);
+}
+
+.plus-button.open {
+  transform: rotate(45deg); /* + becomes × while the menu is up */
+  background: var(--bg-hover);
+}
+
+/* the Gemini-style send (T102): a SOFT accent circle with a stroke arrow —
+   the solid fill read heavier than its ghost siblings (+ / mic) */
+.send-button {
+  border: none;
+  background: color-mix(in srgb, var(--accent) 28%, var(--bg-raised));
+  color: var(--text);
+  transition: background 0.15s ease;
+}
+
+.send-button:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--accent) 42%, var(--bg-raised));
+}
+
+.send-button:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  width: 100%;
+}
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 12px;
+  background: var(--bg-hover);
+  border: 1px solid var(--border);
+  border-radius: 999px; /* pill chips match the shell (T94) */
+  font-size: 12px;
+}
+
+.chip-remove {
+  border: none;
+  background: none;
+  color: var(--text-dim);
+  cursor: pointer;
+  font-size: 14px;
+  padding: 0;
+}
+
+/* image attachments preview as thumbnails (T96) */
+.chip.chip-image {
+  position: relative;
+  padding: 0;
+  border-radius: 12px;
+}
+
+.chip-thumb {
+  display: block;
+  height: 56px;
+  max-width: 140px;
+  object-fit: cover;
+  border-radius: 12px;
+}
+
+.chip-remove-overlay {
+  position: absolute;
+  top: -6px;
+  right: -6px;
+  width: 18px;
+  height: 18px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: var(--bg-raised);
+  border: 1px solid var(--border);
+  color: var(--text);
+  font-size: 12px;
+  line-height: 1;
+  box-shadow: 0 1px 4px rgb(0 0 0 / 20%);
+}
+
+/* ghost round icon (the mic) — frameless inside the pill (T94) */
+.icon-button {
+  width: 38px;
+  height: 38px;
+  flex-shrink: 0;
+  display: grid;
+  place-items: center;
+  border: none;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--text);
+  padding: 0;
+  cursor: pointer;
+  font-size: 16px;
+}
+
+.icon-button:hover {
+  background: var(--bg-hover);
+}
+
+.icon-button.recording {
+  background: var(--failed);
+  color: #fff;
+  animation: pulse 1.2s infinite;
+}
+
+.camera-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgb(0 0 0 / 60%);
+  display: grid;
+  place-items: center;
+  z-index: 10;
+}
+
+dialog.camera-dialog {
+  border: none;
+  color: var(--text);
+  background: var(--bg-raised);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  max-width: min(640px, 90vw);
+}
+
+.camera-preview {
+  width: 100%;
+  border-radius: 8px;
+  background: #000;
+}
+
+.camera-controls {
+  display: flex;
+  gap: 10px;
+  justify-content: center;
+}
+
+.camera-controls button {
+  padding: 8px 14px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--text);
+  cursor: pointer;
+}
+
+/* Full-screen composer editor (FR-70): a popup for editing a long message —
+   the same draft text, more room to see it. */
+.expand-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+  display: grid;
+  place-items: center;
+  padding: 3vh 3vw;
+}
+
+.expand-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgb(0 0 0 / 55%);
+}
+
+dialog.expand-dialog {
+  position: relative;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 0;
+  margin: 0;
+  overflow: hidden;
+  color: var(--text);
+  background: var(--bg-raised);
+  box-shadow: 0 12px 40px rgb(0 0 0 / 35%);
+  display: flex;
+  flex-direction: column;
+  width: min(1000px, 94vw);
+  height: min(88vh, 94vh);
+  max-width: 94vw;
+  max-height: 94vh;
+}
+
+.expand-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-shrink: 0;
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--border);
+}
+
+.expand-title {
+  font-weight: 600;
+  font-size: 14px;
+}
+
+/* the input fills the whole panel below the header (no footer, no chrome) */
+.expand-textarea {
+  flex: 1;
+  min-height: 0;
+  width: 100%;
+  resize: none;
+  box-sizing: border-box;
+  padding: 14px 16px;
+  border: none;
+  border-radius: 0;
+  background: var(--bg);
+  color: var(--text);
+  font: inherit;
+  font-size: 15px;
+  line-height: 1.5;
+}
+
+.expand-textarea:focus {
+  outline: none;
+}
+
+/* Screen Live (FR-102): the polled console capture fills the panel as-is. */
+.screen-live-note {
+  font-weight: 400;
+  font-size: 12px;
+  color: var(--text-dim);
+}
+
+.screen-live-pane {
+  flex: 1;
+  min-height: 0;
+  margin: 0;
+  width: 100%;
+  box-sizing: border-box;
+  padding: 14px 16px;
+  overflow: auto;
+  background: var(--bg);
+  color: var(--text);
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 13px;
+  line-height: 1.4;
+  white-space: pre; /* as-is: no wrapping, no markdown */
+}
+
+.screen-live-error {
+  flex-shrink: 0;
+  margin: 0;
+  padding: 6px 16px;
+  border-top: 1px solid var(--border);
+}
+
+/* Transport observability view (FR-48, §12.4) — read-only routed-message feed */
+.transport-entry {
+  border-bottom: 1px solid var(--border);
+}
+
+.transport-feed .feed-content {
+  gap: 2px;
+}
+
+.transport-row {
+  position: relative; /* hosts the msg-actions overlay (FR-61) */
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 4px 8px;
+  border-radius: 6px;
+  font-size: 13px;
+  background: var(--bg-raised);
+}
+
+.transport-row .msg-actions {
+  top: 3px;
+  right: 6px;
+}
+
+.transport-time {
+  color: var(--text-dim);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.transport-route {
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.transport-badge {
+  padding: 0 6px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  color: var(--text-dim);
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.transport-text {
+  color: var(--text);
+  overflow-wrap: anywhere;
+  min-width: 0;
+}
+
+/* the log stays dense — markdown blocks lose their chat margins here */
+.transport-text .markdown p,
+.transport-text .markdown ul,
+.transport-text .markdown ol,
+.transport-text .markdown blockquote,
+.transport-text .markdown pre.code-block,
+.transport-text .markdown .md-table {
+  margin: 0 0 2px;
+}
+
+.transport-empty {
+  color: var(--text-dim);
+  text-align: center;
+  margin-top: 24px;
+}
+
+/* --- command-fanout: slash command → selection (§15.8, FR-115) ----------- */
+
+/* the launcher above the broadcast composer */
+.broadcast-actions {
+  display: flex;
+  justify-content: flex-end;
+  padding: 6px 16px 0;
+}
+.cmdfan-launch {
+  font-size: 13px;
+  padding: 5px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-raised);
+  color: var(--text);
+  cursor: pointer;
+}
+.cmdfan-launch:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+dialog.cmdfan-dialog {
+  width: min(560px, 92vw);
+  max-height: 88vh;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--bg-raised);
+  color: var(--text);
+  box-shadow: 0 12px 40px rgb(0 0 0 / 35%);
+}
+dialog.cmdfan-dialog::backdrop {
+  background: rgb(0 0 0 / 45%);
+}
+.cmdfan-panel {
+  overflow: auto;
+  max-height: 88vh;
+  padding: 16px 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.cmdfan-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.cmdfan-close {
+  border: none;
+  background: none;
+  font-size: 22px;
+  line-height: 1;
+  color: var(--text-dim);
+  cursor: pointer;
+}
+.cmdfan-close:hover {
+  color: var(--text);
+}
+.cmdfan-row {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.cmdfan-label {
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: var(--text-dim);
+}
+.cmdfan-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+}
+.cmdfan-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 8px;
+  border-radius: 999px;
+  font-size: 13px;
+  background: var(--bg-hover);
+  border: 1px solid var(--border);
+}
+.cmdfan-chip-group {
+  border-color: var(--accent);
+}
+.cmdfan-chip-tag {
+  border-style: dashed;
+}
+.cmdfan-chip button {
+  border: none;
+  background: none;
+  color: var(--text-dim);
+  cursor: pointer;
+  font-size: 15px;
+  line-height: 1;
+  padding: 0;
+}
+.cmdfan-chip button:hover {
+  color: var(--text);
+}
+.cmdfan-add,
+.cmdfan-cmd input {
+  background: var(--bg);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 5px 8px;
+  font: inherit;
+}
+.cmdfan-cmd {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.cmdfan-slash {
+  color: var(--text-dim);
+  font-family: ui-monospace, monospace;
+}
+.cmdfan-cmd input {
+  flex: 1;
+  font-family: ui-monospace, monospace;
+}
+.cmdfan-recipients {
+  border-top: 1px solid var(--border);
+  padding-top: 10px;
+}
+.cmdfan-count {
+  font-size: 13px;
+  color: var(--text-dim);
+}
+.cmdfan-recipients ul {
+  margin: 6px 0 0;
+  padding-left: 18px;
+  font-size: 13px;
+  max-height: 22vh;
+  overflow: auto;
+}
+.cmdfan-denied {
+  color: var(--text-dim);
+  text-decoration: line-through;
+}
+.cmdfan-warn {
+  color: #c98a1b;
+  font-size: 13px;
+}
+.cmdfan-error {
+  color: #e06c6c;
+  font-size: 13px;
+  border: 1px solid #e06c6c;
+  border-radius: 8px;
+  padding: 6px 8px;
+}
+.cmdfan-results {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  border-top: 1px solid var(--border);
+  padding-top: 10px;
+}
+.cmdfan-results summary {
+  cursor: pointer;
+  font-size: 13px;
+}
+.cmdfan-ok > summary {
+  color: #4bbf73;
+}
+.cmdfan-fail > summary {
+  color: #e06c6c;
+}
+.cmdfan-results pre {
+  margin: 4px 0 8px;
+  padding: 8px;
+  background: var(--bg);
+  border-radius: 8px;
+  font-size: 12px;
+  white-space: pre-wrap;
+  overflow-x: auto;
+}
+.cmdfan-foot {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  justify-content: flex-end;
+  border-top: 1px solid var(--border);
+  padding-top: 12px;
+}
+.cmdfan-confirm {
+  margin-right: auto;
+  font-size: 13px;
+  color: var(--text-dim);
+}
+.cmdfan-run {
+  padding: 6px 16px;
+  border: none;
+  border-radius: 8px;
+  background: var(--accent);
+  color: #fff;
+  cursor: pointer;
+  font: inherit;
+}
+.cmdfan-run:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.cmdfan-foot button:not(.cmdfan-run) {
+  padding: 6px 14px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-raised);
+  color: var(--text);
+  cursor: pointer;
+  font: inherit;
+}

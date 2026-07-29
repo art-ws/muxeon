@@ -1,0 +1,168 @@
+import { describe, expect, test } from "bun:test";
+import type { Message } from "@teamai/core";
+import { defaultRender, makeDefaultRender, renderAttribution, renderRaw } from "../src/contract";
+
+function msg(overrides: Partial<Message> = {}): Message {
+  return {
+    id: "abc-123",
+    from: "researcher",
+    to: "writer",
+    kind: "message",
+    ts: 0,
+    payload: "hello",
+    ...overrides,
+  };
+}
+
+describe("default render / attribution (§8.3, FR-6)", () => {
+  test("attribution carries from + id so the agent can reply", () => {
+    expect(renderAttribution(msg())).toBe("[teamai] from=researcher id=abc-123");
+  });
+
+  test("attribution includes replyTo when present", () => {
+    expect(renderAttribution(msg({ replyTo: "xyz" }))).toBe(
+      "[teamai] from=researcher id=abc-123 replyTo=xyz",
+    );
+  });
+
+  test("defaultRender is attribution + reply hint + payload (T57)", () => {
+    const text = defaultRender(msg({ payload: "do the thing" }));
+    expect(text).toContain("[teamai] from=researcher id=abc-123");
+    expect(text).toContain("do the thing");
+    expect(text).toMatch(/from=researcher/);
+    // The reply hint names the EXACT call — live finding: bare attribution is
+    // not enough, the model answers in the terminal and never calls the tool.
+    expect(text).toContain('send(to="researcher", replyTo="abc-123")');
+    expect(text).toContain("plain-text payload");
+  });
+
+  test("payload rendering: string, {text}, and JSON fallback", () => {
+    expect(defaultRender(msg({ payload: "raw" }))).toContain("raw");
+    expect(defaultRender(msg({ payload: { text: "nested" } }))).toContain("nested");
+    expect(defaultRender(msg({ payload: { n: 1 } }))).toContain('{"n":1}');
+  });
+});
+
+describe("renderRaw (FR-88, §14.1)", () => {
+  test("the payload text reaches the terminal VERBATIM — no preamble/hint", () => {
+    const text = renderRaw(msg({ payload: "ls -la", raw: true }));
+    expect(text).toBe("ls -la");
+    expect(text).not.toContain("[teamai]"); // no attribution (§14.1)
+    expect(text).not.toContain("send("); // no reply hint
+  });
+
+  test("an object payload degrades to its text part (attachments dropped)", () => {
+    expect(renderRaw(msg({ payload: { text: "echo hi", blobs: [{ blob: "x" }] } }))).toBe(
+      "echo hi",
+    );
+    // a blobs-only payload has no text to inject → empty (raw mode has no media)
+    expect(renderRaw(msg({ payload: { blobs: [{ blob: "x" }] } }))).toBe("");
+  });
+});
+
+// --- T70 (FR-52, §13.2): the hybrid file-contract instruction ------------------
+
+describe("exchange render (FR-52, §13.2)", () => {
+  const FILE = "/work/.teamai/inbox/abc-123/message.json";
+
+  test("short payload: inlined text + the file contract LAST (T57)", () => {
+    const text = defaultRender(msg({ payload: "привет" }), { messageFile: FILE });
+    expect(text).toContain("[teamai] from=researcher id=abc-123");
+    expect(text).toContain("привет"); // readable live chat in tmux
+    expect(text).toContain(`full message: ${FILE}`);
+    expect(text).toContain("reply.md");
+    expect(text).toContain("DELETE message.json");
+    // T75 live finding: deletion must be spelled out as the FINAL step — an
+    // agent that deletes first ends the turn before its reply is written.
+    expect(text).toContain("FIRST write your answer");
+    expect(text).toContain("VERY LAST action");
+    // T76: the reply mirrors the request language (the instruction itself is EN)
+    expect(text).toContain("SAME LANGUAGE as the message");
+    expect(text).toContain("mirror the request language");
+    expect(text).not.toContain("READ the message file first"); // it was inlined
+    expect(text).not.toContain("send(to="); // file contract replaces the MCP hint
+    // the action contract is the TAIL of the input (T57)
+    expect(text.trim().endsWith("]")).toBe(true);
+    expect(text.indexOf("привет")).toBeLessThan(text.indexOf("full message:"));
+  });
+
+  test("long payload: text NOT inlined, explicit read-the-file marker", () => {
+    const long = "х".repeat(2000);
+    const text = defaultRender(msg({ payload: long }), { messageFile: FILE });
+    expect(text).not.toContain(long);
+    expect(text).toContain("READ the message file first");
+    expect(text).toContain(`full message: ${FILE}`);
+  });
+
+  test("the inline threshold is configurable (adapter detail)", () => {
+    const render = makeDefaultRender({ inlineMaxChars: 3 });
+    expect(render(msg({ payload: "abcd" }), { messageFile: FILE })).toContain(
+      "READ the message file first",
+    );
+    expect(render(msg({ payload: "abc" }), { messageFile: FILE })).toContain("abc");
+  });
+
+  test("attachment lines always render inline — message.json has opaque refs (FR-43)", () => {
+    const render = makeDefaultRender({ blobsDir: "/q/blobs" });
+    const payload = { text: "х".repeat(2000), blobs: [{ blob: "b1", name: "a.png" }] };
+    const text = render(msg({ payload }), { messageFile: FILE });
+    expect(text).toContain("[attachment] a.png → /q/blobs/b1"); // resolved path inline
+    expect(text).toContain("READ the message file first"); // text itself is in the file
+  });
+
+  test("without a render context the legacy MCP-hint shape is unchanged", () => {
+    const text = defaultRender(msg({ payload: "hello" }));
+    expect(text).toContain('send(to="researcher", replyTo="abc-123")');
+    expect(text).not.toContain("reply.md");
+  });
+});
+
+// --- T48 (FR-43, §12.5): blob refs render as local paths -----------------------
+
+describe("blob attachment rendering (T48, FR-43, §12.5)", () => {
+  const blobPayload = {
+    text: "see the photo",
+    blobs: [{ blob: "b-1", name: "photo.jpg", mime: "image/jpeg", size: 11 }],
+  };
+
+  test("with blobsDir the ref renders as a resolved local path + name/mime", () => {
+    const render = makeDefaultRender({ blobsDir: "/queue/blobs" });
+    const text = render(msg({ payload: blobPayload }));
+    expect(text).toContain("see the photo");
+    expect(text).toContain("[attachment] photo.jpg (image/jpeg) → /queue/blobs/b-1");
+  });
+
+  test("without blobsDir the ref stays an opaque id (baseline shape)", () => {
+    const text = defaultRender(msg({ payload: blobPayload }));
+    expect(text).toContain("[attachment] photo.jpg (image/jpeg) → b-1");
+    expect(text).not.toContain("/queue/blobs");
+  });
+
+  test("blobs-only payload renders attachment lines without a text part", () => {
+    const render = makeDefaultRender({ blobsDir: "/queue/blobs" });
+    const text = render(msg({ payload: { blobs: [{ blob: "b-2" }] } }));
+    expect(text).toContain("[attachment] b-2 → /queue/blobs/b-2");
+  });
+
+  test("string refs and malformed refs degrade safely", () => {
+    const render = makeDefaultRender({ blobsDir: "/queue/blobs" });
+    expect(render(msg({ payload: { blobs: ["plain-id"] } }))).toContain("/queue/blobs/plain-id");
+    expect(render(msg({ payload: { blobs: [42, null] } }))).not.toContain("[attachment]");
+  });
+
+  test("a hostile id never becomes a path — printed as-is (§8.7 defense)", () => {
+    const render = makeDefaultRender({ blobsDir: "/queue/blobs" });
+    const text = render(msg({ payload: { blobs: [{ blob: "../../etc/passwd" }] } }));
+    expect(text).toContain("→ ../../etc/passwd"); // the raw ref, NOT a joined path
+    expect(text).not.toContain("/queue/blobs/..");
+    const hidden = render(msg({ payload: { blobs: [{ blob: ".ssh" }] } }));
+    expect(hidden).not.toContain("/queue/blobs/.ssh");
+  });
+
+  test("text-only messages are untouched by the extension (baseline regression)", () => {
+    const render = makeDefaultRender({ blobsDir: "/queue/blobs" });
+    expect(render(msg({ payload: "just text" }))).toBe(
+      defaultRender(msg({ payload: "just text" })),
+    );
+  });
+});

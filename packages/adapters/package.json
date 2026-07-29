@@ -1,0 +1,19 @@
+{
+  "name": "@teamai/adapters",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Agent-type specifics (claude, …): busy detection, slash commands, render(message)→input (SPEC.md §5.2, §8.3).",
+  "main": "src/index.ts",
+  "types": "src/index.ts",
+  "exports": {
+    ".": {
+      "types": "./src/index.ts",
+      "default": "./src/index.ts"
+    }
+  },
+  "dependencies": {
+    "@teamai/core": "workspace:*",
+    "@teamai/tmux": "workspace:*"
+  }
+}

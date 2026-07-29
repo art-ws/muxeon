@@ -1,0 +1,66 @@
+{
+  "name": "my-team",
+
+  "server": {
+    "port": 8080,
+    "mcp": true,
+    "retain": { "age": "7d", "count": 1000 }
+  },
+
+  "agents": [
+    {
+      "name": "researcher",
+      "type": "claude",
+      "tmux": "researcher",
+      "cwd": "/path/to/repo",
+      "provision": {
+        "command": ["claude"],
+        "cwd": "/path/to/repo",
+        "auto": true,
+        "teardown": { "slash": "exit", "graceMs": 5000, "idle": "1h" }
+      },
+      "commands": [{ "slash": "clear" }, { "slash": "compact" }],
+      "group": "workers",
+      "tags": ["research"]
+    },
+    {
+      "name": "writer",
+      "type": "codex",
+      "tmux": "writer",
+      "wipLimit": 3,
+      "group": "workers",
+      "tags": ["docs"]
+    }
+  ],
+
+  "groups": [{ "name": "workers" }],
+
+  "topology": {
+    "researcher": ["writer", "operator"],
+    "writer": ["operator"]
+  },
+
+  "commandGrants": {
+    "writer": { "researcher": ["clear", "compact"] }
+  },
+
+  "sessionGrants": {
+    "writer": { "researcher": ["restart"] }
+  },
+
+  "channels": [
+    {
+      "type": "telegram",
+      "token": { "$env": "TELEGRAM_TOKEN" },
+      "bindOperator": "operator",
+      "defaultTarget": "researcher"
+    },
+    {
+      "type": "webchat",
+      "port": 8091,
+      "basePath": "/team",
+      "bindOperator": "operator-web",
+      "auth": { "password": { "$env": "TEAMAI_WEB_PASSWORD" } }
+    }
+  ]
+}

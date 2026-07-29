@@ -1,0 +1,21 @@
+{
+  "name": "@teamai/routines",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "MD+frontmatter parsing; the single scheduler (cron/once) that drives delivery via @teamai/signals (SPEC.md §6).",
+  "main": "src/index.ts",
+  "types": "src/index.ts",
+  "exports": {
+    ".": {
+      "types": "./src/index.ts",
+      "default": "./src/index.ts"
+    }
+  },
+  "dependencies": {
+    "@teamai/config": "workspace:*",
+    "@teamai/core": "workspace:*",
+    "@teamai/signals": "workspace:*",
+    "croner": "^10.0.1"
+  }
+}

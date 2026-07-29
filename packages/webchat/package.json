@@ -1,0 +1,19 @@
+{
+  "name": "@teamai/webchat",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Operator web panel (SPEC.md §12): an authenticated HTTP surface on its OWN port (SPA statics, REST, WS) behind the ChannelConnector contract (§8.4). Inbound→router.route, outbound via the pseudo-session deliver sink; never touches @teamai/queue.",
+  "main": "src/index.ts",
+  "types": "src/index.ts",
+  "exports": {
+    ".": {
+      "types": "./src/index.ts",
+      "default": "./src/index.ts"
+    }
+  },
+  "dependencies": {
+    "@teamai/channels": "workspace:*",
+    "@teamai/core": "workspace:*"
+  }
+}

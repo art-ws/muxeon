@@ -1,0 +1,18 @@
+{
+  "name": "@teamai/config",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Load/validate JSON config + topology; resolve $ref before validation (SPEC.md §7).",
+  "main": "src/index.ts",
+  "types": "src/index.ts",
+  "exports": {
+    ".": {
+      "types": "./src/index.ts",
+      "default": "./src/index.ts"
+    }
+  },
+  "dependencies": {
+    "@teamai/core": "workspace:*"
+  }
+}

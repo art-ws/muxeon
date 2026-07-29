@@ -1,0 +1,22 @@
+{
+  "name": "@teamai/webchat-ui",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Operator web panel SPA (SPEC.md §12.7): React + TypeScript, bundled by `bun build` into dist/ and served as statics by @teamai/webchat. Build-time only — not part of the §8 runtime dependency graph.",
+  "scripts": {
+    "build": "bun run build.ts",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "katex": "^0.17.0",
+    "mermaid": "^11.15.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0"
+  },
+  "devDependencies": {
+    "@types/katex": "^0.16.8",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0"
+  }
+}

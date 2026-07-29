@@ -1,0 +1,27 @@
+{
+  "name": "@teamai/server",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Network surface: MCP agent-plane + operator-plane on one port (SPEC.md §8.1); composition root that wires config → orchestrator → producers/consumers; teamai CLI.",
+  "main": "src/index.ts",
+  "types": "src/index.ts",
+  "exports": {
+    ".": {
+      "types": "./src/index.ts",
+      "default": "./src/index.ts"
+    }
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.29.0",
+    "@teamai/adapters": "workspace:*",
+    "@teamai/channels": "workspace:*",
+    "@teamai/config": "workspace:*",
+    "@teamai/core": "workspace:*",
+    "@teamai/lifecycle": "workspace:*",
+    "@teamai/orchestrator": "workspace:*",
+    "@teamai/routines": "workspace:*",
+    "@teamai/signals": "workspace:*",
+    "@teamai/webchat": "workspace:*"
+  }
+}

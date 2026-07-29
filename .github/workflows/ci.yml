@@ -1,0 +1,37 @@
+# Toolchain gate: typecheck + lint + test + build on every push and pull request.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.2.22"
+
+      # tmux integration tests need a tmux binary; without one they skip.
+      - name: Install tmux
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends tmux
+
+      - run: bun install --frozen-lockfile
+
+      - run: bun run typecheck
+
+      - run: bun run lint
+
+      # The SPA-serving test exercises the REAL built panel bundle — build it
+      # first (locally dist/ always exists; CI starts clean).
+      - name: Build panel bundle
+        run: bun run --cwd packages/webchat-ui build
+
+      - run: bun test
+
+      - name: Build server bundle
+        run: bun run build

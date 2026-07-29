@@ -1,0 +1,22 @@
+{
+  "name": "@teamai/lifecycle",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Attach, provision, kill/restart agents; install native hook; send slash commands (SPEC.md §4).",
+  "main": "src/index.ts",
+  "types": "src/index.ts",
+  "exports": {
+    ".": {
+      "types": "./src/index.ts",
+      "default": "./src/index.ts"
+    }
+  },
+  "dependencies": {
+    "@teamai/core": "workspace:*",
+    "@teamai/config": "workspace:*",
+    "@teamai/tmux": "workspace:*",
+    "@teamai/adapters": "workspace:*",
+    "@teamai/orchestrator": "workspace:*"
+  }
+}

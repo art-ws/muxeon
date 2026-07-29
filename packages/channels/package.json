@@ -1,0 +1,19 @@
+{
+  "name": "@teamai/channels",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Unified channel interface + connectors (telegram, …): inbound→router.route, outbound via injected deliver port (SPEC.md §8.4, §3.2). Never touches @teamai/queue directly.",
+  "main": "src/index.ts",
+  "types": "src/index.ts",
+  "exports": {
+    ".": {
+      "types": "./src/index.ts",
+      "default": "./src/index.ts"
+    }
+  },
+  "dependencies": {
+    "@teamai/core": "workspace:*",
+    "@teamai/orchestrator": "workspace:*"
+  }
+}

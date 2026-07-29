@@ -1,0 +1,26 @@
+{
+  "name": "teamai",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "TEAMAI — transport and coordinator for local CLI agents running in tmux sessions. Monorepo root.",
+  "license": "MIT",
+  "repository": { "type": "git", "url": "git+https://github.com/art-ws/teamai.git" },
+  "homepage": "https://github.com/art-ws/teamai#readme",
+  "bugs": { "url": "https://github.com/art-ws/teamai/issues" },
+  "workspaces": ["packages/*"],
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "build": "bun build packages/server/src/index.ts --target bun --outdir dist",
+    "lint": "biome check .",
+    "lint:fix": "biome check --write .",
+    "format": "biome format --write .",
+    "test": "bun test"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^1.9.4",
+    "@types/bun": "^1.2.0",
+    "typescript": "^5.7.0"
+  },
+  "trustedDependencies": ["@biomejs/biome"]
+}
