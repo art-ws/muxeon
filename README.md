@@ -148,3 +148,13 @@ vulnerability.
 > requirement register, which are not part of this repository. Treat them as
 > stable traceability labels — the code and the operator guide are
 > self-contained; you never need the spec to read, build, or extend TEAMAI.
+
+## License
+
+[MIT](./LICENSE)
+
+---
+
+<p align="center"><em>Not a single line of code written by a human.<br>
+Not a single idea taken from AI.<br>
+Made by Human &amp; AI, with Love to art. ❤️</em></p>
