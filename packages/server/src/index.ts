@@ -7,11 +7,13 @@
 import { parseConfigArg } from "@teamai/config";
 import { bootstrap } from "./bootstrap";
 import { CLI_COMMANDS, runCli } from "./cli/cli";
+import { createShutdownHandler } from "./shutdown";
 
 export * from "./bootstrap";
 export * from "./wire-channels";
 export * from "./cli/cli";
 export * from "./redact";
+export * from "./shutdown";
 
 async function launch(argv: readonly string[]): Promise<void> {
   // Last-resort safety net (R2, §10): TEAMAI is a transport for many agents — a stray
@@ -46,9 +48,13 @@ async function launch(argv: readonly string[]): Promise<void> {
     for (const channel of server.channels.values()) {
       process.stdout.write(`teamai: channel ${channel.type} → operator "${channel.operator}"\n`);
     }
-    process.on("SIGINT", () => {
-      void server.stop().then(() => process.exit(0));
+    const onSignal = createShutdownHandler({
+      stop: () => server.stop(),
+      exit: (code) => process.exit(code),
+      warn: (message) => process.stderr.write(`teamai: warning: ${message}\n`),
     });
+    process.on("SIGINT", () => onSignal("SIGINT"));
+    process.on("SIGTERM", () => onSignal("SIGTERM"));
   } catch (error) {
     process.stderr.write(`teamai: ${error instanceof Error ? error.message : String(error)}\n`);
     process.exit(1);
