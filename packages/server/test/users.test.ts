@@ -9,6 +9,7 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import type { ChannelConnector } from "@teamai/channels";
 import type { Signal } from "@teamai/core";
 import type { SessionDriver } from "@teamai/orchestrator";
 import { bootstrap } from "../src/bootstrap";
@@ -251,7 +252,16 @@ describe("DND through the shared registry (§17.8, FR-134)", () => {
 
 describe("legacy compatibility (§17.9, FR-132)", () => {
   test("a config with no users[] boots exactly as before", async () => {
-    const server = await boot({
+    // A stub connector: the point is the WIRING (one operator, one egress), not
+    // the Bot API — the real factory would long-poll telegram.
+    const stub: ChannelConnector = {
+      type: "telegram",
+      bindOperator: "op",
+      start: async () => undefined,
+      deliver: async () => undefined,
+      stop: async () => undefined,
+    };
+    const server = await bootstrapWith(stub, {
       server: { port: 0, mcp: false, queueDir: "./queue" },
       agents: [{ name: "dev", type: "claude", tmux: "dev-session" }],
       channels: [{ type: "telegram", bindOperator: "op", token: { $env: "TG_TOKEN" } }],
@@ -262,6 +272,20 @@ describe("legacy compatibility (§17.9, FR-132)", () => {
     await server.stop();
   });
 });
+
+/** Boot with an injected connector factory (no real channel client is started). */
+async function bootstrapWith(connector: ChannelConnector, config: unknown) {
+  return bootstrap({
+    configFile: writeConfig(config),
+    env: (name) => (name === "TG_TOKEN" ? "token-value" : undefined),
+    probe: async () => true,
+    makeDriver: noopDriver,
+    makeConnector: () => connector,
+    autoStart: false,
+    startRoutines: false,
+    startRetention: false,
+  });
+}
 
 function mkMessage(from: string, to: string, id: string): Signal {
   return { id, from, to, kind: "message", ts: 1, payload: "hi" };
