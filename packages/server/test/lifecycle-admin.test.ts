@@ -262,3 +262,86 @@ describe("slash commands (T86, FR-66, §8.5)", () => {
     await expect(admin.command("researcher", "screenshot")).rejects.toThrow(/down — no console/);
   });
 });
+
+describe("lifecycle admin — pause / resume (§16.5, FR-119)", () => {
+  function setup(opts: { paused?: string[] } = {}) {
+    const target = makeTarget({ status: "idle" });
+    const control = fakeControl();
+    const lane = new ControlLane();
+    const paused = new Set(opts.paused ?? []);
+    const writes: string[][] = [];
+    const admin = createLifecycleAdmin({
+      agents: new Map([["researcher", { name: "researcher", target, lane }]]),
+      control,
+      configDir: "/cfg",
+      pause: {
+        has: (name) => paused.has(name),
+        set: (name, value) => {
+          if (value) {
+            if (paused.has(name)) return false;
+            paused.add(name);
+            return true;
+          }
+          return paused.delete(name);
+        },
+        persist: async () => {
+          writes.push([...paused].sort());
+        },
+      },
+    });
+    return { admin, paused, writes, target, lane };
+  }
+
+  test("pause sets the flag and mirrors it to the state file; the status is untouched", async () => {
+    const { admin, paused, writes, target } = setup();
+    expect(await admin.pause("researcher", true)).toBe(true);
+    expect(paused.has("researcher")).toBe(true);
+    expect(writes).toEqual([["researcher"]]);
+    expect(target.state.status).toBe("idle"); // §16.1 — orthogonal to the session
+  });
+
+  test("it is IDEMPOTENT — a repeated pause changes nothing and writes nothing", async () => {
+    const { admin, writes } = setup();
+    expect(await admin.pause("researcher", true)).toBe(true);
+    expect(await admin.pause("researcher", true)).toBe(true); // same desired state
+    expect(writes).toHaveLength(1); // only the change was persisted
+  });
+
+  test("resume clears it, and resuming a live agent is a no-op write", async () => {
+    const { admin, paused, writes } = setup({ paused: ["researcher"] });
+    expect(await admin.pause("researcher", false)).toBe(false);
+    expect(paused.has("researcher")).toBe(false);
+    expect(writes).toEqual([[]]);
+    expect(await admin.pause("researcher", false)).toBe(false);
+    expect(writes).toHaveLength(1);
+  });
+
+  test("no lane involvement — the flag applies without any control-lane drain (§16.4)", async () => {
+    const { admin, lane } = setup();
+    await admin.pause("researcher", true); // would hang if it queued on the lane
+    expect(lane.size).toBe(0);
+  });
+
+  test("list() reports paused beside the status (§16.1)", async () => {
+    const { admin } = setup();
+    expect(admin.list()).toEqual([
+      { name: "researcher", session: "researcher-s", status: "idle", paused: false },
+    ]);
+    await admin.pause("researcher", true);
+    expect(admin.list()[0]).toMatchObject({ status: "idle", paused: true });
+  });
+
+  test("an unknown agent is a 404, and pause without the registry wired is a 503", async () => {
+    const { admin } = setup();
+    await expect(admin.pause("ghost", true)).rejects.toThrow(/unknown agent/);
+    const bare = createLifecycleAdmin({
+      agents: new Map([
+        ["researcher", { name: "researcher", target: makeTarget(), lane: new ControlLane() }],
+      ]),
+      control: fakeControl(),
+      configDir: "/cfg",
+    });
+    await expect(bare.pause("researcher", true)).rejects.toThrow(/pause is not wired/);
+    expect(bare.list()[0]).toMatchObject({ paused: false }); // reported, not omitted
+  });
+});

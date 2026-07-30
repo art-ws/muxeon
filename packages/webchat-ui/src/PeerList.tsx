@@ -29,6 +29,16 @@ const STATUS_LABEL: Record<string, string> = {
   down: "down",
 };
 
+/**
+ * The row's status line and tooltip (§16.6, FR-120). A paused agent SHOWS "paused"
+ * — that is the state the operator acted on — while the real session status stays
+ * visible in the tooltip ("paused · idle"): the marker must not lie about the
+ * session. `status` alone is used when nothing is paused.
+ */
+function statusLabel(peer: PeerInfo): string {
+  return peer.paused === true ? "paused" : (STATUS_LABEL[peer.status ?? ""] ?? "—");
+}
+
 /** The collapsed-rail avatar text: the first character, uppercased. */
 export const initialOf = (name: string): string => (name[0] ?? "?").toUpperCase();
 
@@ -229,8 +239,10 @@ function AgentRow(props: {
     return (
       <button
         type="button"
-        className={`peer-row${props.selected ? " selected" : ""}`}
-        title={`${peer.name} — ${t(STATUS_LABEL[peer.status ?? ""] ?? "—")}`}
+        className={`peer-row${props.selected ? " selected" : ""}${peer.paused === true ? " peer-paused" : ""}`}
+        title={`${peer.name} — ${t(statusLabel(peer))}${
+          peer.paused === true ? ` · ${t(STATUS_LABEL[peer.status ?? ""] ?? "—")}` : ""
+        }`}
         onClick={props.onSelect}
       >
         {/* the agent's accent paints the avatar circle (FR-73) */}
@@ -239,8 +251,11 @@ function AgentRow(props: {
           style={{ background: agentColor(peer.name, peer.color) }}
         >
           {initialOf(peer.name)}
-          {/* the same live dot as the expanded row — pinned to the avatar */}
-          <span className={`status-dot ${peer.status ?? "unknown"}`} />
+          {/* the same live dot as the expanded row — pinned to the avatar; the
+              `paused` modifier mutes it and adds the pause glyph (§16.6) */}
+          <span
+            className={`status-dot ${peer.status ?? "unknown"}${peer.paused === true ? " paused" : ""}`}
+          />
         </span>
         {peer.unread > 0 && <span className="unread-badge">{peer.unread}</span>}
       </button>
@@ -249,7 +264,14 @@ function AgentRow(props: {
   return (
     <button
       type="button"
-      className={`peer-row peer-accent${props.selected ? " selected" : ""}`}
+      className={`peer-row peer-accent${props.selected ? " selected" : ""}${
+        peer.paused === true ? " peer-paused" : ""
+      }`}
+      title={
+        peer.paused === true
+          ? `${peer.name} — ${t("paused")} · ${t(STATUS_LABEL[peer.status ?? ""] ?? "—")}`
+          : undefined
+      }
       /* expanded: the accent is a thin colored edge — unobtrusive (FR-73) */
       style={
         {
@@ -259,7 +281,9 @@ function AgentRow(props: {
       }
       onClick={props.onSelect}
     >
-      <span className={`status-dot ${peer.status ?? "unknown"}`} />
+      <span
+        className={`status-dot ${peer.status ?? "unknown"}${peer.paused === true ? " paused" : ""}`}
+      />
       {/* rendezvous markers (FR-105): after the activity dot, before the name */}
       <RzArrows peer={peer} />
       <span className="peer-info">
@@ -268,7 +292,7 @@ function AgentRow(props: {
           {peer.queueDepth > 0 && <span className="queue-depth"> ({peer.queueDepth})</span>}
         </span>
         <span className="peer-preview">
-          {t(STATUS_LABEL[peer.status ?? ""] ?? "—")}
+          {t(statusLabel(peer))}
           {peer.lastMessage !== undefined && ` · ${peer.lastMessage.preview}`}
         </span>
       </span>

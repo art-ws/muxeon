@@ -6,7 +6,7 @@
 // restart go through the session's control lane (drained by the dispatcher loop).
 
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { type Adapter, AdapterRegistry } from "@teamai/adapters";
@@ -137,9 +137,10 @@ describe("operator-plane: agents/lifecycle (§8.5, FR-7/8/9)", () => {
     await boot();
     const { status, json } = await get("/agents");
     expect(status).toBe(200);
+    // `paused` (§16.1, FR-119) rides beside the status — orthogonal, never inside it.
     expect(json.agents).toEqual([
-      { name: "researcher", session: "researcher-s", status: "idle" },
-      { name: "writer", session: "writer-s", status: "idle" },
+      { name: "researcher", session: "researcher-s", status: "idle", paused: false },
+      { name: "writer", session: "writer-s", status: "idle", paused: false },
     ]);
   });
 
@@ -243,6 +244,74 @@ describe("operator-plane: signals.send (§8.5, FR-19, §8.7)", () => {
     });
     expect(unknown.status).toBe(400);
     expect(unknown.json.code).toBe("BAD_KIND");
+  });
+});
+
+describe("operator-plane: agents/pause (§16.5, §10.19/§10.20, FR-117/FR-119)", () => {
+  test("POST /agents/<name>/pause sets the flag; GET /agents reports it beside the status", async () => {
+    await boot();
+    const paused = await post("/agents/researcher/pause", { paused: true });
+    expect(paused.status).toBe(200);
+    expect(paused.json).toEqual({ ok: true, name: "researcher", paused: true });
+    const { json } = await get("/agents");
+    expect(json.agents).toContainEqual({
+      name: "researcher",
+      session: "researcher-s",
+      status: "idle", // the session is untouched (§16.1)
+      paused: true,
+    });
+  });
+
+  test("a paused agent refuses delivery with 409 AGENT_PAUSED — the message is discarded", async () => {
+    await boot();
+    await post("/agents/writer/pause", { paused: true });
+    const refused = await post("/signals/send", {
+      from: "researcher",
+      to: "writer",
+      payload: "you there?",
+    });
+    expect(refused.status).toBe(409); // conflict, not 429 "overloaded" (§16.2)
+    expect(refused.json.code).toBe("AGENT_PAUSED");
+    // ...and the resume restores delivery immediately.
+    await post("/agents/writer/pause", { paused: false });
+    const delivered = await post("/signals/send", {
+      from: "researcher",
+      to: "writer",
+      payload: "you there?",
+    });
+    expect(delivered.status).toBe(200);
+    expect(delivered.json.queued).toBe(true);
+  });
+
+  test("the desired state is explicit and idempotent — a repeat is not a toggle", async () => {
+    await boot();
+    expect((await post("/agents/researcher/pause", { paused: true })).json.paused).toBe(true);
+    expect((await post("/agents/researcher/pause", { paused: true })).json.paused).toBe(true);
+    expect((await post("/agents/researcher/pause", { paused: false })).json.paused).toBe(false);
+  });
+
+  test("a missing/non-boolean `paused` is a 400; an unknown agent is a 404", async () => {
+    await boot();
+    const bad = await post("/agents/researcher/pause", { paused: "yes" });
+    expect(bad.status).toBe(400);
+    expect(bad.json.code).toBe("BAD_REQUEST");
+    expect((await post("/agents/ghost/pause", { paused: true })).status).toBe(404);
+  });
+
+  test("the flag is mirrored to <configDir>/state/paused.json — it survives a restart (§16.4)", async () => {
+    await boot();
+    await post("/agents/researcher/pause", { paused: true });
+    // The mirror is what makes an operator-declared refusal outlive a deploy; the
+    // rehydrate side is unit-tested in orchestrator/test/pause.test.ts.
+    expect(JSON.parse(readFileSync(join(dir, "state", "paused.json"), "utf8"))).toEqual({
+      version: 1,
+      paused: ["researcher"],
+    });
+    await post("/agents/researcher/pause", { paused: false });
+    expect(JSON.parse(readFileSync(join(dir, "state", "paused.json"), "utf8"))).toEqual({
+      version: 1,
+      paused: [],
+    });
   });
 });
 

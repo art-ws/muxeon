@@ -238,8 +238,9 @@ the port from the discovered config (`--config <path>` to point elsewhere) or
 takes `--url http://127.0.0.1:8080/admin` explicitly.
 
 ```
-teamai agents                                  # list: name (session): status
+teamai agents                                  # list: name (session): status [paused]
 teamai provision|kill|restart <agent>          # lifecycle (§4)
+teamai pause|resume <agent>                    # block/unblock message delivery (§16)
 teamai channels                                # operator bindings + deliver status
 teamai signals send --from <node> --to <node> [--id <id>] [--reply-to <id>] <text…>
 teamai queues peek <participant>               # pending/ + cur/ records
@@ -258,6 +259,14 @@ Notes:
   loop** between turns — a mid-turn restart waits for the current turn.
 - `requeue` of an id already in the done/ window is an explicit no-op.
 - `signals send` requires `--from` to be an existing agent/operator (§8.7).
+- `pause` blocks the **transport**, not the agent: the session keeps running,
+  slash commands and lifecycle still work, and a turn already in flight finishes.
+  Anyone sending to a paused agent is refused **immediately** (`AGENT_PAUSED`,
+  HTTP 409 on the admin plane) and **the message is discarded** — senders must
+  retry after the resume, nothing is queued up behind the pause. Whatever was
+  already queued stays put and drains on `resume`. The flag is recorded in
+  `<config_dir>/state/paused.json`, so it survives a restart; `teamai agents`
+  and the panel both mark it.
 
 ## 5. Routines (§6)
 
@@ -325,6 +334,14 @@ meant to face the internet only through a TLS reverse-proxy.
 The topbar shows the instance label next to the logo and the browser tab reads
 `<name> - TeamAI`, where `<name>` is the optional top-level `name` (§2) or, when
 omitted, the server's hostname — handy for telling apart several panels.
+
+Each chat's actions menu (the ⋮ kebab) carries **Pause / Resume** (§16): a
+reversible switch — no confirm step — that blocks message delivery to that agent
+while leaving its session and console alone. A paused agent is marked in the
+sidebar (the status line reads `paused`, the dot goes hollow, the row dims; the
+real session status stays in the row's tooltip) and in the chat header, and the
+composer explains that messages will be rejected rather than queued. The marker
+is server state, so every open tab reflects a flip within a poll tick.
 
 The **Settings** page has a build-info footer (FR-91): the server version, the
 deployed commit, and its date (the server runs from source, so "build time" is

@@ -16,15 +16,17 @@ interface Kit {
   readonly torndown: string[];
   setStatus(s: AgentStatus): void;
   setSystem(v: boolean): void;
+  setPaused(v: boolean): void;
 }
 
 function makeKit(
   name: string,
-  opts: { idleMs?: number; status?: AgentStatus; system?: boolean } = {},
+  opts: { idleMs?: number; status?: AgentStatus; system?: boolean; paused?: boolean } = {},
 ): Kit {
   const torndown: string[] = [];
   let status: AgentStatus = opts.status ?? "idle";
   let system = opts.system ?? true;
+  let paused = opts.paused ?? false;
   return {
     torndown,
     setStatus: (s) => {
@@ -33,11 +35,15 @@ function makeKit(
     setSystem: (v) => {
       system = v;
     },
+    setPaused: (v) => {
+      paused = v;
+    },
     target: {
       name,
       idleMs: opts.idleMs ?? 1000,
       status: () => status,
       isSystemRaised: () => system,
+      isPaused: () => paused,
       teardown: async () => {
         torndown.push(name);
         status = "down"; // mirror the real effect — a torn-down agent goes down
@@ -170,5 +176,36 @@ describe("IdleTeardownSweeper (FR-92, §5.1)", () => {
     await flush();
     expect(torndown).toEqual(["a"]); // exactly once
     release();
+  });
+});
+
+describe("IdleTeardownSweeper × pause (§16.3, §10.20, FR-118)", () => {
+  test("a PAUSED agent is never reaped — the pause is what stopped its transport", async () => {
+    let clock = 0;
+    const kit = makeKit("a", { idleMs: 1000, paused: true });
+    const sweeper = new IdleTeardownSweeper({ targets: [kit.target], now: () => clock });
+    await sweeper.tick();
+    clock = 10_000; // ten windows of "inactivity" — all of it caused by the pause
+    await sweeper.tick();
+    await flush();
+    expect(kit.torndown).toEqual([]);
+  });
+
+  test("the window starts counting from the RESUME, not from when the pause began", async () => {
+    let clock = 0;
+    const kit = makeKit("a", { idleMs: 1000, paused: true });
+    const sweeper = new IdleTeardownSweeper({ targets: [kit.target], now: () => clock });
+    await sweeper.tick();
+    clock = 5000;
+    await sweeper.tick(); // paused → clock kept fresh at 5000
+    kit.setPaused(false);
+    clock = 5500;
+    await sweeper.tick(); // only 500ms since the resume
+    await flush();
+    expect(kit.torndown).toEqual([]);
+    clock = 6001;
+    await sweeper.tick(); // a full window of real idleness after the resume → fire
+    await flush();
+    expect(kit.torndown).toEqual(["a"]);
   });
 });

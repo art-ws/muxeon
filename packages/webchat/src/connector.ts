@@ -75,6 +75,8 @@ export type WebchatEvent =
       readonly type: "status";
       readonly peer: string;
       readonly status: AgentStatus | undefined;
+      /** Operator-declared pause (§16, FR-119) — orthogonal to `status` (§16.1). */
+      readonly paused: boolean;
       readonly queueDepth: number;
       /** Queue depth has reached the agent's WIP cap (FR-104) — red name in the panel. */
       readonly atWipLimit: boolean;
@@ -180,6 +182,7 @@ export class WebchatConnector implements ChannelConnector {
     string,
     {
       status: AgentStatus | undefined;
+      paused: boolean;
       depth: number;
       atWipLimit: boolean;
       waiting: boolean;
@@ -551,6 +554,8 @@ export class WebchatConnector implements ChannelConnector {
           name,
           type: "agent" as const,
           status: ports?.peerStatus(name) ?? null,
+          // §16.6 (FR-119): a marker BESIDE the status, not a fourth status value.
+          paused: ports?.peerPaused?.(name) ?? false,
           queueDepth: depth,
           unread: (await history?.unread(name)) ?? 0,
           ...(group !== undefined ? { group } : {}),
@@ -584,7 +589,8 @@ export class WebchatConnector implements ChannelConnector {
     return json(info);
   }
 
-  // POST /api/agents/:name/(shutdown|reload|command) (T85/T86, FR-65/FR-66):
+  // POST /api/agents/:name/(shutdown|reload|command|pause) (T85/T86, FR-65/FR-66,
+  // §16.5/FR-119):
   // the §10.12 capability extension — graceful lifecycle + configured slash
   // commands of the operator's TOPOLOGY NEIGHBORS only; the peer check is
   // structural (the same listPeers the panel sees), so the panel can never
@@ -597,7 +603,12 @@ export class WebchatConnector implements ChannelConnector {
     if (slash <= 0) return json({ error: "not found" }, 404);
     const name = decodeURIComponent(rest.slice(0, slash));
     const action = rest.slice(slash + 1);
-    if (action !== "shutdown" && action !== "reload" && action !== "command") {
+    if (
+      action !== "shutdown" &&
+      action !== "reload" &&
+      action !== "command" &&
+      action !== "pause"
+    ) {
       return json({ error: "not found" }, 404);
     }
     const peers = this.#options.ports?.listPeers() ?? [];
@@ -605,6 +616,19 @@ export class WebchatConnector implements ChannelConnector {
       return json({ error: `unknown agent "${name}"` }, 404); // not a neighbor (§10.2)
     }
     try {
+      // Pause / resume (§16.5, FR-119): the same neighbour gate as the lifecycle
+      // twins, but a weaker capability — reversible, and it never touches the
+      // session. The body carries the DESIRED state, so a stale tab cannot flip it.
+      if (action === "pause") {
+        const pause = lifecycle.pause;
+        if (pause === undefined) return json({ error: "pause is not wired" }, 503);
+        const body = await readJsonObject(req);
+        const paused = body?.paused;
+        if (typeof paused !== "boolean") {
+          return json({ error: '"paused" (boolean) is required' }, 400);
+        }
+        return json({ ok: true, paused: await pause(name, paused) });
+      }
       if (action === "command") {
         const body = await readJsonObject(req);
         const commandSlash = body?.slash;
@@ -895,22 +919,27 @@ export class WebchatConnector implements ChannelConnector {
       const rz = ports.rendezvousState?.() ?? { waiting: [], awaited: [] };
       for (const peer of ports.listPeers()) {
         const status = ports.peerStatus(peer);
+        // Pause (§16.6, FR-119) rides the same diff, so a flip made in one tab
+        // repaints the marker in every other one without a reload.
+        const paused = ports.peerPaused?.(peer) ?? false;
         const depth = await ports.queueDepth(peer).catch(() => 0);
         const { atWipLimit, waiting, awaited } = this.#peerMarks(peer, depth, rz);
         const seen = this.#dynamics.get(peer);
         if (
           seen === undefined ||
           seen.status !== status ||
+          seen.paused !== paused ||
           seen.depth !== depth ||
           seen.atWipLimit !== atWipLimit ||
           seen.waiting !== waiting ||
           seen.awaited !== awaited
         ) {
-          this.#dynamics.set(peer, { status, depth, atWipLimit, waiting, awaited });
+          this.#dynamics.set(peer, { status, paused, depth, atWipLimit, waiting, awaited });
           this.#push({
             type: "status",
             peer,
             status,
+            paused,
             queueDepth: depth,
             atWipLimit,
             waiting,

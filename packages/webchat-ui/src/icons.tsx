@@ -60,6 +60,21 @@ export const IconPower = (props: IconProps): React.JSX.Element => (
   </Icon>
 );
 
+/** Pause the agent's communications (§16.6, FR-120) — the two bars. */
+export const IconPause = (props: IconProps): React.JSX.Element => (
+  <Icon {...props}>
+    <path d="M10 4v16" />
+    <path d="M16 4v16" />
+  </Icon>
+);
+
+/** Resume a paused agent (§16.6, FR-120) — the play triangle. */
+export const IconPlay = (props: IconProps): React.JSX.Element => (
+  <Icon {...props}>
+    <path d="M7 4l13 8-13 8z" />
+  </Icon>
+);
+
 /** Reload the agent (FR-65) — a clockwise rotation arrow. */
 export const IconRotate = (props: IconProps): React.JSX.Element => (
   <Icon {...props}>

@@ -604,6 +604,50 @@ body,
   color: var(--failed);
 }
 
+/* --- pause marker (§16.6, FR-120) --------------------------------------- */
+
+/* A paused agent: the dot keeps its POSITION (it is the same live indicator) but
+   goes hollow and stops pulsing — the transport is what is stopped, and the row
+   itself dims. The real session status stays in the row's tooltip, never faked. */
+.status-dot.paused {
+  background: transparent;
+  border: 2px solid var(--text-muted);
+  animation: none;
+}
+.peer-avatar .status-dot.paused {
+  /* on the rail the dot already carries a ring against the avatar — keep that
+     ring and mark the pause with the muted fill */
+  background: var(--bg-raised);
+  box-shadow: inset 0 0 0 2px var(--text-muted);
+  border: 2px solid var(--bg-raised);
+}
+.peer-row.peer-paused .peer-info,
+.peer-row.peer-paused .peer-avatar {
+  opacity: 0.55;
+}
+
+/* The chat-header chip: pause is an operator declaration, so it is stated in
+   words next to the name rather than hidden in a dot. */
+.paused-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+  padding: 1px 7px 1px 5px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  color: var(--text-muted);
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: lowercase;
+}
+
+/* The composer note (§16.6): the composer stays ENABLED — the refusal is the
+   point — so the note explains what a send will do instead of blocking it. */
+.composer-note.paused-note {
+  color: var(--failed);
+}
+
 /* --- collapsed sidebar: the icon rail (FR-68) -------------------------- */
 
 .peer-list.collapsed {

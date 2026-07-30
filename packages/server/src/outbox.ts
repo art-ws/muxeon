@@ -194,7 +194,9 @@ export class OutboxMonitor {
       const why =
         routed.code === "WIP_LIMIT"
           ? `was refused: "${shape.to}" is at its WIP limit (${routed.limit}), ${routed.depth} in flight — retry when it drains (FR-104)`
-          : `was refused by the router (to="${shape.to}": no such peer or no topology edge, §10.2)`;
+          : routed.code === "AGENT_PAUSED"
+            ? `was refused: "${shape.to}" is paused by the operator — retry when it resumes (§16.2, FR-117)`
+            : `was refused by the router (to="${shape.to}": no such peer or no topology edge, §10.2)`;
       await this.#reject(claim, name, why);
       return;
     }

@@ -346,6 +346,165 @@ describe("router — broadcast fan-out (§15.4, §10.16, FR-110)", () => {
   });
 });
 
+describe("router — pause gate (§16.2, §10.19, FR-117)", () => {
+  function paused(
+    isPaused: (name: string) => boolean,
+    opts: {
+      wipLimitOf?: (name: string) => number | null;
+      refused?: { to: string; code: string }[];
+    } = {},
+  ): Router {
+    return new Router({
+      topology: new Topology({ researcher: ["writer", "operator"], writer: ["researcher"] }),
+      root,
+      queueKeyOf: (name) => KEYS.get(name) ?? null,
+      isPaused,
+      ...(opts.wipLimitOf !== undefined ? { wipLimitOf: opts.wipLimitOf } : {}),
+      ...(opts.refused !== undefined
+        ? { onRefused: (m, i) => opts.refused?.push({ to: m.to, code: i.code }) }
+        : {}),
+      now: () => 1700000000000,
+    });
+  }
+  const pausedWriter = (name: string): boolean => name === "writer";
+
+  test("a paused recipient is refused AGENT_PAUSED and NOTHING is enqueued", async () => {
+    const r = paused(pausedWriter);
+    expect(await r.route(msg("researcher", "writer"))).toEqual({
+      ok: false,
+      code: "AGENT_PAUSED",
+    });
+    expect(pending("writer-session")).toHaveLength(0);
+  });
+
+  test("only the paused recipient is gated — others deliver normally", async () => {
+    const r = paused(pausedWriter);
+    expect((await r.route(msg("researcher", "operator", "a"))).ok).toBe(true);
+    expect(pending("operator")).toHaveLength(1);
+  });
+
+  test("EVERY kind is refused: reply, nudge, rendezvous (even with bypassWip), broadcast copy, raw", async () => {
+    const r = paused(pausedWriter);
+    const kinds: Signal[] = [
+      {
+        id: "k1",
+        from: "researcher",
+        to: "writer",
+        kind: "message",
+        ts: 0,
+        payload: "re",
+        replyTo: "x",
+      },
+      { id: "k2", from: "researcher", to: "writer", kind: "nudge", ts: 0, payload: "answer" },
+      {
+        id: "k3",
+        from: "researcher",
+        to: "writer",
+        kind: "rendezvous",
+        ts: 0,
+        payload: "reach out",
+      },
+      { id: "k4", from: "researcher", to: "writer", kind: "broadcast", ts: 0, payload: "all" },
+      {
+        id: "k5",
+        from: "researcher",
+        to: "writer",
+        kind: "message",
+        ts: 0,
+        payload: "ls",
+        raw: true,
+      },
+    ];
+    for (const signal of kinds) {
+      // bypassWip (FR-105) buys nothing here — it bypasses the WIP gate only (§16.2).
+      expect(await r.route(signal, { bypassWip: true })).toEqual({
+        ok: false,
+        code: "AGENT_PAUSED",
+      });
+    }
+    expect(pending("writer-session")).toHaveLength(0);
+  });
+
+  test("self-delivery to a paused agent is refused too — pause is about injection, not rights", async () => {
+    const r = paused(pausedWriter);
+    expect(await r.route(msg("writer", "writer"))).toEqual({ ok: false, code: "AGENT_PAUSED" });
+    expect(pending("writer-session")).toHaveLength(0);
+  });
+
+  test("the topology check comes FIRST: a non-neighbour learns TOPOLOGY_DENIED, not the pause", async () => {
+    // writer↔operator has no edge; the operator is not paused, the writer is —
+    // routing writer→operator must not leak anything about pause state either way.
+    const r = paused((name) => name === "operator" || name === "writer");
+    expect(await r.route(msg("writer", "operator"))).toEqual({
+      ok: false,
+      code: "TOPOLOGY_DENIED",
+    });
+  });
+
+  test("pause comes BEFORE the WIP gate — the receipt names the pause, not the undrained queue", async () => {
+    const r = paused(pausedWriter, { wipLimitOf: () => 1 });
+    // Fill the queue to its cap first (via an unpaused router), then pause.
+    const open = paused(() => false, { wipLimitOf: () => 1 });
+    expect((await open.route(msg("researcher", "writer", "a"))).ok).toBe(true);
+    expect(await open.route(msg("researcher", "writer", "b"))).toMatchObject({ code: "WIP_LIMIT" });
+    expect(await r.route(msg("researcher", "writer", "c"))).toEqual({
+      ok: false,
+      code: "AGENT_PAUSED",
+    });
+  });
+
+  test("the refusal does not poison the dedup window: the same id delivers after the resume", async () => {
+    const r = paused(pausedWriter);
+    expect(await r.route(msg("researcher", "writer", "same"))).toMatchObject({
+      code: "AGENT_PAUSED",
+    });
+    const resumed = paused(() => false);
+    expect((await resumed.route(msg("researcher", "writer", "same"))).ok).toBe(true);
+    expect(pending("writer-session")).toHaveLength(1);
+  });
+
+  test("onRefused reports AGENT_PAUSED (with no limit/depth) — the rendezvous coordinator ignores it", async () => {
+    const refused: { to: string; code: string }[] = [];
+    const r = paused(pausedWriter, { refused });
+    await r.route(msg("researcher", "writer"));
+    expect(refused).toEqual([{ to: "writer", code: "AGENT_PAUSED" }]);
+  });
+
+  test("a paused member is refused its broadcast copy per-member; the rest are delivered", async () => {
+    await ensureQueueDirs(queuePaths(root, "dev1-session"));
+    await ensureQueueDirs(queuePaths(root, "dev2-session"));
+    const r = new Router({
+      topology: new Topology({ operator: ["eng"] }),
+      root,
+      queueKeyOf: (name) =>
+        KEYS.get(name) ??
+        (name === "dev1" ? "dev1-session" : name === "dev2" ? "dev2-session" : null),
+      isPaused: (name) => name === "dev1",
+      resolveBroadcast: (to) =>
+        to === "eng" ? { kind: "group", members: ["dev1", "dev2"] } : null,
+      now: () => 1700000000000,
+    });
+    const result = await r.route({
+      id: "b",
+      from: "operator",
+      to: "eng",
+      kind: "message",
+      ts: 0,
+      payload: "all-hands",
+    });
+    expect(result).toMatchObject({
+      ok: true,
+      kind: "broadcast",
+      fanout: [
+        { to: "dev1", id: "b:dev1", ok: false, code: "AGENT_PAUSED" },
+        { to: "dev2", id: "b:dev2", ok: true },
+      ],
+    });
+    expect(pending("dev1-session")).toHaveLength(0);
+    expect(pending("dev2-session")).toHaveLength(1);
+  });
+});
+
 function take<T>(value: T | null): T {
   if (value === null) throw new Error("expected a non-null value");
   return value;

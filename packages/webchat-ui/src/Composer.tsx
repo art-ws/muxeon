@@ -50,9 +50,17 @@ export function Composer(props: {
    * ignored — and a note explains the mode under the composer.
    */
   raw?: boolean;
+  /**
+   * The open peer is PAUSED (§16.6, FR-120). The composer is deliberately NOT
+   * disabled: the whole point of a pause is that the sender gets an immediate,
+   * honest refusal — so the send goes out, comes back rejected and renders as a
+   * failed send. A note under the composer says so up front.
+   */
+  paused?: boolean;
 }): React.JSX.Element {
   const t = useT();
   const raw = props.raw === true;
+  const paused = props.paused === true;
   // peer is mount-constant (the parent remounts per chat via key=) — the lazy
   // initializers read the persisted draft exactly once (FR-69).
   const peer = props.peer;
@@ -438,6 +446,14 @@ export function Composer(props: {
           )}
         </button>
       </div>
+      {/* the pause note under the composer (§16.6, FR-120) */}
+      {paused && (
+        <p className="composer-note paused-note">
+          {t(
+            "This agent is paused: messages to it are rejected, not queued. Resume it from the actions menu.",
+          )}
+        </p>
+      )}
       {/* the raw-mode note under the composer (FR-88, §14.3) */}
       {raw && (
         <p className="composer-note">

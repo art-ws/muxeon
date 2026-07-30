@@ -26,7 +26,9 @@ afterEach(() => {
   rmSync(base, { recursive: true, force: true });
 });
 
-function makeMonitor(opts: { deny?: boolean; wip?: boolean; settleTicks?: number } = {}) {
+function makeMonitor(
+  opts: { deny?: boolean; wip?: boolean; paused?: boolean; settleTicks?: number } = {},
+) {
   const routed: Signal[] = [];
   const warnings: string[] = [];
   const blobs: Uint8Array[] = [];
@@ -44,6 +46,7 @@ function makeMonitor(opts: { deny?: boolean; wip?: boolean; settleTicks?: number
     },
     route: async (message) => {
       if (opts.wip) return { ok: false, code: "WIP_LIMIT", limit: 3, depth: 3 };
+      if (opts.paused) return { ok: false, code: "AGENT_PAUSED" };
       if (opts.deny) return { ok: false };
       routed.push(message);
       return { ok: true };
@@ -107,6 +110,20 @@ describe("outbox pickup (FR-55, §13.4)", () => {
     expect(reason).toContain("retry when it drains");
     // the original {to,payload} is preserved in the rejected file for the agent to resend
     expect(receipt).toMatchObject({ to: "writer", payload: "x" });
+  });
+
+  test("a paused recipient → rejected receipt naming the pause (§16.2, FR-117)", async () => {
+    await writeFile(join(outboxDir, "msg.json"), JSON.stringify({ to: "writer", payload: "x" }));
+    const { monitor, warnings } = makeMonitor({ paused: true });
+    await monitor.tick();
+    expect(readdirSync(outboxDir)).toEqual(["msg.rejected.json"]); // the agent's receipt
+    const reason = warnings[0] ?? "";
+    expect(reason).toContain("is paused by the operator");
+    expect(reason).toContain("retry when it resumes");
+    // the original {to,payload} is preserved so the agent can resend after the resume
+    expect(
+      JSON.parse(readFileSync(join(outboxDir, "msg.rejected.json"), "utf8")) as unknown,
+    ).toMatchObject({ to: "writer", payload: "x" });
   });
 
   test("a half-written file waits out the settle window, then rejects (§13.4)", async () => {

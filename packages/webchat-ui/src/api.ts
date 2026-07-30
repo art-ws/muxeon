@@ -107,6 +107,22 @@ export async function agentAction(
   );
 }
 
+/**
+ * Pause / resume the agent's communications (§16.5, FR-119). The DESIRED state is
+ * sent explicitly, never a toggle — a stale tab cannot invert someone else's flip
+ * (§16.4). Resolves to the flag as the server now holds it.
+ */
+export async function setAgentPaused(name: string, paused: boolean): Promise<boolean> {
+  const result = await jsonOrThrow<{ paused: boolean }>(
+    await fetch(`api/agents/${encodeURIComponent(name)}/pause`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ paused }),
+    }),
+  );
+  return result.paused;
+}
+
 /** Run a configured slash command (FR-66); resolves to the console output as-is. */
 export async function runAgentCommand(name: string, slash: string): Promise<string> {
   const { output } = await jsonOrThrow<{ output: string }>(

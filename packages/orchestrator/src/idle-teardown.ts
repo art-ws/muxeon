@@ -29,6 +29,14 @@ export interface IdleTeardownTarget {
   /** Was the live session raised by us (provision) rather than attached? (§5.1) */
   isSystemRaised(): boolean;
   /**
+   * Is the agent PAUSED (§16.3, FR-118)? A paused agent is NOT reaped: the pause
+   * itself is what stops the transport, so the inactivity window would otherwise
+   * always elapse and every paused agent would be torn down — a reap the operator
+   * never asked for. The clock is kept fresh instead, so the window starts counting
+   * from the resume. Absent ⇒ never paused.
+   */
+  isPaused?(): boolean;
+  /**
    * Perform the graceful teardown. The server wires this to a re-validating
    * control-lane op (idle + empty queue + still stale), so it never interrupts a
    * turn. Errors are swallowed by the sweeper (best-effort, like the §5.4 sweep).
@@ -87,9 +95,11 @@ export class IdleTeardownSweeper {
   async tick(): Promise<void> {
     const now = this.#now();
     for (const target of this.#targets) {
-      // Not idle (busy/down) or not ours → not eligible; keep the clock fresh so
-      // the window starts counting from the moment it next becomes idle-and-ours.
-      if (target.status() !== "idle" || !target.isSystemRaised()) {
+      // Not idle (busy/down), not ours, or PAUSED (§16.3 — the pause is what stops
+      // the transport, so reaping on that inactivity would be our own doing) → not
+      // eligible; keep the clock fresh so the window starts counting from the moment
+      // it next becomes idle-and-ours-and-unpaused.
+      if (target.status() !== "idle" || !target.isSystemRaised() || target.isPaused?.() === true) {
         this.#last.set(target.name, now);
         continue;
       }

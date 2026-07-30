@@ -15,6 +15,8 @@ export const CLI_COMMANDS: ReadonlySet<string> = new Set([
   "kill",
   "restart",
   "command",
+  "pause",
+  "resume",
   "channels",
   "signals",
   "queues",
@@ -78,6 +80,7 @@ function resolveBase(args: ParsedArgs, cwd: string): string {
 const USAGE = `usage:
   teamai agents
   teamai provision|kill|restart <agent>
+  teamai pause|resume <agent>                 # block/unblock message delivery to the agent (FR-119)
   teamai command <slash> <selector…>          # slash-command to group/tag/agent INTERSECTION (FR-115)
   teamai channels
   teamai signals send --from <node> --to <node> [--blob <path>] <text…>
@@ -142,9 +145,27 @@ async function dispatch(args: ParsedArgs, admin: Admin, io: CliIO): Promise<void
   switch (command) {
     case "agents": {
       const json = await admin("GET", "/agents");
-      for (const a of json.agents as { name: string; session: string; status: string }[]) {
-        io.stdout(`${a.name} (${a.session}): ${a.status}`);
+      for (const a of json.agents as {
+        name: string;
+        session: string;
+        status: string;
+        paused?: boolean;
+      }[]) {
+        // Pause is orthogonal to the status (§16.1) — printed as a marker beside it,
+        // never instead of it: an operator must still see idle/busy/down.
+        io.stdout(`${a.name} (${a.session}): ${a.status}${a.paused === true ? " [paused]" : ""}`);
       }
+      return;
+    }
+    case "pause":
+    case "resume": {
+      // Pause/resume (§16.5, FR-119): both send the explicit desired state, so a
+      // repeated command is a no-op rather than a flip.
+      const agent = need(rest[0], "<agent>");
+      const json = await admin("POST", `/agents/${encodeURIComponent(agent)}/pause`, {
+        paused: command === "pause",
+      });
+      io.stdout(`${agent}: ${json.paused === true ? "paused" : "not paused"}`);
       return;
     }
     case "provision":

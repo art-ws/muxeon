@@ -57,6 +57,10 @@ export class RouteRefusedError extends Error {
       case "WIP_LIMIT":
         // Backpressure (FR-104): a mechanical, temporary refusal — retry later.
         return `"${to}" is busy (WIP limit reached) — try again once it catches up`;
+      case "AGENT_PAUSED":
+        // Pause (§16.2, FR-117): an operator-declared refusal, and the message was
+        // dropped — the sender must resend after the resume, nothing is queued.
+        return `"${to}" is paused — the message was discarded, try again once it resumes`;
       default:
         return `unknown peer "${to}"`;
     }

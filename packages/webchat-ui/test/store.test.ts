@@ -191,3 +191,52 @@ describe("payload parts (§5.3 convention)", () => {
     expect(payloadParts({ blobs: [{ blob: "b-2" }] }).text).toBeUndefined();
   });
 });
+
+describe("pause in the status push (§16.6, FR-120)", () => {
+  test("the flag lands on the peer and is orthogonal to the status", () => {
+    let state = withPeers("researcher");
+    state = applyEvent(
+      state,
+      { type: "status", peer: "researcher", status: "busy", queueDepth: 1, paused: true },
+      isOperator,
+      1000,
+    );
+    expect(state.peers[0]?.paused).toBe(true);
+    expect(state.peers[0]?.status).toBe("busy"); // a paused agent can still be busy
+    expect(state.peers[0]?.busySince).toBe(1000); // the busy timer is unaffected
+  });
+
+  test("a resume clears it, and an older server (no field) normalizes to false", () => {
+    let state = withPeers("researcher");
+    state = applyEvent(
+      state,
+      { type: "status", peer: "researcher", status: "idle", queueDepth: 0, paused: true },
+      isOperator,
+    );
+    state = applyEvent(
+      state,
+      { type: "status", peer: "researcher", status: "idle", queueDepth: 0, paused: false },
+      isOperator,
+    );
+    expect(state.peers[0]?.paused).toBe(false);
+    state = applyEvent(
+      state,
+      { type: "status", peer: "researcher", status: "idle", queueDepth: 0 },
+      isOperator,
+    );
+    expect(state.peers[0]?.paused).toBe(false);
+  });
+
+  test("only the named peer is touched", () => {
+    let state = withPeers("researcher", "writer");
+    state = applyEvent(
+      state,
+      { type: "status", peer: "writer", status: "idle", queueDepth: 0, paused: true },
+      isOperator,
+    );
+    expect(state.peers.map((p) => [p.name, p.paused ?? false])).toEqual([
+      ["researcher", false],
+      ["writer", true],
+    ]);
+  });
+});

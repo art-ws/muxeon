@@ -156,6 +156,14 @@ export function createRoutinesAdmin(deps: RoutinesAdminDeps): RoutinesAdmin {
             result.code,
           );
         }
+        // Pause (§16.2, FR-117): a state conflict — 409, and the run is discarded.
+        if (result.code === "AGENT_PAUSED") {
+          throw new AdminError(
+            409,
+            `"${routine.target}" is paused — the run was discarded (§16.2)`,
+            result.code,
+          );
+        }
         throw new AdminError(
           403,
           `no topology edge ${routine.owner} — ${routine.target}`,

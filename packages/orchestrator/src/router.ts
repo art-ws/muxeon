@@ -8,7 +8,7 @@
 import type { Signal, Topology } from "@teamai/core";
 import { enqueue, queueDepth, queuePaths, sanitizeFileId } from "@teamai/queue";
 
-export type RouteCode = "TOPOLOGY_DENIED" | "UNKNOWN_PEER" | "WIP_LIMIT";
+export type RouteCode = "TOPOLOGY_DENIED" | "UNKNOWN_PEER" | "WIP_LIMIT" | "AGENT_PAUSED";
 
 /** A fresh queue-filename stamp (§5.3): unix_ms + the process-wide seq. */
 export interface QueueStamp {
@@ -22,7 +22,7 @@ export interface FanoutEntry {
   /** The per-member deterministic id `<bcastId>:<member>` (§10.9/§10.16). */
   readonly id: string;
   readonly ok: boolean;
-  /** Set when `ok` is false — the per-member refusal (WIP_LIMIT / UNKNOWN_PEER). */
+  /** Set when `ok` is false — the per-member refusal (WIP_LIMIT / AGENT_PAUSED / UNKNOWN_PEER). */
   readonly code?: RouteCode;
 }
 
@@ -72,6 +72,15 @@ export interface RouterOptions {
    * recipient exempt (backward-compatible; tests that omit it are never gated).
    */
   readonly wipLimitOf?: (recipient: string) => number | null;
+  /**
+   * Is the recipient PAUSED (§16, FR-117)? A paused agent is admitted NOTHING: the
+   * refusal is `AGENT_PAUSED`, before enqueue, for every kind — replies and the
+   * system nudges included (`bypassWip` buys nothing here; it bypasses the WIP gate
+   * only). Absent ⇒ nobody is paused (backward-compatible; tests that omit it are
+   * never gated). Operators/groups/tags are never paused (§16.1) — the composition
+   * root's predicate answers false for them.
+   */
+  readonly isPaused?: (recipient: string) => boolean;
   /** Clock for the filename's unix_ms; injectable for tests. Default Date.now. */
   readonly now?: () => number;
   /**
@@ -116,6 +125,7 @@ export class Router {
   readonly #root: string;
   readonly #queueKeyOf: (name: string) => string | null;
   readonly #wipLimitOf: ((recipient: string) => number | null) | undefined;
+  readonly #isPaused: ((recipient: string) => boolean) | undefined;
   readonly #now: () => number;
   readonly #onRouted: ((message: Signal) => void) | undefined;
   readonly #onRefused:
@@ -134,6 +144,7 @@ export class Router {
     this.#root = options.root;
     this.#queueKeyOf = options.queueKeyOf;
     this.#wipLimitOf = options.wipLimitOf;
+    this.#isPaused = options.isPaused;
     this.#now = options.now ?? Date.now;
     this.#onRouted = options.onRouted;
     this.#onRefused = options.onRefused;
@@ -161,12 +172,13 @@ export class Router {
 
   /**
    * Routes one message: UNKNOWN_PEER if `to` is not a node, TOPOLOGY_DENIED if there
-   * is no edge (and it is not self-delivery, §10.2), WIP_LIMIT if the recipient's
-   * un-drained depth already meets its WIP cap (§8.2 backpressure, FR-104),
-   * otherwise enqueues it into the recipient's pending/. The recipient's queue
-   * directory must already exist (the server creates every participant's queue at
-   * boot). `options.bypassWip` skips the WIP gate for a `kind:"rendezvous"` system
-   * notice only (FR-105).
+   * is no edge (and it is not self-delivery, §10.2), AGENT_PAUSED if the operator
+   * paused the recipient (§16.2, FR-117), WIP_LIMIT if the recipient's un-drained
+   * depth already meets its WIP cap (§8.2 backpressure, FR-104), otherwise enqueues
+   * it into the recipient's pending/. The recipient's queue directory must already
+   * exist (the server creates every participant's queue at boot).
+   * `options.bypassWip` skips the WIP gate for a `kind:"rendezvous"` system notice
+   * only (FR-105) — it does NOT skip the pause gate.
    */
   async route(message: Signal, options?: RouteOptions): Promise<RouteResult> {
     // Broadcast fan-out (§15.4, §10.16): a `to` naming a group/tag is expanded HERE,
@@ -179,6 +191,19 @@ export class Router {
     if (key === null) return this.#refuse(message, { ok: false, code: "UNKNOWN_PEER" });
     if (!this.#topology.canDeliver(message.from, message.to)) {
       return this.#refuse(message, { ok: false, code: "TOPOLOGY_DENIED" });
+    }
+    // Pause gate (§16.2, FR-117): an operator-declared refusal. Checked AFTER the
+    // edge (a non-neighbour must not learn whether someone else's agent is paused —
+    // observability is a right too, §8.7) and BEFORE the WIP gate (otherwise the
+    // receipt would blame a queue that is un-drained precisely BECAUSE of the pause).
+    // EVERY kind is refused — replies, the reply-nudge, the rendezvous notice (its
+    // `bypassWip` buys nothing here), a raw turn and even self-delivery: pause is
+    // about injection, not about rights. The payload is DROPPED (no pending/ record,
+    // no done/ id — the same id re-sends fine after the resume) and the receipt
+    // travels the producer's normal refusal path. No rendezvous is armed: the
+    // coordinator only reacts to WIP_LIMIT (§16.2).
+    if (this.#isPaused?.(message.to) === true) {
+      return this.#refuse(message, { ok: false, code: "AGENT_PAUSED" });
     }
     // WIP limit (§8.2, FR-104): a gated recipient at or above its cap gets NOTHING
     // new admitted — EVERY kind, replies included (the operator chose the hardest
@@ -252,6 +277,11 @@ export class Router {
   async #deliverMember(copy: Signal): Promise<FanoutEntry> {
     const key = this.#queueKeyOf(copy.to);
     if (key === null) return { to: copy.to, id: copy.id, ok: false, code: "UNKNOWN_PEER" };
+    // A paused member is refused its copy (§16.2) — per-member, like the WIP gate:
+    // the rest of the fan-out is delivered, the pause shows up in `fanout[].code`.
+    if (this.#isPaused?.(copy.to) === true) {
+      return { to: copy.to, id: copy.id, ok: false, code: "AGENT_PAUSED" };
+    }
     const limit = this.#wipLimitOf?.(copy.to) ?? null;
     if (limit !== null && limit > 0) {
       const depth = await queueDepth(queuePaths(this.#root, key));

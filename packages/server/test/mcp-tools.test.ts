@@ -68,18 +68,21 @@ describe.skipIf(!LOOPBACK_DIRECT)("agent-plane tools (§8.6, §3.1)", () => {
     expect(sc(await alice.callTool({ name: "whoami", arguments: {} }))).toEqual({ name: "alice" });
   });
 
-  test("list_peers returns neighbors (agents + operators) with type + status", async () => {
+  test("list_peers returns neighbors (agents + operators) with type + status + paused", async () => {
+    // `paused` (§16.5, FR-119) rides beside the status — read-only for the plane.
     expect(sc(await alice.callTool({ name: "list_peers", arguments: {} }))).toEqual({
       peers: [
-        { name: "bob", type: "agent", status: "down" },
-        { name: "op", type: "agent", status: "idle" }, // operator peer is an agent, always idle (§5.3)
+        { name: "bob", type: "agent", status: "down", paused: false },
+        // operator peer is an agent, always idle (§5.3) and never pausable (§16.1)
+        { name: "op", type: "agent", status: "idle", paused: false },
       ],
     });
   });
 
-  test("get_status reads a neighbor's status", async () => {
+  test("get_status reads a neighbor's status and its pause flag", async () => {
     expect(sc(await alice.callTool({ name: "get_status", arguments: { name: "bob" } }))).toEqual({
       status: "down",
+      paused: false,
     });
   });
 
@@ -270,5 +273,93 @@ describe.skipIf(!LOOPBACK_DIRECT)("agent-plane groups & tags (§15.5)", () => {
       expect(result.isError).toBe(true);
       expect(sc(result)).toEqual({ error: "UNKNOWN_PEER" });
     }
+  });
+});
+
+// Pause on the agent plane (§16.5, FR-119): READ-ONLY. A caller sees that a
+// neighbour is paused (get_status / list_peers) and gets a clear AGENT_PAUSED
+// refusal from send — but no tool sets or clears the flag (§10.10 intact).
+describe.skipIf(!LOOPBACK_DIRECT)("agent-plane × pause (§16.5, FR-119)", () => {
+  let root: string;
+  let plane: AgentPlaneHandle;
+  let alice: Client;
+  const paused = new Set<string>();
+
+  beforeEach(async () => {
+    paused.clear();
+    root = mkdtempSync(join(tmpdir(), "teamai-pause-plane-"));
+    for (const key of Object.values(KEY)) await ensureSessionQueue(root, key);
+    const topology = new Topology(TOPOLOGY);
+    const router = new Router({
+      topology,
+      root,
+      queueKeyOf: (n) => KEY[n] ?? null,
+      isPaused: (n) => paused.has(n),
+    });
+    plane = startAgentPlane({
+      port: 0,
+      isKnownIdentity: (n) => n in KEY,
+      makeServer: (caller) =>
+        createAgentServer(caller, {
+          topology,
+          router,
+          peerStatus: (n) => STATUS[n] ?? (n === "op" ? "idle" : undefined),
+          peerPaused: (n) => paused.has(n),
+        }),
+    });
+    alice = await connectClient(plane.url, "alice");
+  });
+
+  afterEach(async () => {
+    await alice?.close();
+    await plane?.stop();
+    rmSync(root, { recursive: true, force: true });
+  });
+
+  test("get_status / list_peers surface a neighbour's pause beside its status", async () => {
+    paused.add("bob");
+    expect(sc(await alice.callTool({ name: "get_status", arguments: { name: "bob" } }))).toEqual({
+      status: "down",
+      paused: true,
+    });
+    expect(sc(await alice.callTool({ name: "list_peers", arguments: {} }))).toMatchObject({
+      peers: [
+        { name: "bob", paused: true },
+        { name: "op", paused: false },
+      ],
+    });
+  });
+
+  test("send to a paused neighbour is an AGENT_PAUSED error and enqueues nothing", async () => {
+    paused.add("bob");
+    const result = await alice.callTool({
+      name: "send",
+      arguments: { to: "bob", payload: "you there?", id: "p1" },
+    });
+    expect(result.isError).toBe(true);
+    expect(sc(result)).toMatchObject({ error: "AGENT_PAUSED" });
+    expect(JSON.stringify(result.content)).toContain("discarded");
+    expect(pendingFiles(root, "bob-s")).toHaveLength(0);
+  });
+
+  test("the same id delivers after the resume — the refusal poisoned nothing", async () => {
+    paused.add("bob");
+    expect(
+      (await alice.callTool({ name: "send", arguments: { to: "bob", payload: "x", id: "same" } }))
+        .isError,
+    ).toBe(true);
+    paused.delete("bob");
+    const retry = await alice.callTool({
+      name: "send",
+      arguments: { to: "bob", payload: "x", id: "same" },
+    });
+    expect(retry.isError).toBeFalsy();
+    expect(pendingFiles(root, "bob-s")).toHaveLength(1);
+  });
+
+  test("no tool can SET the flag — the plane stays read-only (§10.10)", async () => {
+    const tools = (await alice.listTools()).tools.map((tool) => tool.name);
+    expect(tools).not.toContain("pause");
+    expect(tools.some((name) => name.includes("pause"))).toBe(false);
   });
 });

@@ -144,7 +144,9 @@ export function applyEvent(
             ...base,
             status: event.status,
             queueDepth: event.queueDepth,
-            // rendezvous / WIP markers (FR-104/FR-105) — normalize absent ⇒ false
+            // pause (§16, FR-120) and the rendezvous / WIP markers (FR-104/FR-105)
+            // — normalize absent ⇒ false
+            paused: event.paused ?? false,
             atWipLimit: event.atWipLimit ?? false,
             waiting: event.waiting ?? false,
             awaited: event.awaited ?? false,

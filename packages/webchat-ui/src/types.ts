@@ -58,8 +58,13 @@ export interface PeerInfo {
    * peer turn busy — feeds the chat-header "thinking…" timer.
    */
   readonly busySince?: number;
-  /** Available lifecycle actions (FR-65) — drives the Shutdown/Reload buttons. */
-  readonly actions?: { readonly shutdown: boolean; readonly reload: boolean };
+  /** Available lifecycle actions (FR-65) + pause (FR-120) — drives the kebab menu. */
+  readonly actions?: {
+    readonly shutdown: boolean;
+    readonly reload: boolean;
+    /** Pause/resume offered for this peer (§16.6); absent on an older server. */
+    readonly pause?: boolean;
+  };
   /** Configured slash commands (FR-66) — the composer command buttons. */
   readonly commands?: readonly string[];
   /** Server-configured accent color (FR-73); absent ⇒ palette pick by name. */
@@ -70,6 +75,12 @@ export interface PeerInfo {
   readonly awaited?: boolean;
   /** Queue depth has reached the agent's WIP cap (FR-104) — the red name. */
   readonly atWipLimit?: boolean;
+  /**
+   * Operator-declared pause (§16, FR-120): the transport delivers nothing to this
+   * agent. ORTHOGONAL to `status` — a paused agent can be idle, busy or down, so the
+   * row shows the pause marker and keeps the real status in its tooltip.
+   */
+  readonly paused?: boolean;
 }
 
 export interface HistoryPage {
@@ -115,6 +126,8 @@ export type PanelEvent =
       readonly peer: string;
       readonly status: AgentStatus | null;
       readonly queueDepth: number;
+      /** Operator-declared pause (§16, FR-119); optional — an older server omits it. */
+      readonly paused?: boolean;
       /** Depth ≥ WIP cap (FR-104); optional for backward-compat with an older server. */
       readonly atWipLimit?: boolean;
       /** Has an outgoing rendezvous intent — ↑ "я жду" (FR-105). */
