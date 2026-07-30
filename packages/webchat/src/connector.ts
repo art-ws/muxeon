@@ -846,10 +846,18 @@ export class WebchatConnector implements ChannelConnector {
     // DND (§17.8, FR-134): the pause of a USER is settable by that user themselves
     // (the self-chat switch) and by any `role:"admin"` user — for anything else the
     // §10.2 neighbour gate below decides.
-    const dndSelf = action === "pause" && name === me.name && me.isUser;
-    const dndAsAdmin =
-      action === "pause" && me.role === "admin" && me.ports?.peerType?.(name) === "user";
-    if (!peers.includes(name) && !dndSelf && !dndAsAdmin) {
+    // DND (§17.8, FR-134) has its OWN rule, narrower than the neighbour gate: a
+    // user's pause may be set by that user alone or by a `role:"admin"` user.
+    // Being topology neighbours is NOT enough — otherwise any user could silence
+    // any other one they happen to be wired to.
+    const targetIsUser = name === me.name ? me.isUser : me.ports?.peerType?.(name) === "user";
+    if (targetIsUser) {
+      if (action !== "pause") return json({ error: `unknown agent "${name}"` }, 404);
+      const mayPause = name === me.name ? me.isUser : me.role === "admin";
+      if (!mayPause) {
+        return json({ error: "only the user themselves or an admin may set DND (§17.8)" }, 403);
+      }
+    } else if (!peers.includes(name)) {
       return json({ error: `unknown agent "${name}"` }, 404); // not a neighbor (§10.2)
     }
     try {

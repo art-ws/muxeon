@@ -877,8 +877,10 @@ export async function bootstrap(options: BootstrapOptions = {}): Promise<TeamaiS
       // slash commands: merged type ∪ agent config list (FR-66) + internal
       // commands (FR-67, e.g. /screenshot — every agent); the list IS the
       // allowlist — runCommand refuses anything outside it
+      // A user peer (§17.7) has no console at all, so it has no command catalog —
+      // asking the lifecycle admin for one would (rightly) raise UNKNOWN_AGENT.
       commands: (name) =>
-        topology.neighbors(operator).includes(name)
+        agents.has(name) && topology.neighbors(operator).includes(name)
           ? lifecycleAdmin.commands(name).map((command) => command.slash)
           : [],
       runCommand: (name, slash) => lifecycleAdmin.command(name, slash),

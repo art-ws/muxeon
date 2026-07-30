@@ -21,7 +21,8 @@ let paused: Set<string>;
 let histories: Map<string, HistoryStore>;
 
 const ports = (owner: string): WebchatPorts => ({
-  listPeers: () => (owner === "alex" ? ["dev", "kim"] : ["dev"]),
+  // The topology is undirected: alex—kim means each is the other's peer.
+  listPeers: () => (owner === "alex" ? ["dev", "kim"] : ["dev", "alex"]),
   peerStatus: (name) => (name === "dev" ? "idle" : undefined),
   peerType: (name) => (name === "kim" || name === "alex" ? "user" : "agent"),
   peerPresence: (name) => (name === "kim" ? "online" : "offline"),
@@ -175,7 +176,7 @@ describe("per-user isolation (§10.22, FR-127)", () => {
       await connector.handleRequest(get("/api/peers", await login("kim")))
     ).json()) as { peers: { name: string }[] };
     expect(alex.peers.map((p) => p.name)).toEqual(["dev", "kim"]);
-    expect(kim.peers.map((p) => p.name)).toEqual(["dev"]);
+    expect(kim.peers.map((p) => p.name)).toEqual(["dev", "alex"]);
   });
 
   test("one user's history is unreachable from another's session", async () => {
@@ -268,13 +269,26 @@ describe("DND (§17.8, FR-134)", () => {
     expect(paused.has("kim")).toBe(true);
   });
 
-  test("a plain user cannot pause someone else — they are not even a peer", async () => {
+  test("a plain user cannot pause another user — even a topology NEIGHBOUR", async () => {
+    // kim lists alex among their peers here (the edge is undirected), so the
+    // neighbour gate alone would have let this through: DND has its own rule.
     const token = await login("kim");
     const response = await connector.handleRequest(
       post("/api/agents/alex/pause", { paused: true }, token),
     );
-    expect(response.status).toBe(404);
+    expect(response.status).toBe(403);
+    expect(((await response.json()) as { error: string }).error).toMatch(/themselves or an admin/);
     expect(paused.has("alex")).toBe(false);
+  });
+
+  test("a user peer is never a target of the AGENT actions (no session at all)", async () => {
+    const token = await login("alex"); // admin, and kim is their peer
+    for (const action of ["shutdown", "reload", "command"]) {
+      const response = await connector.handleRequest(
+        post(`/api/agents/kim/${action}`, { slash: "screenshot" }, token),
+      );
+      expect(response.status).toBe(404);
+    }
   });
 });
 

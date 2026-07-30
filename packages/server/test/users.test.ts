@@ -250,6 +250,42 @@ describe("DND through the shared registry (§17.8, FR-134)", () => {
   });
 });
 
+// The panel surface THROUGH the real wiring (§17.7): the ports/lifecycle a user
+// peer gets are the composition root's, and a user has no console — asking the
+// lifecycle admin for its command catalog would raise UNKNOWN_AGENT and take the
+// whole peer list down with it (found by running a stand, not by a unit test).
+describe("panel surface with a user peer (§17.7, FR-129)", () => {
+  test("/api/peers answers 200 and reports the user peer without a catalog", async () => {
+    const server = await boot();
+    const panel = (server.config.channels[0] as unknown as { port: number }).port;
+    const base = `http://127.0.0.1:${panel}`;
+    const login = await fetch(`${base}/api/login`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ user: "alex", password: "alex-pw" }),
+    });
+    expect(login.status).toBe(200);
+    const cookie = /teamai_webchat=[^;]+/.exec(login.headers.get("set-cookie") ?? "")?.[0] ?? "";
+
+    const response = await fetch(`${base}/api/peers`, { headers: { cookie } });
+    expect(response.status).toBe(200);
+    const body = (await response.json()) as {
+      user: string;
+      role: string;
+      self?: { name: string };
+      peers: { name: string; type?: string; commands?: string[]; presence?: string }[];
+    };
+    expect(body.user).toBe("alex");
+    expect(body.role).toBe("admin");
+    expect(body.self?.name).toBe("alex"); // the pinned self-chat (FR-128)
+    const kim = body.peers.find((peer) => peer.name === "kim");
+    expect(kim?.type).toBe("user");
+    expect(kim?.commands).toEqual([]); // no console ⇒ no catalog, and no throw
+    expect(kim?.presence).toBe("offline"); // nothing sent yet (FR-133)
+    await server.stop();
+  });
+});
+
 describe("legacy compatibility (§17.9, FR-132)", () => {
   test("a config with no users[] boots exactly as before", async () => {
     // A stub connector: the point is the WIRING (one operator, one egress), not
