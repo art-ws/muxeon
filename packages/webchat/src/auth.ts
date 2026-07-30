@@ -18,6 +18,38 @@ export function passwordsEqual(candidate: string, expected: string): boolean {
   return timingSafeEqual(a, b);
 }
 
+/**
+ * The two password forms a user may carry (§17.2, FR-122): a literal/`$env`-resolved
+ * `password`, or an inline `passwordHash` (argon2id/bcrypt — a hash is not a secret
+ * in the §10.7 sense). Exactly one is present; the config validator enforces that.
+ */
+export interface PasswordVerifier {
+  readonly password?: string;
+  readonly passwordHash?: string;
+}
+
+/**
+ * Verifies a login attempt against either form (§17.4). The literal path is
+ * constant-time (hash both sides); the hash path is `Bun.password.verify`, which
+ * is constant-time by construction. A malformed/unsupported hash verifies to
+ * false rather than throwing — a broken hash must read as "wrong password", never
+ * as a 500 that tells an attacker something.
+ */
+export async function verifyPassword(
+  candidate: string,
+  expected: PasswordVerifier,
+): Promise<boolean> {
+  if (expected.passwordHash !== undefined) {
+    try {
+      return await Bun.password.verify(candidate, expected.passwordHash);
+    } catch {
+      return false;
+    }
+  }
+  if (expected.password !== undefined) return passwordsEqual(candidate, expected.password);
+  return false; // no password configured — nothing can match
+}
+
 /** The spec default for auth.session.ttl (§12.2): "1d". */
 export const SESSION_DEFAULT_TTL_MS = 24 * 60 * 60 * 1000;
 

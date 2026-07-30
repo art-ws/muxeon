@@ -18,6 +18,7 @@ import {
   operatorErrorText,
   reactionText,
 } from "./contract";
+import { type ChannelIdentity, resolveUserTarget } from "./identity";
 
 /** One inbound chat event, already decoded from the Bot API update. */
 export interface TelegramIncoming {
@@ -26,6 +27,13 @@ export interface TelegramIncoming {
   /** message text or media caption */
   readonly text?: string;
   readonly media?: readonly { readonly fileId: string; readonly name?: string }[];
+  /**
+   * Who sent it (§17.6, FR-125): the telegram `username` and/or numeric user id.
+   * Used ONLY in users mode, where the sender is resolved to exactly one user
+   * through the channel bindings (§10.21). Legacy mode ignores it — everything in
+   * the chat is attributed to the bound operator.
+   */
+  readonly sender?: { readonly username?: string; readonly userId?: number | string };
 }
 
 /** The slice of the Telegram Bot API the connector needs; injectable for tests. */
@@ -41,7 +49,13 @@ export interface TelegramApi {
 }
 
 export interface TelegramConnectorOptions {
-  readonly bindOperator: string;
+  /** Legacy single-operator binding (§12.1); absent in users mode (§17.2). */
+  readonly bindOperator?: string | undefined;
+  /**
+   * Users-mode identity port (§17.6, FR-125/FR-126): sender alias → user, user →
+   * alias (egress), and the sender's addressable peers. Absent ⇒ legacy mode.
+   */
+  readonly identity?: ChannelIdentity;
   readonly defaultTarget?: string;
   readonly api: TelegramApi;
   /** Agent names addressable by @token (§3.2) — the topology's agents. */
@@ -59,8 +73,13 @@ const defaultSleep = (ms: number): Promise<void> =>
 
 export class TelegramConnector implements ChannelConnector {
   readonly type = "telegram";
-  readonly bindOperator: string;
+  readonly bindOperator: string | undefined;
   readonly defaultTarget?: string;
+  readonly #identity: ChannelIdentity | undefined;
+  /** Users mode (§17.5): alias → the chat that alias last wrote from (egress). */
+  readonly #chatByAlias = new Map<string, number | string>();
+  /** Ids of self-delivered records that came FROM this channel (§17.6-2c echo skip). */
+  readonly #suppressed = new Set<string>();
   readonly #api: TelegramApi;
   readonly #knownAgents: ReadonlySet<string>;
   readonly #blobs: BlobStore;
@@ -75,6 +94,7 @@ export class TelegramConnector implements ChannelConnector {
 
   constructor(options: TelegramConnectorOptions) {
     this.bindOperator = options.bindOperator;
+    this.#identity = options.identity;
     if (options.defaultTarget !== undefined) this.defaultTarget = options.defaultTarget;
     this.#api = options.api;
     this.#knownAgents = new Set(options.knownAgents);
@@ -116,15 +136,40 @@ export class TelegramConnector implements ChannelConnector {
 
   async #handle(incoming: TelegramIncoming, onInbound: InboundHandler): Promise<void> {
     this.#chatId = incoming.chatId;
-    const resolved = resolveTarget(incoming.text, this.#knownAgents, this.defaultTarget);
-    if (!resolved.ok) {
-      // §3.2: no @agent and no defaultTarget → clear error to the operator, not a crash.
-      await this.#reply(
-        incoming.chatId,
-        "teamai: no recipient — address an agent with @name (no default target is set)",
-      );
-      return;
+    // Users mode (§17.6): resolve WHO wrote before anything else — an identity with
+    // no binding is refused politely and never reaches the router (§10.21, no guests).
+    const identity = this.#identity;
+    let from = this.bindOperator;
+    let self = false;
+    let target: string;
+    if (identity !== undefined) {
+      const sender = this.#senderOf(incoming, identity);
+      if (sender === undefined) {
+        await this.#reply(
+          incoming.chatId,
+          "teamai: this telegram account is not linked to a TEAMAI user — ask the operator to bind it",
+        );
+        return;
+      }
+      from = sender;
+      const alias = identity.aliasOf(sender);
+      if (alias !== undefined) this.#chatByAlias.set(alias, incoming.chatId);
+      const resolved = resolveUserTarget(incoming.text, sender, identity);
+      target = resolved.target;
+      self = resolved.self;
+    } else {
+      const resolved = resolveTarget(incoming.text, this.#knownAgents, this.defaultTarget);
+      if (!resolved.ok) {
+        // §3.2: no @agent and no defaultTarget → clear error to the operator, not a crash.
+        await this.#reply(
+          incoming.chatId,
+          "teamai: no recipient — address an agent with @name (no default target is set)",
+        );
+        return;
+      }
+      target = resolved.target;
     }
+    if (from === undefined) return; // unreachable: legacy always binds an operator
     let payload: unknown;
     try {
       payload = await this.#buildPayload(incoming);
@@ -136,8 +181,8 @@ export class TelegramConnector implements ChannelConnector {
     const message: Message = {
       // Deterministic per update → a re-polled redelivery reuses the id (§5.3/§10.9).
       id: `telegram-${incoming.updateId}`,
-      from: this.bindOperator,
-      to: resolved.target,
+      from,
+      to: target,
       kind: "message",
       ts: this.#now(),
       payload,
@@ -145,9 +190,22 @@ export class TelegramConnector implements ChannelConnector {
     };
     try {
       await onInbound(message);
+      // A self-delivered message (§17.6-2c) echoes back over the user's OTHER
+      // channels through their egress fan-out; this chat already shows it, so the
+      // source chat is excluded — that exclusion is this flag, read by the server.
+      if (self) this.#suppressed.add(message.id);
     } catch (error) {
       await this.#reply(incoming.chatId, operatorErrorText(error)); // §3.2, redacted (§8.7)
     }
+  }
+
+  /** Sender → bound user (§17.6-1): by @username first, then by numeric id. */
+  #senderOf(incoming: TelegramIncoming, identity: ChannelIdentity): string | undefined {
+    const username = incoming.sender?.username;
+    const byName = username !== undefined ? identity.userOf(username) : undefined;
+    if (byName !== undefined) return byName;
+    const userId = incoming.sender?.userId;
+    return userId !== undefined ? identity.userOf(String(userId)) : undefined;
   }
 
   /** Media → blob store FIRST (§5.4), payload carries opaque refs only (§5.3). */
@@ -172,6 +230,22 @@ export class TelegramConnector implements ChannelConnector {
     }
   }
 
+  /**
+   * Users-mode push (§17.5, FR-124): deliver one record to the chat of `alias`.
+   * Unlike {@link deliver} this is NOT the queue sink — the user's history already
+   * holds the record — so a throw is only logged upstream (best-effort fan-out).
+   * A record that originated as self-delivery FROM this chat is skipped: the user
+   * already sees it there (§17.6-2c).
+   */
+  async pushTo(alias: string, signal: Signal): Promise<void> {
+    if (this.#suppressed.delete(signal.id)) return;
+    const chatId = this.#chatByAlias.get(alias);
+    if (chatId === undefined) {
+      throw new Error(`no telegram chat known for "${alias}" yet — they must write first`);
+    }
+    await this.#send(chatId, signal);
+  }
+
   /** Egress sink (§8.4): push text, then each blob as a document. Throw = re-send (§10.9). */
   async deliver(signal: Signal): Promise<void> {
     // Forward-compat kinds (FR-25b, §5.3): a reaction renders as a small notice;
@@ -190,6 +264,11 @@ export class TelegramConnector implements ChannelConnector {
       // is re-sent once the operator has written first (at-least-once, §10.9).
       throw new Error("no telegram chat known yet — waiting for the operator to write first");
     }
+    await this.#send(chatId, signal);
+  }
+
+  /** Text, then each blob as a document — the shared body of deliver/pushTo. */
+  async #send(chatId: number | string, signal: Signal): Promise<void> {
     const payload = normalizePayload(signal.payload);
     if (payload.text !== undefined) {
       await this.#api.sendText(chatId, `[${signal.from}] ${payload.text}`);

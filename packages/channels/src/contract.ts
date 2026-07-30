@@ -16,8 +16,12 @@ export type InboundHandler = (message: Message) => Promise<void>;
 
 export interface ChannelConnector {
   readonly type: string;
-  /** The operator node this channel binds (§7.1); one channel per operator (§7.5). */
-  readonly bindOperator: string;
+  /**
+   * The operator node this channel binds (§7.1); one channel per operator (§7.5).
+   * Absent in users mode (§17.2) — identities then come from the per-user bindings
+   * and the channel serves many people at once (FR-125).
+   */
+  readonly bindOperator?: string | undefined;
   /** Fallback target when the text has no @agent token (§3.2/§7.5). */
   readonly defaultTarget?: string;
 
@@ -31,6 +35,15 @@ export interface ChannelConnector {
    * blob refs are resolved to bytes only under <root>/blobs/ (§8.7).
    */
   deliver(signal: Signal): Promise<void>;
+
+  /**
+   * Users-mode push (§17.5, FR-124): deliver one record to the channel identity
+   * `alias` (a telegram/slack alias; webchat pushes by user name). NOT a queue
+   * sink — the user's pseudo-session already completed the record into their
+   * history — so a throw is a warning upstream, never a re-send. Absent ⇒ the
+   * connector serves legacy mode only.
+   */
+  pushTo?(alias: string, signal: Signal): Promise<void> | void;
 
   stop(): Promise<void>;
 }

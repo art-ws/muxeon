@@ -32,10 +32,16 @@ export interface AgentPlaneDeps {
   /**
    * A peer's kind (§15.5, FR-111): "agent" (operators included — an operator is an
    * agent in the plane, §2), "group", or "tag". Groups/tags are input-only broadcast
-   * targets — no status, no console/session. Absent ⇒ every peer is an "agent"
-   * (backward-compatible; no groups/tags configured).
+   * targets — no status, no console/session. Since §17.5 a peer can also be a
+   * "user" — a human: no session, no console, and `presence` instead of a status
+   * (FR-133). Absent ⇒ every peer is an "agent" (backward-compatible).
    */
-  peerType?(name: string): "agent" | "group" | "tag";
+  peerType?(name: string): "agent" | "group" | "tag" | "user";
+  /**
+   * A user peer's presence (§17.5, FR-133): "online" while their last outgoing send
+   * is inside `server.presenceTtl`, else "offline". Absent ⇒ presence is not wired.
+   */
+  peerPresence?(name: string): "online" | "offline" | undefined;
   /**
    * Is a peer PAUSED (§16.5, FR-119)? Read-only for the agent plane: a caller sees
    * that a neighbour is paused (so it can stop hammering a wall) but can never set
@@ -270,7 +276,8 @@ async function dispatch(
   deps: AgentPlaneDeps,
 ): Promise<CallToolResult> {
   // A peer's kind (§15.5, FR-111); default "agent" when no groups/tags are configured.
-  const typeOf = (name: string): "agent" | "group" | "tag" => deps.peerType?.(name) ?? "agent";
+  const typeOf = (name: string): "agent" | "group" | "tag" | "user" =>
+    deps.peerType?.(name) ?? "agent";
   switch (tool) {
     case "whoami":
       return ok({ name: caller });
@@ -281,6 +288,17 @@ async function dispatch(
         const type = typeOf(name);
         // `paused` (§16.5) rides beside the status, never inside it — the two are
         // orthogonal (§16.1); a group/tag has neither.
+        // A user (§17.5, FR-133) carries `presence`, never a session status; a
+        // group/tag carries neither. The legacy operator keeps reporting "agent"
+        // (§15.1) — compatibility with the pre-§17 plane.
+        if (type === "user") {
+          return {
+            name,
+            type,
+            presence: deps.peerPresence?.(name) ?? "offline",
+            paused: deps.peerPaused?.(name) ?? false,
+          };
+        }
         return type === "agent"
           ? {
               name,
@@ -300,7 +318,8 @@ async function dispatch(
       // revealed — same visibility as list_peers. Self is not a neighbor.
       if (!deps.topology.hasEdge(caller, name))
         return fail("UNKNOWN_PEER", `not a neighbor: ${name}`);
-      // A group/tag has no status (§15.5) — report it plainly, not a fake "down".
+      // A group/tag has no status (§15.5), and neither has a user (§17.5: presence
+      // is not a session status — it arrives in list_peers). Report it plainly.
       if (typeOf(name) !== "agent")
         return fail("NOT_STATUSABLE", `"${name}" is a ${typeOf(name)} — it has no status`);
       return ok({

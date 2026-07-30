@@ -21,7 +21,7 @@ import { IconChevron, IconGear, IconGroup, IconPower, IconRadio, IconTag, IconUs
 import { agentColor } from "./palette";
 import { loadExpandedGroups, loadPref, saveExpandedGroups, savePref } from "./prefs";
 import { type TreeRow, buildTree, tagPeers } from "./tree";
-import { type PeerInfo, peerKind } from "./types";
+import { type PeerInfo, type SelfChatInfo, peerKind } from "./types";
 
 const STATUS_LABEL: Record<string, string> = {
   idle: "idle",
@@ -36,7 +36,21 @@ const STATUS_LABEL: Record<string, string> = {
  * session. `status` alone is used when nothing is paused.
  */
 function statusLabel(peer: PeerInfo): string {
-  return peer.paused === true ? "paused" : (STATUS_LABEL[peer.status ?? ""] ?? "—");
+  if (peer.paused === true) return "paused";
+  // A user peer (§17.7) has no session: presence answers "are they around" (FR-133).
+  if (peerKind(peer) === "user") return peer.presence === "online" ? "online" : "offline";
+  return STATUS_LABEL[peer.status ?? ""] ?? "—";
+}
+
+/**
+ * The activity dot's class (§12.7, §17.7): an agent shows its session status, a
+ * user their presence (FR-133) — the same dot in the same place, so the sidebar
+ * reads uniformly; `paused` mutes either of them (§16.6/FR-134 DND).
+ */
+function dotClass(peer: PeerInfo): string {
+  const state =
+    peerKind(peer) === "user" ? (peer.presence ?? "offline") : (peer.status ?? "unknown");
+  return `status-dot ${state}${peer.paused === true ? " paused" : ""}`;
 }
 
 /** The collapsed-rail avatar text: the first character, uppercased. */
@@ -61,6 +75,12 @@ export function PeerList(props: {
   onLogout?: () => void;
   /** Opens the settings page (T110, FR-76) — an account-menu item. */
   onSettings?: () => void;
+  /**
+   * The pinned self-chat (§17.7, FR-128): notes to self plus everything addressed
+   * to this user, always available (self-delivery needs no edge, §10.2). Absent
+   * for a legacy operator — that panel has no user identity to talk to.
+   */
+  self?: SelfChatInfo;
 }): React.JSX.Element {
   const t = useT();
   const collapsed = props.collapsed === true;
@@ -96,7 +116,7 @@ export function PeerList(props: {
   const flat = props.flat === true;
   const rows: readonly TreeRow[] = flat
     ? props.peers
-        .filter((peer) => peerKind(peer) === "agent")
+        .filter((peer) => peerKind(peer) === "agent" || peerKind(peer) === "user")
         .map((peer) => ({ kind: "agent", name: peer.name, depth: 0, peer }))
     : buildTree(props.peers, expanded);
   const tags = flat ? [] : tagPeers(props.peers);
@@ -106,6 +126,34 @@ export function PeerList(props: {
       {/* the rows scroll on their own (T109) — the footer stays pinned and the
           account menu is not clipped by the scroll container */}
       <div className="peer-scroll">
+        {props.self !== undefined && (
+          <button
+            type="button"
+            className={`peer-row self-entry${props.selected === props.self.name ? " selected" : ""}${
+              props.self.paused === true ? " peer-paused" : ""
+            }`}
+            title={collapsed ? `${t("Saved messages")}` : undefined}
+            onClick={() => props.onSelect(props.self?.name ?? "")}
+          >
+            {collapsed ? (
+              <span className="peer-avatar">
+                <IconUser size={18} />
+              </span>
+            ) : (
+              <span className="peer-info">
+                <span className="peer-name">
+                  <IconUser size={14} /> {t("Saved messages")}
+                </span>
+                <span className="peer-preview">
+                  {props.self.paused === true
+                    ? t("do not disturb")
+                    : (props.self.lastMessage?.preview ?? t("notes to self and your inbox"))}
+                </span>
+              </span>
+            )}
+            {props.self.unread > 0 && <span className="unread-badge">{props.self.unread}</span>}
+          </button>
+        )}
         {props.onTransport !== undefined && (
           <button
             type="button"
@@ -253,9 +301,7 @@ function AgentRow(props: {
           {initialOf(peer.name)}
           {/* the same live dot as the expanded row — pinned to the avatar; the
               `paused` modifier mutes it and adds the pause glyph (§16.6) */}
-          <span
-            className={`status-dot ${peer.status ?? "unknown"}${peer.paused === true ? " paused" : ""}`}
-          />
+          <span className={dotClass(peer)} />
         </span>
         {peer.unread > 0 && <span className="unread-badge">{peer.unread}</span>}
       </button>
@@ -281,9 +327,7 @@ function AgentRow(props: {
       }
       onClick={props.onSelect}
     >
-      <span
-        className={`status-dot ${peer.status ?? "unknown"}${peer.paused === true ? " paused" : ""}`}
-      />
+      <span className={dotClass(peer)} />
       {/* rendezvous markers (FR-105): after the activity dot, before the name */}
       <RzArrows peer={peer} />
       <span className="peer-info">

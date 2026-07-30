@@ -52,8 +52,14 @@ export interface TagPeer {
 
 export type BroadcastPeer = GroupPeer | TagPeer;
 
+/** Panel role (§17.2/§17.7, FR-121/FR-131). Declared here so webchat stays free of a config dep. */
+export type WebchatRole = "admin" | "user";
+
 export interface WebchatPorts {
-  /** The operator's topology neighbors that are agents (§10.2) — the peer list. */
+  /**
+   * The identity's topology neighbours that have a chat (§10.2) — agents and, since
+   * §17.7 (FR-129), user peers. Groups/tags arrive separately via broadcastPeers.
+   */
   listPeers(): readonly string[];
   /** Live agent status (§5.1); undefined for an unknown name. */
   peerStatus(name: string): AgentStatus | undefined;
@@ -68,7 +74,15 @@ export interface WebchatPorts {
    * Absent ⇒ "agent" (no groups/tags). Used to reject raw mode to a group/tag and to
    * skip queue-phase tracking for a one-directional broadcast.
    */
-  peerType?(name: string): "agent" | "group" | "tag";
+  peerType?(name: string): "agent" | "group" | "tag" | "user";
+  /**
+   * Presence of a USER peer (§17.5, FR-133): "online" while their last outgoing
+   * send is inside `server.presenceTtl`, else "offline". Undefined for agents (they
+   * have a real session status) and when presence is not wired.
+   */
+  peerPresence?(name: string): "online" | "offline" | undefined;
+  /** A user peer's display label (§17.2); absent ⇒ the panel shows the name. */
+  peerDisplayName?(name: string): string | undefined;
   /** An agent peer's group membership (§15, FR-112) — drives the sidebar tree. */
   agentGroup?(name: string): string | undefined;
   /** An agent peer's tags (§15, FR-112) — the tag chips / Tags-section membership. */

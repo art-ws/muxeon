@@ -37,7 +37,9 @@ export function buildTree(
   expanded?: ReadonlySet<string>,
 ): readonly TreeRow[] {
   const groups = peers.filter((peer) => peerKind(peer) === "group");
-  const agents = peers.filter((peer) => peerKind(peer) === "agent");
+  // Users are members of the tree exactly like agents (§17.7, FR-129/FR-130) —
+  // they sit in their group, or at the root when they declare none.
+  const agents = peers.filter((peer) => peerKind(peer) === "agent" || peerKind(peer) === "user");
   const groupNames = new Set(groups.map((group) => group.name));
 
   // Child groups indexed by parent name; a parent that is not a real group peer

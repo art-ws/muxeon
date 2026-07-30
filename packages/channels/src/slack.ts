@@ -18,12 +18,18 @@ import {
   operatorErrorText,
   reactionText,
 } from "./contract";
+import { type ChannelIdentity, resolveUserTarget } from "./identity";
 
 export interface SlackIncoming {
   /** Stable per-event id (event ts) — the dedup key (§10.9). */
   readonly eventId: string;
   readonly text?: string;
   readonly files?: readonly { readonly id: string; readonly name?: string }[];
+  /**
+   * Who sent it (§17.6, FR-125): the slack user id (and handle when known). Used
+   * ONLY in users mode, where it resolves to exactly one bound user (§10.21).
+   */
+  readonly sender?: { readonly userId?: string; readonly handle?: string };
 }
 
 /** The slice of the Slack API the connector needs; injectable for tests. */
@@ -39,7 +45,10 @@ export interface SlackApi {
 }
 
 export interface SlackConnectorOptions {
-  readonly bindOperator: string;
+  /** Legacy single-operator binding (§12.1); absent in users mode (§17.2). */
+  readonly bindOperator?: string | undefined;
+  /** Users-mode identity port (§17.6, FR-125/FR-126); absent ⇒ legacy mode. */
+  readonly identity?: ChannelIdentity;
   readonly defaultTarget?: string;
   readonly api: SlackApi;
   readonly knownAgents: readonly string[];
@@ -55,8 +64,11 @@ const defaultSleep = (ms: number): Promise<void> =>
 
 export class SlackConnector implements ChannelConnector {
   readonly type = "slack";
-  readonly bindOperator: string;
+  readonly bindOperator: string | undefined;
   readonly defaultTarget?: string;
+  readonly #identity: ChannelIdentity | undefined;
+  /** Ids of self-delivered records that came FROM this channel (§17.6-2c echo skip). */
+  readonly #suppressed = new Set<string>();
   readonly #api: SlackApi;
   readonly #knownAgents: ReadonlySet<string>;
   readonly #blobs: BlobStore;
@@ -69,6 +81,7 @@ export class SlackConnector implements ChannelConnector {
 
   constructor(options: SlackConnectorOptions) {
     this.bindOperator = options.bindOperator;
+    this.#identity = options.identity;
     if (options.defaultTarget !== undefined) this.defaultTarget = options.defaultTarget;
     this.#api = options.api;
     this.#knownAgents = new Set(options.knownAgents);
@@ -107,13 +120,37 @@ export class SlackConnector implements ChannelConnector {
   }
 
   async #handle(event: SlackIncoming, onInbound: InboundHandler): Promise<void> {
-    const resolved = resolveTarget(event.text, this.#knownAgents, this.defaultTarget);
-    if (!resolved.ok) {
-      await this.#reply(
-        "teamai: no recipient — address an agent with @name (no default target is set)",
-      );
-      return;
+    // Users mode (§17.6): the sender is resolved through the channel bindings
+    // BEFORE anything else; an unbound identity never reaches the router (§10.21).
+    const identity = this.#identity;
+    let from = this.bindOperator;
+    let self = false;
+    let target: string;
+    if (identity !== undefined) {
+      const sender =
+        (event.sender?.handle !== undefined ? identity.userOf(event.sender.handle) : undefined) ??
+        (event.sender?.userId !== undefined ? identity.userOf(event.sender.userId) : undefined);
+      if (sender === undefined) {
+        await this.#reply(
+          "teamai: this slack account is not linked to a TEAMAI user — ask the operator to bind it",
+        );
+        return;
+      }
+      from = sender;
+      const resolved = resolveUserTarget(event.text, sender, identity);
+      target = resolved.target;
+      self = resolved.self;
+    } else {
+      const resolved = resolveTarget(event.text, this.#knownAgents, this.defaultTarget);
+      if (!resolved.ok) {
+        await this.#reply(
+          "teamai: no recipient — address an agent with @name (no default target is set)",
+        );
+        return;
+      }
+      target = resolved.target;
     }
+    if (from === undefined) return; // unreachable: legacy always binds an operator
     let payload: unknown;
     try {
       payload = await this.#buildPayload(event);
@@ -124,8 +161,8 @@ export class SlackConnector implements ChannelConnector {
     if (payload === undefined) return;
     const message: Message = {
       id: `slack-${event.eventId}`, // deterministic per event → re-poll dedups (§10.9)
-      from: this.bindOperator,
-      to: resolved.target,
+      from,
+      to: target,
       kind: "message",
       ts: this.#now(),
       payload,
@@ -133,9 +170,21 @@ export class SlackConnector implements ChannelConnector {
     };
     try {
       await onInbound(message);
+      // Self-delivery (§17.6-2c) is already visible in this channel — skip the echo.
+      if (self) this.#suppressed.add(message.id);
     } catch (error) {
       await this.#reply(operatorErrorText(error)); // §3.2, redacted (§8.7)
     }
+  }
+
+  /**
+   * Users-mode push (§17.5, FR-124): this connector talks to ONE slack channel, so
+   * every bound user shares it — the record is posted there with its `from`
+   * attribution. Best-effort: a throw is logged upstream, never re-queued.
+   */
+  async pushTo(_alias: string, signal: Signal): Promise<void> {
+    if (this.#suppressed.delete(signal.id)) return;
+    await this.deliver(signal);
   }
 
   /** Files → blob store FIRST (§5.4); the payload carries opaque refs only (§5.3). */

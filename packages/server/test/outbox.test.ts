@@ -27,7 +27,16 @@ afterEach(() => {
 });
 
 function makeMonitor(
-  opts: { deny?: boolean; wip?: boolean; paused?: boolean; settleTicks?: number } = {},
+  opts: {
+    deny?: boolean;
+    wip?: boolean;
+    paused?: boolean;
+    settleTicks?: number;
+    /** Admin users for the §17.11 no-recipient fan-out (FR-135). */
+    admins?: readonly string[];
+    /** Names the router refuses (no edge) — the per-address check of §17.11. */
+    noEdge?: readonly string[];
+  } = {},
 ) {
   const routed: Signal[] = [];
   const warnings: string[] = [];
@@ -44,10 +53,12 @@ function makeMonitor(
       },
       read: async () => new Uint8Array(),
     },
+    ...(opts.admins !== undefined ? { admins: () => opts.admins ?? [] } : {}),
     route: async (message) => {
       if (opts.wip) return { ok: false, code: "WIP_LIMIT", limit: 3, depth: 3 };
       if (opts.paused) return { ok: false, code: "AGENT_PAUSED" };
       if (opts.deny) return { ok: false };
+      if (opts.noEdge?.includes(message.to)) return { ok: false, code: "TOPOLOGY_DENIED" };
       routed.push(message);
       return { ok: true };
     },
@@ -245,5 +256,61 @@ describe("outbox pickup (FR-55, §13.4)", () => {
     await monitor.tick(); // retried, same deterministic id
     expect(routed).toHaveLength(1);
     expect(readdirSync(outboxDir)).toEqual([]);
+  });
+});
+
+// §17.11 / FR-135: an outbox file WITHOUT `to` is the agent's initiative aimed at
+// "whoever runs this stand" — it fans out to every user with role:"admin", one
+// addressed copy each, with the §10.2 edge checked PER ADDRESS.
+describe("no-recipient initiative → the admins (§17.11, FR-135)", () => {
+  test("one addressed copy per admin, deterministic ids, admin origin", async () => {
+    await writeFile(join(outboxDir, "ping.json"), JSON.stringify({ payload: "look at this" }));
+    const { monitor, routed } = makeMonitor({ admins: ["alex", "kim"] });
+    await monitor.tick();
+    expect(routed.map((m) => m.to)).toEqual(["alex", "kim"]);
+    expect(routed.every((m) => m.origin === "outbox:admins")).toBe(true);
+    expect(routed.every((m) => m.payload === "look at this")).toBe(true);
+    const [base] = routed[0]?.id.split(":") ?? [];
+    expect(routed.map((m) => m.id)).toEqual([`${base}:alex`, `${base}:kim`]);
+    expect(readdirSync(outboxDir)).toEqual([]); // consumed
+  });
+
+  test("an admin that is not a topology neighbour is a warning, not a failed fan-out", async () => {
+    await writeFile(join(outboxDir, "ping.json"), JSON.stringify({ payload: "hi" }));
+    const { monitor, routed, warnings } = makeMonitor({
+      admins: ["alex", "kim"],
+      noEdge: ["kim"],
+    });
+    await monitor.tick();
+    expect(routed.map((m) => m.to)).toEqual(["alex"]);
+    expect(warnings.some((w) => w.includes('did not reach admin "kim"'))).toBe(true);
+    expect(readdirSync(outboxDir)).toEqual([]); // the rest of the fan-out stands
+  });
+
+  test("with NO admins configured `to` stays mandatory — the file is rejected, not dropped", async () => {
+    await writeFile(join(outboxDir, "ping.json"), JSON.stringify({ payload: "hi" }));
+    const { monitor, routed, warnings } = makeMonitor();
+    await monitor.tick();
+    expect(routed).toEqual([]);
+    expect(existsSync(join(outboxDir, "ping.rejected.json"))).toBe(true);
+    expect(warnings.some((w) => w.includes('has no "to"'))).toBe(true);
+  });
+
+  test("reaching NO admin at all rejects the file (nothing was delivered)", async () => {
+    await writeFile(join(outboxDir, "ping.json"), JSON.stringify({ payload: "hi" }));
+    const { monitor, routed } = makeMonitor({ admins: ["alex"], noEdge: ["alex"] });
+    await monitor.tick();
+    expect(routed).toEqual([]);
+    expect(existsSync(join(outboxDir, "ping.rejected.json"))).toBe(true);
+  });
+
+  test("a malformed `to` is still rejected (the field is optional, not free-form)", async () => {
+    await writeFile(join(outboxDir, "bad.json"), JSON.stringify({ to: "", payload: "hi" }));
+    const { monitor, warnings } = makeMonitor({ admins: ["alex"] });
+    await monitor.tick();
+    await monitor.tick();
+    await monitor.tick();
+    expect(existsSync(join(outboxDir, "bad.rejected.json"))).toBe(true);
+    expect(warnings.some((w) => w.includes('malformed "to"'))).toBe(true);
   });
 });

@@ -240,7 +240,7 @@ takes `--url http://127.0.0.1:8080/admin` explicitly.
 ```
 teamai agents                                  # list: name (session): status [paused]
 teamai provision|kill|restart <agent>          # lifecycle (§4)
-teamai pause|resume <agent>                    # block/unblock message delivery (§16)
+teamai pause|resume <agent|user>               # block/unblock message delivery (§16/§17.8)
 teamai channels                                # operator bindings + deliver status
 teamai signals send --from <node> --to <node> [--id <id>] [--reply-to <id>] <text…>
 teamai queues peek <participant>               # pending/ + cur/ records
@@ -249,6 +249,7 @@ teamai queues requeue <participant> <id>       # failed/ → pending tail, same 
 teamai routines list [<owner>]
 teamai routines get|delete|enable|disable|run-once <owner> <id>
 teamai routines put <owner> <id> <file.md>
+teamai hash-password [--stdin]                 # argon2id hash for users[].auth (§17.4)
 ```
 
 Notes:
@@ -259,6 +260,9 @@ Notes:
   loop** between turns — a mid-turn restart waits for the current turn.
 - `requeue` of an id already in the done/ window is an explicit no-op.
 - `signals send` requires `--from` to be an existing agent/operator (§8.7).
+- `hash-password` needs **no running server and no config**: it reads a password
+  without echoing it (or from stdin with `--stdin`) and prints the hash to paste
+  into `users[].auth.passwordHash`.
 - `pause` blocks the **transport**, not the agent: the session keeps running,
   slash commands and lifecycle still work, and a turn already in flight finishes.
   Anyone sending to a paused agent is refused **immediately** (`AGENT_PAUSED`,
@@ -266,7 +270,9 @@ Notes:
   retry after the resume, nothing is queued up behind the pause. Whatever was
   already queued stays put and drains on `resume`. The flag is recorded in
   `<config_dir>/state/paused.json`, so it survives a restart; `teamai agents`
-  and the panel both mark it.
+  and the panel both mark it. A **user** can be paused too (§17.8) — that is
+  Do-not-disturb: everything from others is refused, their own notes to self
+  still land.
 
 ## 5. Routines (§6)
 
@@ -384,6 +390,70 @@ customize the capture (e.g. navigate a pager before snapping) set a key-DSL rule
 
 Raw mode is direct terminal access for the (already trusted, loopback+auth)
 operator; it adds no new capability to agents (the flag is operator-side only).
+
+### 8.1a Многие люди на одном стенде: `users[]` (§17)
+
+Since §17 the panel can carry **named people** instead of one shared login. A
+user is a full transport participant: their own topology edges, their own
+pseudo-session queue, their own history, and — optionally — their own telegram
+or slack identity.
+
+```jsonc
+{
+  "users": [
+    {
+      "name": "alex",                    // one namespace with agents/groups/tags
+      "displayName": "Alexander",        // optional label in the panel
+      "color": "#4488ff",                // optional accent, like an agent's
+      "role": "admin",                   // "admin" | "user" (default) — see below
+      "group": "managers",               // optional; a broadcast to the group reaches them
+      "tags": ["leadership"],            // optional; same rules as an agent's
+      "auth": { "password": { "$env": "TEAMAI_ALEX_PASSWORD" } },
+      "channels": { "web": true, "tg-main": { "alias": "alex_tg" } }
+    }
+  ],
+  "channels": [
+    { "name": "web", "type": "webchat", "port": 8091, "auth": { "mode": "users" } },
+    { "name": "tg-main", "type": "telegram", "token": { "$env": "TG_TOKEN" } }
+  ],
+  "topology": { "alex": ["researcher", "kim"] }
+}
+```
+
+- **`channels[].name`** is the stable instance name and the key of a user's
+  binding; it defaults to the `type`, which is enough while there is only one
+  channel of that type. Naming them lets you run two telegram bots side by side.
+- **Passwords** (`auth`, exactly one of the two): `password` — a literal or an
+  `$env` reference — or `passwordHash`, an inline argon2id hash produced by
+  `teamai hash-password` (works offline, reads the password without echoing it).
+  A literal password is allowed but warns at boot.
+- **Roles** are a panel capability, never a transport ACL: who may talk to whom
+  is the topology and nothing else. `admin` additionally sees the Transport
+  journal and may toggle another user's Do-not-disturb.
+- **Self-chat** ("Saved messages") is pinned at the top of the sidebar: notes to
+  yourself plus everything addressed to you. It always works — self-delivery
+  needs no edge.
+- **Do not disturb** (§16 for people): you can pause yourself, an `admin` can
+  pause anyone. While paused, messages from others are rejected (not queued) —
+  your own notes still land.
+- **Presence**: a user shows online while their last outgoing message is younger
+  than `server.presenceTtl` (default `15m`); it is derived, never set by hand.
+- **External channels**: an inbound telegram/slack message is attributed to the
+  user whose `alias` matches the sender — an unlinked account is refused politely
+  and never reaches the transport. Addressing inside the channel: a mention of
+  another bound user, else an `@name` of one of your peers, else it is a note to
+  self. Outbound messages fan out to **every** channel you are bound to; the
+  panel history is the durable copy, a channel push is best-effort.
+
+The legacy `bindOperator` shape keeps working unchanged (with a deprecation
+warning once `users[]` exists), so migration is a config edit, not a data move:
+keep the operator's name as a user name and the history/queue stay where they
+are.
+
+**Agent initiative without a recipient (§17.11).** An outbox file (§13.4) with
+no `to` is fanned out to every `role:"admin"` user — one addressed copy each.
+With no admins configured, `to` stays mandatory and such a file is rejected as
+before.
 
 ### 8.2 Building the UI
 

@@ -150,6 +150,9 @@ export function applyEvent(
             atWipLimit: event.atWipLimit ?? false,
             waiting: event.waiting ?? false,
             awaited: event.awaited ?? false,
+            // presence of a user peer (§17.5, FR-133) — kept as-is when the event
+            // carries none (an agent row, or a pre-§17 server)
+            ...(event.presence !== undefined ? { presence: event.presence } : {}),
           };
           // the busy EDGE stamps the timer (FR-63); staying busy keeps it,
           // leaving busy drops it — the header timer disappears with the status

@@ -32,6 +32,14 @@ export interface OutboxMonitorOptions {
   /** Base dir for RELATIVE `files` paths (the agent's cwd, else the exchange). */
   readonly filesBase: string;
   readonly blobs: BlobStore;
+  /**
+   * Admin users (§17.11, FR-135): the fan-out set of an outbox file WITHOUT `to` —
+   * the human "behind the console" is resolved through TEAMAI as the `admin` role,
+   * no separate entity. Returns the CURRENT admins (config is fixed at boot, so a
+   * plain closure over the config is enough). Empty / absent ⇒ `to` stays mandatory
+   * and a file without it is rejected exactly as before.
+   */
+  readonly admins?: () => readonly string[];
   readonly route: (
     message: Signal,
   ) => Promise<{ ok: boolean; code?: string; limit?: number; depth?: number }>;
@@ -168,15 +176,72 @@ export class OutboxMonitor {
       refs.push(ingested);
     }
 
+    // Deterministic id (name + content) — a crash-retry collapses in the
+    // recipient's dedup window (§10.9) instead of double-delivering.
+    const baseId = `outbox-${createHash("sha256").update(`${name}\n${raw}`).digest("hex").slice(0, 24)}`;
+    const payload = refs.length === 0 ? shape.payload : { text: shape.payload, blobs: refs };
+    const ts = (this.#o.now ?? Date.now)();
+
+    // Initiative WITHOUT a recipient (§17.11, FR-135): the message goes to every
+    // user with `role:"admin"` — one addressed COPY each, with its own deterministic
+    // id `<outboxId>:<admin>` (dedup §10.9) and an `origin` naming the fan-out. The
+    // §10.2 edge is checked PER ADDRESS: a non-neighbour admin simply does not get a
+    // copy (a warning), which never fails the rest of the fan-out.
+    if (shape.to === undefined) {
+      const admins = this.#o.admins?.() ?? [];
+      if (admins.length === 0) {
+        await this.#reject(
+          claim,
+          name,
+          'has no "to" and this server has no user with role:"admin" to fan out to (§17.11)',
+        );
+        return;
+      }
+      let delivered = 0;
+      for (const admin of admins) {
+        const copy: Signal = {
+          id: `${baseId}:${admin}`,
+          from: this.#o.agent,
+          to: admin,
+          kind: "message",
+          ts,
+          payload,
+          origin: "outbox:admins",
+        };
+        try {
+          const result = await this.#route(copy);
+          if (result.ok) {
+            delivered += 1;
+          } else {
+            const warn = this.#o.warn ?? ((text: string) => process.stderr.write(`${text}\n`));
+            warn(
+              `teamai: warning: outbox message "${name}" of ${this.#o.agent} did not reach admin "${admin}" (${result.code ?? "refused"}) — §17.11`,
+            );
+          }
+        } catch {
+          await rename(claim, path).catch(() => undefined); // transient — retry next tick
+          return;
+        }
+      }
+      if (delivered === 0) {
+        await this.#reject(
+          claim,
+          name,
+          "reached no admin — none of them is a topology neighbour (§10.2)",
+        );
+        return;
+      }
+      await unlink(claim).catch(() => undefined);
+      return;
+    }
+
     const message: Signal = {
-      // Deterministic id (name + content) — a crash-retry collapses in the
-      // recipient's dedup window (§10.9) instead of double-delivering.
-      id: `outbox-${createHash("sha256").update(`${name}\n${raw}`).digest("hex").slice(0, 24)}`,
+      id: baseId,
       from: this.#o.agent,
       to: shape.to,
       kind: "message",
-      ts: (this.#o.now ?? Date.now)(),
-      payload: refs.length === 0 ? shape.payload : { text: shape.payload, blobs: refs },
+      ts,
+      payload,
       origin: "exchange-outbox",
     };
     let routed: { ok: boolean; code?: string; limit?: number; depth?: number };
@@ -277,14 +342,21 @@ export class OutboxMonitor {
   }
 }
 
-/** Validate the §13.4 shape; returns the parsed shape or a refusal reason. */
-function validateShape(parsed: unknown): { to: string; payload: string; files: string[] } | string {
+/**
+ * Validate the §13.4 shape; returns the parsed shape or a refusal reason. `to` is
+ * OPTIONAL since §17.11 (FR-135) — a file without it addresses all admin users;
+ * the caller rejects it when the server has none, so the contract is unchanged for
+ * a config without users.
+ */
+function validateShape(
+  parsed: unknown,
+): { to?: string; payload: string; files: string[] } | string {
   if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
     return "is not a JSON object";
   }
   const { to, payload, files } = parsed as { to?: unknown; payload?: unknown; files?: unknown };
-  if (typeof to !== "string" || to.length === 0) {
-    return 'has no "to" (expected a non-empty peer name)';
+  if (to !== undefined && (typeof to !== "string" || to.length === 0)) {
+    return 'has a malformed "to" (expected a non-empty peer name)';
   }
   if (typeof payload !== "string") return 'has no "payload" (expected a string)';
   if (files !== undefined) {
@@ -292,5 +364,9 @@ function validateShape(parsed: unknown): { to: string; payload: string; files: s
       return 'has a malformed "files" (expected an array of paths)';
     }
   }
-  return { to, payload, files: (files as string[] | undefined) ?? [] };
+  return {
+    ...(typeof to === "string" ? { to } : {}),
+    payload,
+    files: (files as string[] | undefined) ?? [],
+  };
 }

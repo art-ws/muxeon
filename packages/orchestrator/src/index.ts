@@ -31,3 +31,4 @@ export * from "./rendezvous-state";
 export * from "./rendezvous-coordinator";
 export * from "./pause";
 export * from "./pause-state";
+export * from "./presence";

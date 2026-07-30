@@ -81,6 +81,14 @@ export interface RouterOptions {
    * root's predicate answers false for them.
    */
   readonly isPaused?: (recipient: string) => boolean;
+  /**
+   * Is the recipient a USER (§17.1)? Only used by the pause gate: a user's pause is
+   * DND (§17.8, FR-134) — it protects them from OTHERS, not from their own notes, so
+   * self-delivery (`from === to`) passes while paused. An agent's pause keeps the
+   * §10.19 shape (nothing at all is admitted, self-delivery included). Absent ⇒ no
+   * users configured; the gate behaves exactly as before.
+   */
+  readonly isUser?: (name: string) => boolean;
   /** Clock for the filename's unix_ms; injectable for tests. Default Date.now. */
   readonly now?: () => number;
   /**
@@ -126,6 +134,7 @@ export class Router {
   readonly #queueKeyOf: (name: string) => string | null;
   readonly #wipLimitOf: ((recipient: string) => number | null) | undefined;
   readonly #isPaused: ((recipient: string) => boolean) | undefined;
+  readonly #isUser: ((name: string) => boolean) | undefined;
   readonly #now: () => number;
   readonly #onRouted: ((message: Signal) => void) | undefined;
   readonly #onRefused:
@@ -145,6 +154,7 @@ export class Router {
     this.#queueKeyOf = options.queueKeyOf;
     this.#wipLimitOf = options.wipLimitOf;
     this.#isPaused = options.isPaused;
+    this.#isUser = options.isUser;
     this.#now = options.now ?? Date.now;
     this.#onRouted = options.onRouted;
     this.#onRefused = options.onRefused;
@@ -158,6 +168,11 @@ export class Router {
    */
   stamp(): QueueStamp {
     return { unixMs: this.#now(), seq: ++this.#seq };
+  }
+
+  /** Self-delivery of a PAUSED user (§17.8, FR-134) — the one pause-gate exception. */
+  #dndSelfDelivery(message: Signal): boolean {
+    return message.from === message.to && this.#isUser?.(message.to) === true;
   }
 
   /** Fire onRefused (best-effort, symmetric to onRouted) and return the refusal. */
@@ -202,7 +217,10 @@ export class Router {
     // no done/ id — the same id re-sends fine after the resume) and the receipt
     // travels the producer's normal refusal path. No rendezvous is armed: the
     // coordinator only reacts to WIP_LIMIT (§16.2).
-    if (this.#isPaused?.(message.to) === true) {
+    // A user's pause is DND (§17.8, FR-134): the ONE deliberate asymmetry with the
+    // agent gate above — a note to yourself still lands, because DND protects a
+    // human from others, not from their own self-chat (§17.7).
+    if (this.#isPaused?.(message.to) === true && !this.#dndSelfDelivery(message)) {
       return this.#refuse(message, { ok: false, code: "AGENT_PAUSED" });
     }
     // WIP limit (§8.2, FR-104): a gated recipient at or above its cap gets NOTHING

@@ -267,3 +267,34 @@ describe("signals send --blob (§8.5, FR-46)", () => {
     expect(response.status).toBe(400);
   });
 });
+
+// `teamai hash-password` (§17.4, FR-122): an OFFLINE tool — no server, no config.
+// The hash it prints must verify against the plaintext, since that is exactly
+// what the panel does at login (verifyPassword, §17.4).
+describe("hash-password (§17.4, FR-122)", () => {
+  test("prints an argon2id hash that verifies against the password", async () => {
+    const out: string[] = [];
+    const code = await runCli(["hash-password"], {
+      stdout: (line) => out.push(line),
+      stderr: () => undefined,
+      readPassword: async () => "s3cret",
+    });
+    expect(code).toBe(0);
+    expect(out[0]).toMatch(/^\$argon2id\$/);
+    expect(await Bun.password.verify("s3cret", out[0] ?? "")).toBe(true);
+    expect(await Bun.password.verify("wrong", out[0] ?? "")).toBe(false);
+  });
+
+  test("an empty password is refused (exit 1), nothing is printed", async () => {
+    const out: string[] = [];
+    const err: string[] = [];
+    const code = await runCli(["hash-password"], {
+      stdout: (line) => out.push(line),
+      stderr: (line) => err.push(line),
+      readPassword: async () => "",
+    });
+    expect(code).toBe(1);
+    expect(out).toEqual([]);
+    expect(err[0]).toMatch(/empty password/);
+  });
+});

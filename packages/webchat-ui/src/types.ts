@@ -30,7 +30,21 @@ export interface ChatRecord {
 
 /** Addressable-peer kind (§15, FR-106..): an agent, or an input-only broadcast
  *  target — a hierarchical group or a flat tag. Absent ⇒ agent (backward-compat). */
-export type PeerKind = "agent" | "group" | "tag";
+export type PeerKind = "agent" | "group" | "tag" | "user";
+
+/** A user peer's derived availability (§17.5, FR-133) — not a session status. */
+export type Presence = "online" | "offline";
+
+/** The pinned self-chat entry (§17.7, FR-128): notes to self + the aggregate inbox. */
+export interface SelfChatInfo {
+  readonly name: string;
+  readonly displayName?: string;
+  readonly color?: string;
+  readonly unread: number;
+  /** DND (§17.8, FR-134): the user has paused THEMSELVES. */
+  readonly paused?: boolean;
+  readonly lastMessage?: { readonly ts: number; readonly from: string; readonly preview: string };
+}
 
 export interface PeerInfo {
   readonly name: string;
@@ -50,6 +64,13 @@ export interface PeerInfo {
   /** A group's/tag's fanned-out recipients (§15) — the broadcast subheader lists them. */
   readonly members?: readonly string[];
   readonly status: AgentStatus | null;
+  /**
+   * A user peer's presence (§17.5, FR-133): shown as a dot in place of the agent
+   * status dot — a human has no session, so `status` is null for them.
+   */
+  readonly presence?: Presence;
+  /** A user peer's display label (§17.2); absent ⇒ the name is shown. */
+  readonly displayName?: string;
   readonly queueDepth: number;
   readonly unread: number;
   readonly lastMessage?: { readonly ts: number; readonly from: string; readonly preview: string };
@@ -134,6 +155,8 @@ export type PanelEvent =
       readonly waiting?: boolean;
       /** Is a rendezvous target — ↓ "меня ждут" (FR-105). */
       readonly awaited?: boolean;
+      /** A user peer's presence (§17.5, FR-133); absent for agents. */
+      readonly presence?: Presence;
     }
   | {
       readonly type: "queue-progress";

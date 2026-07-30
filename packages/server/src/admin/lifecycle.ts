@@ -84,6 +84,12 @@ export interface LifecycleAdminDeps {
    * this admin is the operator's mutation surface. Absent ⇒ no pause support:
    * `list()` reports `paused:false` and `pause()` refuses with 503.
    */
+  /**
+   * Names that are pausable WITHOUT being agents (§17.8, FR-134): the configured
+   * users, whose pause is DND. They have no session, so every other lifecycle op
+   * still 404s for them — only `pause` accepts them.
+   */
+  readonly pausableUsers?: ReadonlySet<string>;
   readonly pause?: {
     has(name: string): boolean;
     /** Applies the desired state; true when it changed (persist only then, §16.4). */
@@ -256,7 +262,9 @@ export function createLifecycleAdmin(deps: LifecycleAdminDeps): LifecycleAdmin {
     // applies immediately — unlike a queue edit (§8.5). Idempotent: a repeated pause
     // changes nothing and skips the write.
     pause: async (name, paused) => {
-      runtime(name); // 404 for an unknown/non-agent name — same gate as lifecycle
+      // A user's DND (§17.8, FR-134) uses the SAME registry and the same surface;
+      // anything that is neither agent nor user still 404s here.
+      if (deps.pausableUsers?.has(name) !== true) runtime(name);
       const pause = deps.pause;
       if (pause === undefined) throw new AdminError(503, "pause is not wired", "UNAVAILABLE");
       if (pause.set(name, paused)) {
