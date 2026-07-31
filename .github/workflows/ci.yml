@@ -28,6 +28,10 @@ jobs:
 
       - run: bun run typecheck
 
+      # `package.json` is exempt from the FORMATTER (biome.json overrides): the
+      # release job rewrites it through @semantic-release/npm, whose JSON style is
+      # npm's, not ours — and it commits with [skip ci], so the breakage would only
+      # surface on the next unrelated PR. Linting still applies to everything else.
       - run: bun run lint
 
       # The SPA-serving test exercises the REAL built panel bundle — build it
