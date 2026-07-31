@@ -28,6 +28,7 @@ import {
   IconTrash,
   IconX,
 } from "./icons";
+import { chatSurface, dotClass, liveLabel } from "./peer-surface";
 import { routeHash } from "./route";
 import type { ChatThread } from "./store";
 import {
@@ -65,9 +66,12 @@ export function ChatView(props: {
 }): React.JSX.Element {
   const t = useT();
   const peer = props.peer;
+  const surface = chatSurface(peer);
   // Groups & tags (§15) are input-only broadcast targets — a one-directional
   // view without the agent-only chrome (status/thinking/token meter/lifecycle).
-  if (peer !== undefined && peerKind(peer) !== "agent") {
+  // A PERSON (§17.7, oneself included) is NOT one of them: their chat is an
+  // ordinary 1:1 chat and falls through to the header below.
+  if (peer !== undefined && surface === "broadcast") {
     return (
       <BroadcastChatView
         peer={peer}
@@ -81,22 +85,32 @@ export function ChatView(props: {
       />
     );
   }
+  // A person (§17.7) gets the SAME header as an agent — dot, name, status line,
+  // actions kebab — with the two session-only pieces dropped: the dot shows
+  // presence (FR-133) and there is no token meter behind a human.
+  const person = surface === "person";
   return (
     <>
       <header className="chat-header">
-        <span
-          className={`status-dot ${peer?.status ?? "unknown"}${peer?.paused === true ? " paused" : ""}`}
-        />
+        <span className={dotClass(peer)} />
         {/* rendezvous markers (FR-105): after the activity dot, before the name */}
         {peer !== undefined && <RzArrows peer={peer} />}
         <strong className={peer?.atWipLimit === true ? "at-wip" : undefined}>
           {peer?.name ?? ""}
         </strong>
         {/* Pause chip (§16.6, FR-120): the operator-declared do-not-disturb, shown
-            BESIDE the live status — the session may well be idle or busy. */}
+            BESIDE the live status — the session may well be idle or busy. For a
+            person the same flag IS do-not-disturb (§17.8, FR-134). */}
         {peer?.paused === true && (
-          <span className="paused-chip" title={t("messages to this agent are rejected")}>
-            <IconPause size={12} /> {t("paused")}
+          <span
+            className="paused-chip"
+            title={t(
+              person
+                ? "messages from others are rejected — do not disturb"
+                : "messages to this agent are rejected",
+            )}
+          >
+            <IconPause size={12} /> {t(person ? "do not disturb" : "paused")}
           </span>
         )}
         <span className="chat-status">
@@ -106,12 +120,15 @@ export function ChatView(props: {
               {peer.busySince !== undefined && <BusyTimer since={peer.busySince} />}
             </>
           ) : (
-            t(peer?.status ?? "")
+            t(person ? liveLabel(peer) : (peer?.status ?? ""))
           )}
         </span>
         {/* token meter (§12.8, FR-103) fills the empty span between status and the
-            kebab; hidden when the Settings token-usage switch is off (FR-72) */}
-        {peer !== undefined && (props.showTokens ?? true) && <TokenMeter peer={peer.name} />}
+            kebab; hidden when the Settings token-usage switch is off (FR-72) and
+            for a person — a human burns no tokens and has no series to ask for */}
+        {peer !== undefined && !person && (props.showTokens ?? true) && (
+          <TokenMeter peer={peer.name} />
+        )}
         {peer !== undefined && <ChatActionsMenu key={peer.name} peer={peer} />}
       </header>
       <MessageFeed
@@ -286,7 +303,10 @@ function ChatActionsMenu(props: { peer: PeerInfo }): React.JSX.Element {
   const [open, setOpen] = useState(false);
   const peer = props.peer;
   const canReload = peer.actions?.reload === true;
-  const canShutdown = peer.actions !== undefined && peer.status !== "down";
+  // The server already answers whether there is a session to tear down (it is
+  // false for a person, §17.7) — asking the flag keeps the menu honest instead
+  // of inferring "not down ⇒ can shut down" from a status a human never has.
+  const canShutdown = peer.actions?.shutdown === true;
   // Pause needs no live session (§16.6) — it gates the transport, not the console.
   const canPause = peer.actions?.pause === true;
   return (

@@ -57,10 +57,17 @@ export function Composer(props: {
    * failed send. A note under the composer says so up front.
    */
   paused?: boolean;
+  /**
+   * The paused peer is a PERSON, so the pause is their do-not-disturb (§17.8,
+   * FR-134): it refuses what OTHERS send them, their own notes still land — the
+   * note under the composer must say that, not the agent wording.
+   */
+  dnd?: boolean;
 }): React.JSX.Element {
   const t = useT();
   const raw = props.raw === true;
   const paused = props.paused === true;
+  const dnd = props.dnd === true;
   // peer is mount-constant (the parent remounts per chat via key=) — the lazy
   // initializers read the persisted draft exactly once (FR-69).
   const peer = props.peer;
@@ -450,7 +457,9 @@ export function Composer(props: {
       {paused && (
         <p className="composer-note paused-note">
           {t(
-            "This agent is paused: messages to it are rejected, not queued. Resume it from the actions menu.",
+            dnd
+              ? "Do not disturb: messages from others are rejected, not queued. Notes to self still land. Turn it off in the actions menu."
+              : "This agent is paused: messages to it are rejected, not queued. Resume it from the actions menu.",
           )}
         </p>
       )}
