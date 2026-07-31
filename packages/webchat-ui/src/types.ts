@@ -52,12 +52,20 @@ export interface PeerInfo {
   readonly parent?: string;
   /** A group's/tag's fanned-out recipients (§15) — the broadcast subheader lists them. */
   readonly members?: readonly string[];
-  readonly status: AgentStatus | null;
+  /** Session status; a FEDERATED agent may read "unknown" (§18.4/§10.27). */
+  readonly status: AgentStatus | "unknown" | null;
   /**
    * A user peer's presence (§17.5, FR-133): shown as a dot in place of the agent
-   * status dot — a human has no session, so `status` is null for them.
+   * status dot — a human has no session, so `status` is null for them. A
+   * FEDERATED user may read "unknown" (§18.4).
    */
-  readonly presence?: Presence;
+  readonly presence?: Presence | "unknown";
+  /** Federated peer only (§18.4, FR-150): the import it arrived through. */
+  readonly server?: string;
+  /** Federated peer only (FR-139/FR-140): link reachability. */
+  readonly link?: "up" | "down";
+  /** Federated peer only (§18.4): why the projection reads "unknown" — the tooltip. */
+  readonly reason?: "link-down" | "not-published" | "hop-down";
   /** A user peer's display label (§17.2); absent ⇒ the name is shown. */
   readonly displayName?: string;
   readonly queueDepth: number;
@@ -134,7 +142,8 @@ export type PanelEvent =
   | {
       readonly type: "status";
       readonly peer: string;
-      readonly status: AgentStatus | null;
+      /** Absent for a federated user (their availability is `presence`). */
+      readonly status?: AgentStatus | "unknown" | null;
       readonly queueDepth: number;
       /** Operator-declared pause (§16, FR-119); optional — an older server omits it. */
       readonly paused?: boolean;
@@ -145,7 +154,13 @@ export type PanelEvent =
       /** Is a rendezvous target — ↓ "меня ждут" (FR-105). */
       readonly awaited?: boolean;
       /** A user peer's presence (§17.5, FR-133); absent for agents. */
-      readonly presence?: Presence;
+      readonly presence?: Presence | "unknown";
+      /** Federated peer only (§18.4, FR-150): its import name. */
+      readonly server?: string;
+      /** Federated peer only (FR-139): link reachability. */
+      readonly link?: "up" | "down";
+      /** Federated peer only (§18.4): the `unknown` cause. */
+      readonly reason?: "link-down" | "not-published" | "hop-down";
     }
   | {
       readonly type: "queue-progress";

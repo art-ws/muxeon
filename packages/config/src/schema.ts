@@ -264,6 +264,12 @@ export interface AgentConfig {
    * Non-empty strings, deduped within the agent.
    */
   readonly tags?: readonly string[];
+  /**
+   * Federation export (§18.2, FR-137): only an exported actor exists to other
+   * servers — `true` exports under the own name, a string under that alias.
+   * Absent ⇒ invisible from outside, even by enumeration (§10.24).
+   */
+  readonly exported?: true | string;
 }
 
 /**
@@ -341,7 +347,63 @@ export interface UserConfig {
   readonly auth?: UserAuthConfig;
   /** Channel bindings keyed by `channels[].name` (FR-125). */
   readonly channels?: Readonly<Record<string, UserChannelBinding>>;
+  /** Federation export (§18.2, FR-137) — same semantics as an agent's `exported`. */
+  readonly exported?: true | string;
 }
+
+/**
+ * One outgoing federation link (§18.2, FR-137): a named reference to another
+ * server. `name` is the importer-chosen local alias (hosts-file style) — it
+ * becomes the FQN suffix of every actor imported through this link AND a legal
+ * topology node (§18.5, decision §18.10-6). `token` is issued by THE OTHER side
+ * and must arrive as an `$env` reference (§10.7 — channel-class secret, no
+ * relaxation). `transit` (default true, decision §18.10-1) re-exports the
+ * neighbour's visible actors to this server's own importers.
+ */
+export interface ImportConfig {
+  readonly name: string;
+  readonly url: string;
+  readonly token: string;
+  readonly transit?: boolean;
+}
+
+/**
+ * One issued federation token (§18.2): `name` is what THIS server calls the
+ * importer holding it — the suffix stamped onto inbound `from` FQNs (§18.5,
+ * anti-spoof §10.24) and the reply tail those FQNs resolve back through.
+ */
+export interface FederationAcceptConfig {
+  readonly name: string;
+  readonly token: string;
+}
+
+/**
+ * The incoming side of federation (§18.2, FR-137): a SEPARATE listener (§18.7,
+ * decision §18.10-9 — never the §8.1 surface), loopback by default, behind a
+ * reverse-proxy in the general case (§12.6 rules). `publishStatus` (default
+ * true, §18.4/FR-149) publishes the availability projection of this server's
+ * exported actors to its importers — per SERVER, matching the export-grant
+ * granularity (§18.10-2); turning it off hides only availability, not the
+ * actors (importers see them as `unknown`). `statusDebounceMs` (default 1000,
+ * the §7.1 cadence family) coalesces outgoing status frames so a flapping
+ * `idle↔busy` agent does not flood the link.
+ */
+export interface FederationConfig {
+  readonly port: number;
+  readonly bind?: string;
+  readonly publishStatus?: boolean;
+  readonly statusDebounceMs?: number;
+  readonly accept: readonly FederationAcceptConfig[];
+}
+
+/** Default `federation.bind` (§18.2): loopback — the internet goes through a reverse-proxy. */
+export const DEFAULT_FEDERATION_BIND = "127.0.0.1";
+/** Default `federation.publishStatus` (§18.4, FR-149). */
+export const DEFAULT_FEDERATION_PUBLISH_STATUS = true;
+/** Default `federation.statusDebounceMs` (§18.4, FR-149). */
+export const DEFAULT_FEDERATION_STATUS_DEBOUNCE_MS = 1000;
+/** Default per-import `transit` (§18.2, decision §18.10-1). */
+export const DEFAULT_IMPORT_TRANSIT = true;
 
 /** The channel's binding key (§17.2, FR-125): its `name`, defaulting to its `type`. */
 export function channelName(channel: ChannelConfig): string {
@@ -403,6 +465,17 @@ export interface TeamaiConfig {
    * permitted (the §10.10 default).
    */
   readonly sessionGrants?: SessionGrantsMap;
+  /**
+   * Outgoing federation links (§18.2, FR-137): this server as an importer.
+   * Absent ⇒ no outgoing federation; together with an absent `federation`
+   * block the server behaves exactly as before (FR-146).
+   */
+  readonly imports?: readonly ImportConfig[];
+  /**
+   * Incoming federation side (§18.2, FR-137): the separate link listener and the
+   * tokens this server issues. Absent ⇒ nothing to connect to (FR-146).
+   */
+  readonly federation?: FederationConfig;
 }
 
 // Channel fields treated as secrets: they MUST be `$env` references, never inline
@@ -850,6 +923,97 @@ function validateColor(value: unknown, path: string): string {
   return text;
 }
 
+// exported: true | "<alias>" — the federation export attribute (§18.2, FR-137).
+// Only agents[] and users[] may carry it (groups/types are closed shapes and
+// reject it structurally; operators have no config entity at all — §18.2).
+function validateExported(value: unknown, path: string): true | string {
+  if (value === true) return true;
+  if (typeof value === "string" && value.length > 0) return value;
+  throw new ConfigError(
+    "exported must be true or a non-empty alias (remove the attribute to unexport, §18.2)",
+    { path },
+  );
+}
+
+// imports: [{name, url, token, transit?}] — closed per entry (§18.2, FR-137).
+// The token arrives here already $env-resolved (§7.3); inline values were
+// rejected pre-resolution (assertFederationTokensAreEnvRefs). Name uniqueness,
+// namespace and url-scheme rules are §7.5 (validate.ts).
+const IMPORT_FIELDS = ["name", "url", "token", "transit"] as const;
+
+function validateImports(value: unknown, path: string): ImportConfig[] {
+  return requireArray(value, path).map((item, i) => {
+    const itemPath = joinPointer(path, String(i));
+    const obj = requireObject(item, itemPath);
+    for (const key of Object.keys(obj)) {
+      if (!(IMPORT_FIELDS as readonly string[]).includes(key)) {
+        throw new ConfigError(`unknown import field "${key}"`, {
+          path: joinPointer(itemPath, key),
+        });
+      }
+    }
+    const name = requireNonEmptyString(obj.name, joinPointer(itemPath, "name"));
+    const url = requireNonEmptyString(obj.url, joinPointer(itemPath, "url"));
+    const token = requireNonEmptyString(obj.token, joinPointer(itemPath, "token"));
+    const transit = optionalField(obj, "transit", itemPath, requireBoolean);
+    return { name, url, token, ...(transit !== undefined ? { transit } : {}) };
+  });
+}
+
+// federation: { port, bind?, publishStatus?, statusDebounceMs?, accept } — closed
+// (§18.2, FR-137). Port distinctness from server.port/channel ports is §7.5.
+const FEDERATION_FIELDS = ["port", "bind", "publishStatus", "statusDebounceMs", "accept"] as const;
+
+function validateFederation(value: unknown, path: string): FederationConfig {
+  const obj = requireObject(value, path);
+  for (const key of Object.keys(obj)) {
+    if (!(FEDERATION_FIELDS as readonly string[]).includes(key)) {
+      throw new ConfigError(`unknown federation field "${key}"`, {
+        path: joinPointer(path, key),
+      });
+    }
+  }
+  const portPath = joinPointer(path, "port");
+  const port = requireNonNegativeInt(obj.port, portPath);
+  if (port > 65535) {
+    throw new ConfigError("federation.port must be in 0..65535", { path: portPath });
+  }
+  const bind = optionalField(obj, "bind", path, requireNonEmptyString);
+  const publishStatus = optionalField(obj, "publishStatus", path, requireBoolean);
+  let statusDebounceMs: number | undefined;
+  if (obj.statusDebounceMs !== undefined) {
+    const msPath = joinPointer(path, "statusDebounceMs");
+    const ms = requireNonNegativeInt(obj.statusDebounceMs, msPath);
+    if (ms === 0) {
+      throw new ConfigError("statusDebounceMs must be a positive integer", { path: msPath });
+    }
+    statusDebounceMs = ms;
+  }
+  const acceptPath = joinPointer(path, "accept");
+  const accept = requireArray(obj.accept, acceptPath).map((item, i) => {
+    const itemPath = joinPointer(acceptPath, String(i));
+    const record = requireObject(item, itemPath);
+    for (const key of Object.keys(record)) {
+      if (key !== "name" && key !== "token") {
+        throw new ConfigError(`unknown accept field "${key}"`, {
+          path: joinPointer(itemPath, key),
+        });
+      }
+    }
+    return {
+      name: requireNonEmptyString(record.name, joinPointer(itemPath, "name")),
+      token: requireNonEmptyString(record.token, joinPointer(itemPath, "token")),
+    };
+  });
+  return {
+    port,
+    accept,
+    ...(bind !== undefined ? { bind } : {}),
+    ...(publishStatus !== undefined ? { publishStatus } : {}),
+    ...(statusDebounceMs !== undefined ? { statusDebounceMs } : {}),
+  };
+}
+
 function validateAgent(value: unknown, path: string): AgentConfig {
   const obj = requireObject(value, path);
   const name = requireNonEmptyString(obj.name, joinPointer(path, "name"));
@@ -873,6 +1037,7 @@ function validateAgent(value: unknown, path: string): AgentConfig {
   const group = optionalField(obj, "group", path, requireNonEmptyString);
   const tags =
     obj.tags === undefined ? undefined : validateTags(obj.tags, joinPointer(path, "tags"));
+  const exported = optionalField(obj, "exported", path, validateExported);
   const agent: {
     name: string;
     type: string;
@@ -887,6 +1052,7 @@ function validateAgent(value: unknown, path: string): AgentConfig {
     wipLimit?: number;
     group?: string;
     tags?: string[];
+    exported?: true | string;
   } = {
     name,
     type,
@@ -902,6 +1068,7 @@ function validateAgent(value: unknown, path: string): AgentConfig {
   if (wipLimit !== undefined) agent.wipLimit = wipLimit;
   if (group !== undefined) agent.group = group;
   if (tags !== undefined) agent.tags = tags;
+  if (exported !== undefined) agent.exported = exported;
   return agent;
 }
 
@@ -1045,6 +1212,7 @@ const USER_FIELDS = [
   "role",
   "auth",
   "channels",
+  "exported",
 ] as const;
 
 function validateUsers(value: unknown, path: string): UserConfig[] {
@@ -1071,6 +1239,7 @@ function validateUsers(value: unknown, path: string): UserConfig[] {
       obj.channels === undefined
         ? undefined
         : validateUserChannels(obj.channels, joinPointer(itemPath, "channels"));
+    const exported = optionalField(obj, "exported", itemPath, validateExported);
     return {
       name,
       ...(displayName !== undefined ? { displayName } : {}),
@@ -1080,6 +1249,7 @@ function validateUsers(value: unknown, path: string): UserConfig[] {
       ...(role !== undefined ? { role } : {}),
       ...(auth !== undefined ? { auth } : {}),
       ...(channels !== undefined ? { channels } : {}),
+      ...(exported !== undefined ? { exported } : {}),
     };
   });
 }
@@ -1162,6 +1332,10 @@ export function validateStructure(value: unknown): TeamaiConfig {
       : validateSessionGrants(root.sessionGrants, "/sessionGrants");
   const groups = root.groups === undefined ? undefined : validateGroups(root.groups, "/groups");
   const users = root.users === undefined ? undefined : validateUsers(root.users, "/users");
+  const imports =
+    root.imports === undefined ? undefined : validateImports(root.imports, "/imports");
+  const federation =
+    root.federation === undefined ? undefined : validateFederation(root.federation, "/federation");
   return {
     ...(name !== undefined ? { name } : {}),
     server: validateServer(root.server, "/server"),
@@ -1173,6 +1347,8 @@ export function validateStructure(value: unknown): TeamaiConfig {
     ...(commandGrants !== undefined ? { commandGrants } : {}),
     ...(sessionGrants !== undefined ? { sessionGrants } : {}),
     ...(groups !== undefined ? { groups } : {}),
+    ...(imports !== undefined ? { imports } : {}),
+    ...(federation !== undefined ? { federation } : {}),
   };
 }
 
@@ -1201,6 +1377,39 @@ export function assertChannelSecretsAreEnvRefs(parsed: unknown): void {
         throw new ConfigError(
           'channel secret "auth.password" must be an { "$env": ... } reference, not an inline value',
           { path: joinPointer(joinPointer(basePath, "auth"), "password") },
+        );
+      }
+    }
+  }
+}
+
+/**
+ * Enforces §10.7 on the PRE-$env tree for federation tokens (§18.2, FR-137):
+ * `imports[].token` and `federation.accept[].token` are channel-class secrets —
+ * they MUST be `$env` references, never inline values (no §17.10-1-style
+ * relaxation). Post-resolution a reference and a literal are indistinguishable,
+ * so this must run before resolveEnv, like assertChannelSecretsAreEnvRefs.
+ */
+export function assertFederationTokensAreEnvRefs(parsed: unknown): void {
+  if (!isPlainObject(parsed)) return; // shape errors caught later
+  if (Array.isArray(parsed.imports)) {
+    for (const [i, entry] of parsed.imports.entries()) {
+      if (!isPlainObject(entry) || !Object.hasOwn(entry, "token")) continue;
+      if (!hasEnvKey(entry.token)) {
+        throw new ConfigError(
+          'import token must be an { "$env": ... } reference, not an inline value (§10.7)',
+          { path: joinPointer(joinPointer("/imports", String(i)), "token") },
+        );
+      }
+    }
+  }
+  if (isPlainObject(parsed.federation) && Array.isArray(parsed.federation.accept)) {
+    for (const [i, entry] of parsed.federation.accept.entries()) {
+      if (!isPlainObject(entry) || !Object.hasOwn(entry, "token")) continue;
+      if (!hasEnvKey(entry.token)) {
+        throw new ConfigError(
+          'federation token must be an { "$env": ... } reference, not an inline value (§10.7)',
+          { path: joinPointer(joinPointer("/federation/accept", String(i)), "token") },
         );
       }
     }

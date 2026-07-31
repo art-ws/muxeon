@@ -535,7 +535,10 @@ function Panel(props: {
             onFlat={props.onFlat}
             showTokens={props.showTokens}
             onShowTokens={props.onShowTokens}
-            peers={state.peers.filter((peer) => peerKind(peer) === "agent")}
+            peers={state.peers.filter(
+              // local agents only — a federated peer (§18.4) is not a visibility toggle
+              (peer) => peerKind(peer) === "agent" && peer.server === undefined,
+            )}
             visibility={visibility}
             onVisibility={setVisibility}
             serverInfo={serverInfo}

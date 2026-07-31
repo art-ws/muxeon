@@ -548,6 +548,70 @@ Checklist before exposing it:
   keeps only SHA-256 hashes of the tokens — delete the file to force a global
   logout.
 
+## 9. Federation (§18)
+
+Federation joins several TEAMAI servers so agents and users on different
+instances interact as if they shared one machine. Names are email-style FQNs:
+`dev@hq` is "the actor exported as `dev` by the server I import as `hq`";
+chains grow on the right (`bob@c@b`) and resolve by the last `@`.
+
+**Exporting** (the incoming side): declare a `federation` block — a separate
+listener port, loopback by default (put a TLS reverse-proxy in front for the
+open network) — and issue one token per importer in `accept`. Mark the actors
+that should exist to the outside with `exported: true` (own name) or
+`exported: "<alias>"` on `agents[]`/`users[]`; everything else is invisible,
+even by enumeration. Tokens are `$env`-only, like every channel secret.
+
+**Importing** (the outgoing side): list the neighbours in `imports` — the
+`name` you choose becomes the FQN suffix and a topology node: an edge on it
+(`"operator": ["hq"]`) grants the actor access to *all* actors of that server.
+`transit: true` (the default) re-exports the neighbour's actors to your own
+importers, suffix appended.
+
+```jsonc
+{
+  "imports": [
+    { "name": "hq", "url": "https://hq.example.com:8092",
+      "token": { "$env": "TEAMAI_FED_HQ_TOKEN" } }
+  ],
+  "federation": {
+    "port": 8092,                       // its own listener, never server.port
+    "accept": [ { "name": "branch", "token": { "$env": "TEAMAI_FED_BRANCH_TOKEN" } } ]
+  },
+  "agents": [ { "name": "dev", "...": "...", "exported": true } ]
+}
+```
+
+What to expect at runtime:
+
+- **Delivery is store-and-forward.** A send to `dev@hq` lands in a persistent
+  per-link queue (`<queue root>/fed/<name>/`, visible to `teamai queues`); a
+  dead link accumulates and drains on reconnect — nothing is lost. Receipts
+  (delivered / WIP_LIMIT / AGENT_PAUSED / UNKNOWN_ACTOR) come back
+  asynchronously; a failure appears as a `[federation]` notice in the sender's
+  own chat with that peer.
+- **`from` cannot be forged.** The receiving link stamps its own suffix on
+  every inbound sender name (`alex` → `alex@branch`).
+- **Replies flow back without extra config**: an exported actor answering an
+  importer's message uses the stamped FQN with `replyTo`. Full initiative in
+  the reverse direction needs a mutual import.
+- **Statuses are a read-only projection.** Remote agents show
+  `idle`/`busy`/`down` (+ pause), remote users show presence — published by
+  the owner, coalesced (`statusDebounceMs`). When the link (or a transit hop)
+  is down, or the neighbour sets `publishStatus: false`, the panel and
+  `list_peers` show **`unknown`** — never a stale value, never a fake `down`.
+  The panel groups remote actors in a **Servers** sidebar section with a link
+  marker per import; a remote chat is an ordinary 1:1 without console,
+  lifecycle or pause controls.
+- **What never crosses the link**: slash commands, lifecycle, raw mode, Screen
+  Live/`get_screen`, group/tag broadcasts, the transport journal. Local queue
+  internals stay home; only the availability flags travel.
+- **Local testing**: several instances on one machine are a first-class
+  scenario — `http://127.0.0.1:<port>` URLs (a warning, fine on loopback),
+  mutual imports, one `<config_dir>` per instance. If your shell exports
+  `HTTP_PROXY`, exempt loopback (`NO_PROXY=127.0.0.1,localhost`) or the link
+  client will try to reach the neighbour through the proxy.
+
 Security posture, the trust boundary and the reporting process are documented in
 [SECURITY.md](../SECURITY.md); the invariants the test suite defends are listed
 in [CONTRIBUTING.md](../CONTRIBUTING.md).

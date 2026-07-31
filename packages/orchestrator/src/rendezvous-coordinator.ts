@@ -139,7 +139,16 @@ export class RendezvousCoordinator {
   async run(signal: AbortSignal): Promise<void> {
     while (!signal.aborted) {
       await this.sweep();
-      if (!signal.aborted) await this.#sleep(this.#sweepIntervalMs);
+      // Abort races the sweep sleep (FR-49 spirit): shutdown must never sit out
+      // a tick — the injected #sleep stays plain, tests drive sweep() directly.
+      if (!signal.aborted) {
+        await Promise.race([
+          this.#sleep(this.#sweepIntervalMs),
+          new Promise<void>((resolve) =>
+            signal.addEventListener("abort", () => resolve(), { once: true }),
+          ),
+        ]);
+      }
     }
   }
 

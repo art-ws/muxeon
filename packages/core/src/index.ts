@@ -8,3 +8,5 @@ export * from "./topology";
 export * from "./command-grants";
 export * from "./session-grants";
 export * from "./name-codec";
+export * from "./fqn";
+export * from "./federation";

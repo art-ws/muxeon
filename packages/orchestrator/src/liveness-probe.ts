@@ -75,7 +75,13 @@ export class LivenessProbeSweeper {
    */
   async run(signal: AbortSignal): Promise<void> {
     while (!signal.aborted) {
-      await this.#sleep(this.#intervalMs);
+      // Abort races the sleep (FR-49 spirit): shutdown never sits out a tick.
+      await Promise.race([
+        this.#sleep(this.#intervalMs),
+        new Promise<void>((resolve) =>
+          signal.addEventListener("abort", () => resolve(), { once: true }),
+        ),
+      ]);
       if (!signal.aborted) await this.tick();
     }
   }

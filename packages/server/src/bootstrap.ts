@@ -54,6 +54,7 @@ import {
 import {
   AgentState,
   Dispatcher,
+  type EgressDispatcher,
   type Exchange,
   IdleTeardownSweeper,
   LivenessProbeSweeper,
@@ -80,6 +81,7 @@ import {
   createFsRendezvousStore,
   createRetention,
   ensureSessionQueue,
+  fedQueueRoot,
   inFlightId,
   loadSessionDoneIds,
   parseRetainAge,
@@ -113,6 +115,7 @@ import { routeRawReply } from "./raw-reply";
 import { createTextRedactor } from "./redact";
 import { type ServerSurface, startSurface } from "./surface";
 import { type ChannelRuntime, type ConnectorFactory, wireChannels } from "./wire-channels";
+import { type FederationHandle, buildRouterFederation, wireFederation } from "./wire-federation";
 import { type UserRuntime, wireUsers } from "./wire-users";
 
 export interface BootstrapOptions {
@@ -191,6 +194,8 @@ export interface TeamaiServer {
   readonly liveness?: LivenessProbeSweeper;
   /** Rendezvous coordinator (§8.2/FR-105); present unless disabled — sweep() on demand. */
   readonly rendezvous?: RendezvousCoordinator;
+  /** Federation runtime (§18, FR-137…FR-146); present when the config federates. */
+  readonly federation?: FederationHandle;
   status(name: string): AgentStatus | undefined;
   stop(): Promise<void>;
 }
@@ -361,6 +366,10 @@ export async function bootstrap(options: BootstrapOptions = {}): Promise<TeamaiS
       sweepIntervalMs: config.server.cadence?.rendezvousSweepMs ?? DEFAULT_RENDEZVOUS_SWEEP_MS,
     });
   }
+  // Federation ports (§18.5, §10.26): config + journal knowledge, built BEFORE
+  // the router so an FQN `to` routes into a link queue and link ingress passes
+  // the owner's gates in the same single point. Undefined without federation.
+  const routerFederation = buildRouterFederation(config, transportLog);
   const router = new Router({
     topology,
     root,
@@ -371,6 +380,7 @@ export async function bootstrap(options: BootstrapOptions = {}): Promise<TeamaiS
     // DND (§17.8, FR-134): a paused USER still receives their own notes.
     isUser,
     resolveBroadcast,
+    ...(routerFederation !== undefined ? { federation: routerFederation } : {}),
     onRouted: (message) => {
       // Presence (§17.5, FR-133): the single delivery point sees every producer,
       // so one hook covers the panel, the channels and self-delivery alike.
@@ -630,6 +640,9 @@ export async function bootstrap(options: BootstrapOptions = {}): Promise<TeamaiS
   let adminHandler: ((req: Request) => Promise<Response>) | undefined;
   let channelsHandle: Awaited<ReturnType<typeof wireChannels>> | undefined;
   let usersHandle: Awaited<ReturnType<typeof wireUsers>> | undefined;
+  // Federation (§18): wired in step 8c, but the MCP/webchat closures below read it
+  // lazily — the same forward-wiring pattern commandPort/sessionPort use.
+  let federationHandle: FederationHandle | undefined;
   let scheduler: SchedulerHandle | undefined;
   let retention: RetentionHandle | undefined;
   try {
@@ -692,6 +705,15 @@ export async function bootstrap(options: BootstrapOptions = {}): Promise<TeamaiS
                   if (sessionPort === undefined) throw new Error("session port not wired");
                   return sessionPort.run(name, action);
                 },
+                // Federated peers (§18.4, FR-140/FR-150): an edge on an import
+                // node opens ALL its actors (§18.10-6); the projection comes from
+                // the registry — read-only, `unknown` when the source is dark.
+                remotePeers: () =>
+                  federationHandle === undefined
+                    ? []
+                    : topology
+                        .neighbors(caller)
+                        .flatMap((node) => federationHandle?.peersOf(node) ?? []),
               }),
             // Takeover (FR-44b) is normal after an agent restart but also the trace
             // of a duplicate-name misconfiguration — always surfaced.
@@ -785,6 +807,12 @@ export async function bootstrap(options: BootstrapOptions = {}): Promise<TeamaiS
       // WIP cap (§8.2, FR-104) + rendezvous view (FR-105) for the panel markers.
       wipLimitOf,
       rendezvousState: () => rendezvous?.rendezvousState() ?? { waiting: [], awaited: [] },
+      // Federated peers (§18.4, FR-144/FR-150): same edge rule as agents — the
+      // viewer needs an edge on the import node; rows are read-only projections.
+      remotePeers: () =>
+        federationHandle === undefined
+          ? []
+          : topology.neighbors(operator).flatMap((node) => federationHandle?.peersOf(node) ?? []),
     });
 
     // Lifecycle runtimes + admin BEFORE the channels: the webchat panel gets a
@@ -1032,6 +1060,21 @@ export async function bootstrap(options: BootstrapOptions = {}): Promise<TeamaiS
     });
     runs.push(...channelsHandle.runs);
 
+    // 8c. federation (§18, FR-137…FR-146): link queues + egress dispatchers,
+    //     link clients, the listener and the status publisher. The router's
+    //     federation ports were built in step 5; this is the runtime around them.
+    federationHandle = await wireFederation({
+      config,
+      root,
+      router,
+      signal: abort.signal,
+      start: autoStart,
+      agentStatusOf: (name) => agents.get(name)?.state.status,
+      presenceOf: (name) => presence.presence(name),
+      isPaused,
+    });
+    if (federationHandle !== undefined) runs.push(...federationHandle.runs);
+
     // 9. network surface (§8.1): one port, two planes — /mcp (when on) and the
     //    loopback-only /admin operator-plane (§8.5, §10.10).
     // Queue edits resolve a participant name to its queue runtime: the agent's
@@ -1062,6 +1105,16 @@ export async function bootstrap(options: BootstrapOptions = {}): Promise<TeamaiS
           paths: sessionPaths(root, name),
           lane: user.egress.control,
           doneIds: user.egress.doneIds,
+        };
+      }
+      // A federation link queue (§18.5) is observable/editable like any other —
+      // its egress dispatcher owns pending/cur (§10.8 generalized to links).
+      const linkEgress = federationHandle?.egresses.get(name);
+      if (linkEgress !== undefined) {
+        return {
+          paths: sessionPaths(fedQueueRoot(root), name),
+          lane: linkEgress.control,
+          doneIds: linkEgress.doneIds,
         };
       }
       return undefined;
@@ -1135,6 +1188,16 @@ export async function bootstrap(options: BootstrapOptions = {}): Promise<TeamaiS
         policy: retentionPolicy(config.server.retain),
         forgetDone: (ids: Iterable<string>) => user.egress.forgetDone(ids),
       })),
+      // Link queues (§18.5) prune like every maildir — under their own root; the
+      // dedup window that guards cross-server redelivery shrinks with done/ (§10.9).
+      ...[...(federationHandle?.egresses ?? new Map<string, EgressDispatcher>())].map(
+        ([link, egress]) => ({
+          session: link,
+          root: fedQueueRoot(root),
+          policy: retentionPolicy(config.server.retain),
+          forgetDone: (ids: Iterable<string>) => egress.forgetDone(ids),
+        }),
+      ),
     ];
     // Webchat history (§12.3) joins the sweep: its own double cap prunes BEFORE
     // blob GC, and its live records keep their blobs referenced past the queue
@@ -1340,6 +1403,7 @@ export async function bootstrap(options: BootstrapOptions = {}): Promise<TeamaiS
   } catch (error) {
     abort.abort(); // stop the dispatcher/egress loops started above
     if (channelsHandle !== undefined) await channelsHandle.stop();
+    if (federationHandle !== undefined) await federationHandle.stop();
     if (scheduler !== undefined) await scheduler.stop();
     if (surface !== undefined) await surface.stop();
     await Promise.allSettled(runs);
@@ -1375,11 +1439,13 @@ export async function bootstrap(options: BootstrapOptions = {}): Promise<TeamaiS
     ...(idleSweeper !== undefined ? { idleTeardown: idleSweeper } : {}),
     ...(livenessSweeper !== undefined ? { liveness: livenessSweeper } : {}),
     ...(rendezvous !== undefined ? { rendezvous } : {}),
+    ...(federationHandle !== undefined ? { federation: federationHandle } : {}),
     status: (name) => agents.get(name)?.state.status,
     stop: async () => {
       abort.abort();
       if (tokenSampler !== undefined) await tokenSampler.stop(); // final token flush (§12.8)
       await channels.stop();
+      if (federationHandle !== undefined) await federationHandle.stop();
       if (scheduler !== undefined) await scheduler.stop();
       await liveSurface.stop();
       await Promise.allSettled(runs);

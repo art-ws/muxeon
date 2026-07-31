@@ -1,0 +1,20 @@
+{
+  "name": "@teamai/federation",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Server federation (§18): link protocol, link client/listener, remote-actor registry and status projection",
+  "main": "src/index.ts",
+  "types": "src/index.ts",
+  "exports": {
+    ".": {
+      "types": "./src/index.ts",
+      "default": "./src/index.ts"
+    }
+  },
+  "dependencies": {
+    "@teamai/config": "workspace:*",
+    "@teamai/core": "workspace:*",
+    "@teamai/orchestrator": "workspace:*"
+  }
+}

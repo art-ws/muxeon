@@ -11,6 +11,7 @@ import { resolveRefs } from "./ref";
 import {
   type TeamaiConfig,
   assertChannelSecretsAreEnvRefs,
+  assertFederationTokensAreEnvRefs,
   inlineUserPasswords,
   validateStructure,
 } from "./schema";
@@ -51,6 +52,7 @@ export function loadConfig(text: string, options: LoadOptions = {}): LoadResult 
   if (options.readFile !== undefined) refOptions.readFile = options.readFile;
   const assembled = resolveRefs(parseConfig(text), refOptions); // §7.2: assemble monolith
   assertChannelSecretsAreEnvRefs(assembled); // §7.3: secrets must be $env (pre-resolution)
+  assertFederationTokensAreEnvRefs(assembled); // §18.2: link tokens are the same class
   // A literal `users[].auth.password` is legal (§17.2 point relaxation of §10.7,
   // decision §17.10-1) — but it is read PRE-resolution, so the warning can only be
   // collected here, before the reference and the literal become indistinguishable.

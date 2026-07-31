@@ -9,7 +9,13 @@
 // them. Topology neighbor checks reuse @teamai/core's Topology (a legal config→core
 // edge).
 
-import { COMMAND_WILDCARD, SESSION_WILDCARD, Topology, isSessionAction } from "@teamai/core";
+import {
+  COMMAND_WILDCARD,
+  FQN_SEPARATOR,
+  SESSION_WILDCARD,
+  Topology,
+  isSessionAction,
+} from "@teamai/core";
 import { joinPointer } from "./env";
 import { ConfigError } from "./error";
 import {
@@ -47,14 +53,33 @@ export function validateRules(config: TeamaiConfig, context: ValidateContext = {
   assertUserGroups(config, groupNames); // FR-130: users[].group names a declared group
   assertBroadcastNamespaceDisjoint(agentNames, operatorNames, groupNames, tagNames, userNames);
 
-  // Topology nodes may now be groups/tags (input-only broadcast targets, §15.2) and
-  // users (§17.1 — full nodes with a queue of their own).
+  // Federation (§18.3, FR-137): import names are the SIXTH set of the shared
+  // namespace (§10.17), `@` is reserved as the FQN separator, export aliases are
+  // unique, and the link listener never shares a port with anything else.
+  const importNames = collectImportNames(config);
+  assertNoFqnSeparatorInNames(config, importNames);
+  assertImportNamespaceDisjoint(
+    importNames,
+    agentNames,
+    operatorNames,
+    groupNames,
+    tagNames,
+    userNames,
+  );
+  assertExportAliasesUnique(config);
+  assertFederationPorts(config);
+  assertFederationQueueKey(config);
+
+  // Topology nodes may now be groups/tags (input-only broadcast targets, §15.2),
+  // users (§17.1 — full nodes with a queue of their own) and imports (§18.5 —
+  // the server node granting all exported actors of that link, §18.10-6).
   const participants = new Set([
     ...agentNames,
     ...operatorNames,
     ...groupNames,
     ...tagNames,
     ...userNames,
+    ...importNames,
   ]);
   assertTopologyClosed(config, participants); // rule 1: topology nodes are known
 
@@ -69,6 +94,7 @@ export function validateRules(config: TeamaiConfig, context: ValidateContext = {
   warnOperatorsWithoutEdges(operatorNames, topology, warnings); // rule 5: warning
   warnUsers(config, userNames, topology, warnings); // §17.3: no edges / a panel with no login
   warnLegacyOperators(config, warnings); // FR-132: bindOperator is deprecated by users[]
+  warnFederation(config, warnings); // §18.2/§18.8: http:// links, an accept nobody holds
 
   return warnings;
 }
@@ -377,17 +403,22 @@ function assertKnownAdapterTypes(config: TeamaiConfig, known: Iterable<string> |
 }
 
 function assertTopologyClosed(config: TeamaiConfig, participants: Set<string>): void {
-  for (const [node, neighbors] of Object.entries(config.topology)) {
-    if (!participants.has(node)) {
-      throw new ConfigError(`topology references unknown participant "${node}"`, {
-        path: joinPointer("/topology", node),
-      });
+  // §18.3/§18.10-6: federation grants per-SERVER — an FQN can never be a node,
+  // the edge goes on the import name. Said explicitly, not as "unknown".
+  const reject = (name: string, path: string): never => {
+    if (name.includes(FQN_SEPARATOR)) {
+      throw new ConfigError(
+        `topology node "${name}" is an FQN — federation edges are per-server, use the import name (§18.10-6)`,
+        { path },
+      );
     }
+    throw new ConfigError(`topology references unknown participant "${name}"`, { path });
+  };
+  for (const [node, neighbors] of Object.entries(config.topology)) {
+    if (!participants.has(node)) reject(node, joinPointer("/topology", node));
     for (const [i, neighbor] of neighbors.entries()) {
       if (!participants.has(neighbor)) {
-        throw new ConfigError(`topology references unknown participant "${neighbor}"`, {
-          path: joinPointer(joinPointer("/topology", node), String(i)),
-        });
+        reject(neighbor, joinPointer(joinPointer("/topology", node), String(i)));
       }
     }
   }
@@ -829,6 +860,236 @@ function warnUsers(
           : `channel "${name}" runs in users mode with no user bound to it — inbound has no identity (§17.3)`,
       );
     }
+  }
+}
+
+// §18.3 / FR-137: import names are unique — each is a routing tail (§18.4) and
+// a topology node (§18.10-6), so two links under one name would be unresolvable.
+function collectImportNames(config: TeamaiConfig): Set<string> {
+  const names = new Set<string>();
+  for (const [i, entry] of (config.imports ?? []).entries()) {
+    const path = joinPointer(joinPointer("/imports", String(i)), "name");
+    if (names.has(entry.name)) {
+      throw new ConfigError(`duplicate import name "${entry.name}"`, { path });
+    }
+    assertLinkNameIsPathSafe(entry.name, path);
+    names.add(entry.name);
+  }
+  for (const [i, entry] of (config.federation?.accept ?? []).entries()) {
+    assertLinkNameIsPathSafe(
+      entry.name,
+      joinPointer(joinPointer("/federation/accept", String(i)), "name"),
+    );
+  }
+  return names;
+}
+
+// §18.5: a link name IS a queue directory segment (`<root>/fed/<link>/`), so it
+// must be a plain single segment — the same discipline queue keys live by.
+function assertLinkNameIsPathSafe(name: string, path: string): void {
+  if (/[/\\\0]/.test(name) || name === "." || name === "..") {
+    throw new ConfigError(
+      `link name "${name}" must be a plain name — it keys a queue directory (§18.5)`,
+      {
+        path,
+      },
+    );
+  }
+}
+
+// §18.3: `@` is reserved as the FQN separator — no local entity may carry it:
+// actors (agents/operators/users), groups, tags, imports, accept names and
+// export aliases. A local name with `@` would be indistinguishable from an FQN.
+function assertNoFqnSeparatorInNames(config: TeamaiConfig, importNames: Set<string>): void {
+  const offend = (kind: string, name: string, path?: string): never => {
+    throw new ConfigError(
+      `${kind} name "${name}" contains "${FQN_SEPARATOR}" — reserved as the FQN separator (§18.3)`,
+      path !== undefined ? { path } : {},
+    );
+  };
+  const has = (name: string): boolean => name.includes(FQN_SEPARATOR);
+  for (const [i, agent] of config.agents.entries()) {
+    if (has(agent.name))
+      offend("agent", agent.name, joinPointer(joinPointer("/agents", String(i)), "name"));
+    if (typeof agent.exported === "string" && has(agent.exported))
+      offend(
+        "export alias",
+        agent.exported,
+        joinPointer(joinPointer("/agents", String(i)), "exported"),
+      );
+    for (const tag of agent.tags ?? []) if (has(tag)) offend("tag", tag);
+  }
+  for (const [i, user] of (config.users ?? []).entries()) {
+    if (has(user.name))
+      offend("user", user.name, joinPointer(joinPointer("/users", String(i)), "name"));
+    if (typeof user.exported === "string" && has(user.exported))
+      offend(
+        "export alias",
+        user.exported,
+        joinPointer(joinPointer("/users", String(i)), "exported"),
+      );
+    for (const tag of user.tags ?? []) if (has(tag)) offend("tag", tag);
+  }
+  for (const [i, channel] of config.channels.entries()) {
+    const operator = channel.bindOperator;
+    if (operator !== undefined && has(operator))
+      offend(
+        "operator",
+        operator,
+        joinPointer(joinPointer("/channels", String(i)), "bindOperator"),
+      );
+  }
+  for (const [i, group] of (config.groups ?? []).entries()) {
+    if (has(group.name))
+      offend("group", group.name, joinPointer(joinPointer("/groups", String(i)), "name"));
+  }
+  for (const name of importNames) if (has(name)) offend("import", name);
+  for (const [i, entry] of (config.federation?.accept ?? []).entries()) {
+    if (has(entry.name))
+      offend(
+        "accept",
+        entry.name,
+        joinPointer(joinPointer("/federation/accept", String(i)), "name"),
+      );
+  }
+}
+
+// §18.3 / §10.17: import names join the ONE shared namespace as the sixth set —
+// a topology node / `to` must still resolve to exactly one kind.
+function assertImportNamespaceDisjoint(
+  importNames: Set<string>,
+  agentNames: Set<string>,
+  operatorNames: Set<string>,
+  groupNames: Set<string>,
+  tagNames: Set<string>,
+  userNames: Set<string>,
+): void {
+  const others: readonly [string, Set<string>][] = [
+    ["agent", agentNames],
+    ["operator", operatorNames],
+    ["group", groupNames],
+    ["tag", tagNames],
+    ["user", userNames],
+  ];
+  for (const name of importNames) {
+    for (const [kind, set] of others) {
+      if (set.has(name)) {
+        throw new ConfigError(
+          `name "${name}" is used by both an import and a ${kind} — the shared namespace must be disjoint (§10.17/§18.3)`,
+        );
+      }
+    }
+  }
+}
+
+// §18.3: export aliases are unique WITHIN the set of exported names (an actor
+// exporting `true` contributes its own name). The export namespace is separate
+// from the local one — an alias may legally match some other local name.
+function assertExportAliasesUnique(config: TeamaiConfig): void {
+  const owner = new Map<string, string>();
+  const claim = (exportName: string, who: string, path: string): void => {
+    const existing = owner.get(exportName);
+    if (existing !== undefined) {
+      throw new ConfigError(
+        `export name "${exportName}" is claimed by both ${existing} and ${who} (§18.3)`,
+        { path },
+      );
+    }
+    owner.set(exportName, who);
+  };
+  for (const [i, agent] of config.agents.entries()) {
+    if (agent.exported === undefined) continue;
+    const exportName = agent.exported === true ? agent.name : agent.exported;
+    claim(
+      exportName,
+      `agent "${agent.name}"`,
+      joinPointer(joinPointer("/agents", String(i)), "exported"),
+    );
+  }
+  for (const [i, user] of (config.users ?? []).entries()) {
+    if (user.exported === undefined) continue;
+    const exportName = user.exported === true ? user.name : user.exported;
+    claim(
+      exportName,
+      `user "${user.name}"`,
+      joinPointer(joinPointer("/users", String(i)), "exported"),
+    );
+  }
+}
+
+// §18.3: the link listener is its own surface (§18.7, decision §18.10-9) — its
+// port may not collide with server.port or any channel's port.
+function assertFederationPorts(config: TeamaiConfig): void {
+  const federation = config.federation;
+  if (federation === undefined) return;
+  if (federation.port !== 0 && federation.port === config.server.port) {
+    throw new ConfigError(
+      `federation.port ${federation.port} must differ from server.port (§18.7 — a separate listener)`,
+      { path: "/federation/port" },
+    );
+  }
+  for (const channel of config.channels) {
+    if (federation.port !== 0 && channel.port === federation.port) {
+      throw new ConfigError(
+        `federation.port ${federation.port} must differ from channel "${channelName(channel)}" port (§18.7)`,
+        { path: "/federation/port" },
+      );
+    }
+  }
+  const seen = new Set<string>();
+  for (const [i, entry] of federation.accept.entries()) {
+    if (seen.has(entry.name)) {
+      throw new ConfigError(`duplicate accept name "${entry.name}"`, {
+        path: joinPointer(joinPointer("/federation/accept", String(i)), "name"),
+      });
+    }
+    seen.add(entry.name);
+  }
+}
+
+// §18.5: link queues live under `<root>/fed/<link>/`, so the segment "fed" is
+// reserved as a queue key the moment federation is configured. Existing
+// non-federated configs keep it (FR-146 — no behavior change without the blocks).
+function assertFederationQueueKey(config: TeamaiConfig): void {
+  const federated = (config.imports ?? []).length > 0 || config.federation !== undefined;
+  if (!federated) return;
+  for (const [i, agent] of config.agents.entries()) {
+    if (agent.tmux === "fed") {
+      throw new ConfigError('queue key "fed" is reserved for federation link queues (§18.5)', {
+        path: joinPointer(joinPointer("/agents", String(i)), "tmux"),
+      });
+    }
+  }
+  for (const user of config.users ?? []) {
+    if (user.name === "fed") {
+      throw new ConfigError('queue key "fed" is reserved for federation link queues (§18.5)');
+    }
+  }
+  for (const channel of config.channels) {
+    if (channel.bindOperator === "fed") {
+      throw new ConfigError('queue key "fed" is reserved for federation link queues (§18.5)');
+    }
+  }
+}
+
+// §18.2/§18.8 advisories (never fatal): a plain-http link is fine on a loopback
+// test bench but not on a network; an unknown scheme IS fatal — the link client
+// could never speak it. An empty accept list means the listener admits nobody.
+function warnFederation(config: TeamaiConfig, warnings: string[]): void {
+  for (const [i, entry] of (config.imports ?? []).entries()) {
+    if (entry.url.startsWith("https://")) continue;
+    if (entry.url.startsWith("http://")) {
+      warnings.push(
+        `import "${entry.name}" uses plain http:// — acceptable for local testing only (§18.8)`,
+      );
+      continue;
+    }
+    throw new ConfigError(`import "${entry.name}" url must be http(s)://`, {
+      path: joinPointer(joinPointer("/imports", String(i)), "url"),
+    });
+  }
+  if (config.federation !== undefined && config.federation.accept.length === 0) {
+    warnings.push("federation.accept is empty — the link listener admits nobody (§18.2)");
   }
 }
 

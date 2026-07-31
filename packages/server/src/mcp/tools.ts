@@ -23,7 +23,7 @@ import type {
   Signal,
   Topology,
 } from "@teamai/core";
-import { SESSION_ACTIONS, isSessionAction } from "@teamai/core";
+import { SESSION_ACTIONS, isFqn, isSessionAction } from "@teamai/core";
 import type { Router } from "@teamai/orchestrator";
 
 export interface AgentPlaneDeps {
@@ -108,6 +108,25 @@ export interface AgentPlaneDeps {
   readonly now?: () => number;
   /** Idempotency-id generator when send omits one (§5.3/§10.9); default randomUUID. */
   readonly newId?: () => string;
+  /**
+   * Federated peers visible to the caller (§18.4, FR-140/FR-150): every actor of
+   * every import the caller has a topology edge on (§18.10-6), carrying the
+   * read-only status projection — `unknown` when the source is unreachable
+   * (§10.27). Absent ⇒ no federation; an FQN name answers UNKNOWN_PEER.
+   */
+  remotePeers?(): readonly FederatedPeer[];
+}
+
+/** A federated peer row (§18.4) — the FR-140 shape list_peers/get_status read. */
+export interface FederatedPeer {
+  readonly name: string;
+  readonly type: "agent" | "user";
+  readonly server: string;
+  readonly link: "up" | "down";
+  readonly status?: AgentStatus | "unknown";
+  readonly presence?: "online" | "offline" | "unknown";
+  readonly paused: boolean;
+  readonly reason?: "link-down" | "not-published" | "hop-down";
 }
 
 /** The closed tool set (§8.6); AGENT_TOOLS keys off this and the §10.10 guard asserts it. */
@@ -350,12 +369,43 @@ async function dispatch(
             }
           : { name, type };
       });
-      return ok({ peers });
+      // Federated peers (§18.4, FR-140/FR-150): every actor of every import the
+      // caller has an edge on, FQN-named, with `server`, link reachability and
+      // the read-only projection — `unknown` never masquerades as idle/down.
+      const remote = (deps.remotePeers?.() ?? []).map((peer) => ({
+        name: peer.name,
+        type: peer.type,
+        server: peer.server,
+        link: peer.link,
+        ...(peer.status !== undefined ? { status: peer.status } : {}),
+        ...(peer.presence !== undefined ? { presence: peer.presence } : {}),
+        paused: peer.paused,
+        ...(peer.reason !== undefined ? { reason: peer.reason } : {}),
+      }));
+      return ok({ peers: [...peers, ...remote] });
     }
 
     case "get_status": {
       const name = args.name;
       if (typeof name !== "string") return fail("INVALID_ARGS", "name must be a string");
+      // A federated peer (§18.4, FR-150): the cached projection — never a probe
+      // over the link. An unreachable source is UNAVAILABLE, not a fake "down"
+      // (§10.27); a remote human is NOT_STATUSABLE exactly like a local one.
+      if (isFqn(name)) {
+        const peer = (deps.remotePeers?.() ?? []).find((entry) => entry.name === name);
+        if (peer === undefined) return fail("UNKNOWN_PEER", `not a visible peer: ${name}`);
+        if (peer.type === "user") {
+          return fail("NOT_STATUSABLE", `"${name}" is a user — presence arrives in list_peers`);
+        }
+        if (peer.status === undefined || peer.status === "unknown") {
+          const cause =
+            peer.reason === "not-published"
+              ? "the owner does not publish statuses"
+              : "the link is unreachable";
+          return fail("UNAVAILABLE", `status of "${name}" is unknown — ${cause}`);
+        }
+        return ok({ status: peer.status, paused: peer.paused });
+      }
       // Neighbor-scope (§8.7/§10.11): a node outside the caller's neighborhood is not
       // revealed — same visibility as list_peers. Self is not a neighbor.
       if (!deps.topology.hasEdge(caller, name))

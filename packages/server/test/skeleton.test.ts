@@ -56,7 +56,7 @@ describe.skipIf(!HAS_TMUX)("walking skeleton end-to-end (Checkpoint 4) [requires
     writeFileSync(
       configFile,
       JSON.stringify({
-        server: { port: 8080, queueDir: "./queue", mcp: false }, // skeleton tests the queue path, not MCP
+        server: { port: 0, queueDir: "./queue", mcp: false }, // queue path only; port 0 beside a live stand
         agents: [{ name: "dummy", type: "dummy", tmux: session }],
         topology: {},
       }),

@@ -21,7 +21,8 @@
       },
       "commands": [{ "slash": "clear" }, { "slash": "compact" }],
       "group": "workers",
-      "tags": ["research"]
+      "tags": ["research"],
+      "exported": true
     },
     {
       "name": "writer",
@@ -47,7 +48,25 @@
 
   "topology": {
     "researcher": ["writer", "operator"],
-    "writer": ["operator"]
+    "writer": ["operator"],
+    "operator": ["hq"]
+  },
+
+  "imports": [
+    {
+      "name": "hq",
+      "url": "https://hq.example.com:8092",
+      "token": { "$env": "TEAMAI_FED_HQ_TOKEN" },
+      "transit": true
+    }
+  ],
+
+  "federation": {
+    "port": 8092,
+    "bind": "127.0.0.1",
+    "publishStatus": true,
+    "statusDebounceMs": 1000,
+    "accept": [{ "name": "branch", "token": { "$env": "TEAMAI_FED_BRANCH_TOKEN" } }]
   },
 
   "commandGrants": {
