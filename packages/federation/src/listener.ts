@@ -20,7 +20,12 @@ export interface FederationListenerOptions {
   readonly port: number;
   readonly bind?: string;
   readonly instanceId: string;
-  readonly accepts: readonly { readonly name: string; readonly token: string }[];
+  /** `relay` (§18.11/FR-152): consent to relay this importer's published surface. */
+  readonly accepts: readonly {
+    readonly name: string;
+    readonly token: string;
+    readonly relay?: boolean;
+  }[];
   /** §18.4/FR-149: announced in the handshake so an importer knows why `unknown`. */
   readonly statusPublished: boolean;
   readonly surface: () => readonly FedActorEntry[];
@@ -33,6 +38,8 @@ export interface FederationListenerOptions {
   readonly onOpen: (accept: string, send: (text: string) => void) => unknown;
   readonly onClose: (accept: string, handle: unknown) => void;
   readonly onMessage: (accept: string, raw: unknown, handle: unknown) => void;
+  /** A valid handshake arrived (§18.11.5) — the satellite's declared intent. */
+  readonly onHandshake?: (accept: string, request: HandshakeRequest) => void;
   readonly warn?: (message: string) => void;
 }
 
@@ -68,13 +75,13 @@ export class FederationListener {
     return this.#server?.port ?? this.#options.port;
   }
 
-  /** The importer behind the bearer, or null. Auth precedes everything (§10.12). */
-  #identify(req: Request): string | null {
+  /** The accept entry behind the bearer, or null. Auth precedes everything (§10.12). */
+  #identify(req: Request): FederationListenerOptions["accepts"][number] | null {
     const header = req.headers.get("authorization") ?? "";
     if (!header.startsWith("Bearer ")) return null;
     const token = header.slice("Bearer ".length);
     for (const accept of this.#options.accepts) {
-      if (tokenMatches(token, accept.token)) return accept.name;
+      if (tokenMatches(token, accept.token)) return accept;
     }
     return null;
   }
@@ -90,21 +97,25 @@ export class FederationListener {
         const accept = this.#identify(req);
         if (accept === null) return json({ error: "authentication required" }, 401);
         if (url.pathname === FED_HANDSHAKE_PATH && req.method === "POST") {
-          let version = 0;
+          let request: HandshakeRequest;
           try {
-            version = ((await req.json()) as HandshakeRequest).version;
+            request = (await req.json()) as HandshakeRequest;
           } catch {
             return json({ error: "malformed handshake" }, 400);
           }
-          if (version !== FED_PROTOCOL_VERSION) {
+          if (request.version !== FED_PROTOCOL_VERSION) {
             // Incompatibility is an explicit refusal with both numbers — the
             // client logs it and stays down (§18.7), nobody guesses.
             return json({ error: "protocol version mismatch", version: FED_PROTOCOL_VERSION }, 409);
           }
+          // §18.11.5: the mode negotiation — the satellite declares, the hub
+          // answers with its per-accept consent; a mismatch is the CLIENT's warn.
+          options.onHandshake?.(accept.name, request);
           return json({
             instanceId: options.instanceId,
             version: FED_PROTOCOL_VERSION,
             statusPublished: options.statusPublished,
+            relay: accept.relay === true,
           });
         }
         if (url.pathname === FED_ACTORS_PATH && req.method === "GET") {
@@ -113,7 +124,7 @@ export class FederationListener {
           return json({ actors: options.surface() });
         }
         if (url.pathname === FED_LINK_PATH) {
-          if (server.upgrade(req, { data: { accept } })) return undefined;
+          if (server.upgrade(req, { data: { accept: accept.name } })) return undefined;
           return json({ error: "websocket upgrade required" }, 400);
         }
         return json({ error: "not found" }, 404);

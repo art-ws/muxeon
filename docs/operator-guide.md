@@ -582,6 +582,21 @@ importers, suffix appended.
 }
 ```
 
+**Relay mode** (§18.11): two servers that cannot reach each other directly —
+typically both behind NAT — talk through a shared hub they both import. The
+satellite adds `"publish": true` to its import (it needs **no** `federation`
+block at all: no listener, no port, no reverse-proxy); the hub consents with
+`"relay": true` on that satellite's `accept` entry. Both flags default to
+false, and without either one the link behaves exactly as before. Once both
+are set, the satellite's export surface travels *up* its own link and the hub
+re-exports it to every neighbour: on the hub the branch appears under the
+accept's name (`ann@a`), one server further as `ann@a@c`. The accept name then
+becomes a topology node like an import's, and the hub queues for an offline
+satellite (`fed/<accept>/`) — a mailbox that drains on reconnect. Note that
+`publish` is a broad consent: your exported actors become reachable to the
+hub's whole downstream, and the hub sees the transit traffic in plain text —
+relay is for hubs you trust.
+
 What to expect at runtime:
 
 - **Delivery is store-and-forward.** A send to `dev@hq` lands in a persistent
@@ -594,7 +609,8 @@ What to expect at runtime:
   every inbound sender name (`alex` → `alex@branch`).
 - **Replies flow back without extra config**: an exported actor answering an
   importer's message uses the stamped FQN with `replyTo`. Full initiative in
-  the reverse direction needs a mutual import.
+  the reverse direction needs a mutual import — or relay mode, where published
+  actors are first-class addressees.
 - **Statuses are a read-only projection.** Remote agents show
   `idle`/`busy`/`down` (+ pause), remote users show presence — published by
   the owner, coalesced (`statusDebounceMs`). When the link (or a transit hop)

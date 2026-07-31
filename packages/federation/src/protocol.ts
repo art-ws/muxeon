@@ -11,8 +11,10 @@
 import type { FederatedActorType, SignalKind, StatusProjection } from "@teamai/core";
 import type { FederationReceiptCode, LinkRecord } from "@teamai/orchestrator";
 
-/** Protocol version (§18.7): a mismatch is link-down with a clear log, not a guess. */
-export const FED_PROTOCOL_VERSION = 1;
+/** Protocol version (§18.7): a mismatch is link-down with a clear log, not a guess.
+ * v2 (§18.11.5): the handshake negotiates relay mode — request `publish`/`statusPublished`,
+ * response `relay`. */
+export const FED_PROTOCOL_VERSION = 2;
 
 export const FED_HANDSHAKE_PATH = "/fed/handshake";
 export const FED_ACTORS_PATH = "/fed/actors";
@@ -23,6 +25,10 @@ export const FED_ACK_TIMEOUT_MS = 10_000;
 
 export interface HandshakeRequest {
   readonly version: number;
+  /** §18.11.5/FR-153: the satellite intends to publish its export surface up the link. */
+  readonly publish?: boolean;
+  /** §18.11.2: does the reverse stream carry statuses (`federation.publishStatus`, default true)? */
+  readonly statusPublished?: boolean;
 }
 
 export interface HandshakeResponse {
@@ -30,6 +36,8 @@ export interface HandshakeResponse {
   readonly version: number;
   /** §18.4/FR-149: whether this exporter publishes status projections at all. */
   readonly statusPublished: boolean;
+  /** §18.11.5/FR-153: the hub consents to relay THIS importer's published surface. */
+  readonly relay?: boolean;
 }
 
 /**

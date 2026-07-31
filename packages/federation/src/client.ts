@@ -18,6 +18,10 @@ export interface LinkClientOptions {
   readonly name: string;
   readonly url: string;
   readonly token: string;
+  /** §18.11/FR-153: ask the hub to relay this server's published surface. */
+  readonly publish?: boolean;
+  /** §18.11.2: whether the reverse stream will carry statuses (default true). */
+  readonly statusPublished?: boolean;
   /** The link is up: handshake + surface seed + the socket's send. */
   readonly onUp: (
     handshake: HandshakeResponse,
@@ -96,7 +100,11 @@ export class LinkClient {
       const hsResponse = await doFetch(new URL(FED_HANDSHAKE_PATH, url), {
         method: "POST",
         headers: { ...headers, "content-type": "application/json" },
-        body: JSON.stringify({ version: FED_PROTOCOL_VERSION }),
+        body: JSON.stringify({
+          version: FED_PROTOCOL_VERSION,
+          publish: this.#options.publish === true,
+          statusPublished: this.#options.statusPublished ?? true,
+        }),
       });
       if (!hsResponse.ok) {
         this.#warn(`handshake failed: HTTP ${hsResponse.status}`);
@@ -109,6 +117,11 @@ export class LinkClient {
           `protocol version mismatch: theirs ${handshake.version}, ours ${FED_PROTOCOL_VERSION}`,
         );
         return false;
+      }
+      if (this.#options.publish === true && handshake.relay !== true) {
+        // Mode mismatch is a warn and base-mode link (§18.11.5) — NEVER link-down;
+        // version incompatibility above stays the only link-down cause.
+        this.#warn("publish requested but the hub did not grant relay — base link mode (§18.11)");
       }
       const actorsResponse = await doFetch(new URL(FED_ACTORS_PATH, url), { headers });
       if (!actorsResponse.ok) {

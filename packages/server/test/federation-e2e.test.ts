@@ -22,6 +22,8 @@ const noopDriver = (): SessionDriver => ({
 const ENV: Record<string, string> = {
   FED_TOKEN_A: "token-issued-to-a",
   FED_TOKEN_C: "token-issued-to-b-for-c",
+  FED_TOKEN_SAT_A: "token-issued-to-satellite-a",
+  FED_TOKEN_SAT_B: "token-issued-to-satellite-b",
 };
 
 async function waitFor(predicate: () => boolean | Promise<boolean>, ms = 8000): Promise<void> {
@@ -297,6 +299,190 @@ describe.skipIf(!LOOPBACK_DIRECT)("§18 federation end-to-end", () => {
     await waitFor(() => listDir(bQueue).length === 1, 15000);
     expect(await readOne(bQueue)).toMatchObject({ from: "alex@hq", payload: "catch you later" });
     await waitFor(() => a.federation?.registry.get("dev@b")?.status === "down", 15000);
+  });
+
+  // --- relay mode (§18.11, FR-152…FR-155): satellites behind NAT joined by a hub ---
+
+  /** Hub C: local carl (exported, edge on relay-accept "a"), accepts a and b. */
+  const hubConfig = (port: number, relay: { a?: boolean; b?: boolean } = {}) => ({
+    server: { port: 0, mcp: false, queueDir: "./queue" },
+    agents: [{ name: "carl", type: "claude", tmux: "hub-carl", exported: true }],
+    topology: relay.a === false ? {} : { carl: ["a"] },
+    channels: [],
+    federation: {
+      port,
+      statusDebounceMs: 50,
+      accept: [
+        { name: "a", token: { $env: "FED_TOKEN_SAT_A" }, relay: relay.a ?? true },
+        { name: "b", token: { $env: "FED_TOKEN_SAT_B" }, relay: relay.b ?? true },
+      ],
+    },
+  });
+
+  /** Satellite (§18.11.1): NO federation block — an outgoing publishing import only. */
+  const satelliteConfig = (cPort: number, me: "ann" | "bob") => ({
+    server: { port: 0, mcp: false, queueDir: "./queue" },
+    agents: [{ name: me, type: "claude", tmux: `sat-${me}`, exported: true }],
+    topology: { [me]: ["c"] },
+    channels: [],
+    imports: [
+      {
+        name: "c",
+        url: `http://127.0.0.1:${cPort}`,
+        token: { $env: me === "ann" ? "FED_TOKEN_SAT_A" : "FED_TOKEN_SAT_B" },
+        publish: true,
+      },
+    ],
+  });
+
+  test("relay: visibility both ways through the hub, cycle guard on the mirror (§18.11.2)", async () => {
+    const cPort = await freePort();
+    const c = await boot(hubConfig(cPort));
+    const a = await boot(satelliteConfig(cPort, "ann"));
+    const b = await boot(satelliteConfig(cPort, "bob"));
+
+    // The hub sees each satellite's published surface under the accept's name…
+    await waitFor(() => c.federation?.registry.peersOf("a").length === 1);
+    expect(c.federation?.registry.peersOf("a")[0]).toMatchObject({
+      name: "ann@a",
+      type: "agent",
+      link: "up",
+      status: "down",
+    });
+    // …and each satellite sees the OTHER one relayed, suffix composed rightward,
+    // beside the hub's own actor. Its own mirrored branch is dropped by the
+    // instance-id cycle guard — ann never sees ann@a@c.
+    await waitFor(() =>
+      (a.federation?.registry.peersOf("c") ?? []).some((peer) => peer.name === "bob@b@c"),
+    );
+    const fromA = (a.federation?.registry.peersOf("c") ?? []).map((peer) => peer.name);
+    expect(fromA).toContain("carl@c");
+    expect(fromA).not.toContain("ann@a@c");
+    await waitFor(() =>
+      (b.federation?.registry.peersOf("c") ?? []).some((peer) => peer.name === "ann@a@c"),
+    );
+
+    // FR-155: the hub's local plane sees the relay branch through the edge on "a".
+    expect(c.federation?.peersOf("a").map((peer) => peer.name)).toEqual(["ann@a"]);
+  });
+
+  test("relay: A→B through the hub online, reply back, hub-local initiative (FR-154)", async () => {
+    const cPort = await freePort();
+    const c = await boot(hubConfig(cPort));
+    const a = await boot(satelliteConfig(cPort, "ann"));
+    const b = await boot(satelliteConfig(cPort, "bob"));
+    await waitFor(() =>
+      (a.federation?.registry.peersOf("c") ?? []).some((peer) => peer.name === "bob@b@c"),
+    );
+
+    // ann → bob@b@c: the edge on "c" authorizes; the hub resolves tail "a"/"b"
+    // as a relay accept and forwards; every hop stamps its suffix (§10.24).
+    const sent = await a.router.route({
+      id: "rl1",
+      from: "ann",
+      to: "bob@b@c",
+      kind: "message",
+      ts: Date.now(),
+      payload: "hi across the hub",
+    });
+    expect(sent).toMatchObject({ ok: true, key: "c" });
+    const bobQueue = join(dirs[2] ?? "", "queue", "sat-bob", "pending");
+    await waitFor(() => listDir(bobQueue).length === 1, 15000);
+    expect(await readOne(bobQueue)).toMatchObject({
+      from: "ann@a@c",
+      to: "bob",
+      payload: "hi across the hub",
+    });
+
+    // The reply flows back on bob's own edge to "c" — full initiative, not
+    // correlation-gated: published actors are first-class addressees (§18.10-3 lifted).
+    const reply = await b.router.route({
+      id: "rl2",
+      from: "bob",
+      to: "ann@a@c",
+      kind: "message",
+      ts: Date.now(),
+      replyTo: "rl1",
+      payload: "hi back",
+    });
+    expect(reply).toMatchObject({ ok: true, key: "c" });
+    const annQueue = join(dirs[1] ?? "", "queue", "sat-ann", "pending");
+    await waitFor(() => listDir(annQueue).length === 1, 15000);
+    expect(await readOne(annQueue)).toMatchObject({ from: "bob@b@c", to: "ann" });
+
+    // The hub's own actor reaches a published satellite actor by its edge on "a".
+    const local = await c.router.route({
+      id: "rl3",
+      from: "carl",
+      to: "ann@a",
+      kind: "message",
+      ts: Date.now(),
+      payload: "from the hub itself",
+    });
+    expect(local).toMatchObject({ ok: true, key: "a" });
+    await waitFor(() => listDir(annQueue).length === 2, 15000);
+  });
+
+  test("relay: the hub is the offline satellite's mailbox (§10.25, FR-154)", async () => {
+    const cPort = await freePort();
+    const cDir = mkdtempSync(join(tmpdir(), "teamai-relay-c-"));
+    const bDir = mkdtempSync(join(tmpdir(), "teamai-relay-b-"));
+    dirs.push(cDir, bDir);
+    await boot(hubConfig(cPort), cDir);
+    const a = await boot(satelliteConfig(cPort, "ann"));
+    let b = await boot(satelliteConfig(cPort, "bob"), bDir);
+    await waitFor(() =>
+      (a.federation?.registry.peersOf("c") ?? []).some((peer) => peer.name === "bob@b@c"),
+    );
+
+    // B goes dark; routing to it keeps WORKING — the accept name is static
+    // config, so the hub queues into fed/b (no surface knowledge needed).
+    await b.stop();
+    servers.splice(servers.indexOf(b), 1);
+    await a.router.route({
+      id: "rl-off",
+      from: "ann",
+      to: "bob@b@c",
+      kind: "message",
+      ts: Date.now(),
+      payload: "catch you later",
+    });
+    const hubQueueB = join(cDir, "queue", "fed", "b");
+    await waitFor(
+      () =>
+        listDir(join(hubQueueB, "pending")).length + listDir(join(hubQueueB, "cur")).length >= 1,
+      15000,
+    );
+
+    // B returns: the SAME accept connection drains the queue — delivery completes.
+    b = await boot(satelliteConfig(cPort, "bob"), bDir);
+    const bobQueue = join(bDir, "queue", "sat-bob", "pending");
+    await waitFor(() => listDir(bobQueue).length === 1, 15000);
+    expect(await readOne(bobQueue)).toMatchObject({ from: "ann@a@c", payload: "catch you later" });
+  });
+
+  test("relay: no hub consent — frames ignored, base link mode intact (§18.11.5/§10.28)", async () => {
+    const cPort = await freePort();
+    const c = await boot(hubConfig(cPort, { a: false }));
+    const a = await boot(satelliteConfig(cPort, "ann"));
+    await waitFor(() => a.federation?.registry.linkState("c") === "up");
+
+    // Give the publisher a few ticks: the unconsented surface must never land.
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    expect(c.federation?.registry.peersOf("a")).toEqual([]);
+
+    // Base mode is untouched: the import direction still works end to end.
+    await a.router.route({
+      id: "rl-base",
+      from: "ann",
+      to: "carl@c",
+      kind: "message",
+      ts: Date.now(),
+      payload: "plain import still fine",
+    });
+    const carlQueue = join(dirs[0] ?? "", "queue", "hub-carl", "pending");
+    await waitFor(() => listDir(carlQueue).length === 1, 15000);
+    expect(await readOne(carlQueue)).toMatchObject({ from: "ann@a", to: "carl" });
   });
 
   test("transit chain: names suffix per hop, statuses re-emit, unknown propagates (F4)", async () => {

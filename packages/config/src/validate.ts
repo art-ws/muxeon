@@ -56,10 +56,15 @@ export function validateRules(config: TeamaiConfig, context: ValidateContext = {
   // Federation (§18.3, FR-137): import names are the SIXTH set of the shared
   // namespace (§10.17), `@` is reserved as the FQN separator, export aliases are
   // unique, and the link listener never shares a port with anything else.
+  // Relay-mode accepts (§18.11.4, FR-152) join the SAME link-name set: a
+  // `relay: true` accept is a topology node and a queue segment exactly like an
+  // import; accepts without `relay` stay outside (existing configs keep working).
   const importNames = collectImportNames(config);
+  const relayAcceptNames = collectRelayAcceptNames(config, importNames);
+  const linkNames = new Set([...importNames, ...relayAcceptNames]);
   assertNoFqnSeparatorInNames(config, importNames);
   assertImportNamespaceDisjoint(
-    importNames,
+    linkNames,
     agentNames,
     operatorNames,
     groupNames,
@@ -71,15 +76,16 @@ export function validateRules(config: TeamaiConfig, context: ValidateContext = {
   assertFederationQueueKey(config);
 
   // Topology nodes may now be groups/tags (input-only broadcast targets, §15.2),
-  // users (§17.1 — full nodes with a queue of their own) and imports (§18.5 —
-  // the server node granting all exported actors of that link, §18.10-6).
+  // users (§17.1 — full nodes with a queue of their own) and link names (§18.5 —
+  // the server node granting all exported actors of that link, §18.10-6; a
+  // relay accept is such a node too, §18.11.3/FR-154).
   const participants = new Set([
     ...agentNames,
     ...operatorNames,
     ...groupNames,
     ...tagNames,
     ...userNames,
-    ...importNames,
+    ...linkNames,
   ]);
   assertTopologyClosed(config, participants); // rule 1: topology nodes are known
 
@@ -95,6 +101,7 @@ export function validateRules(config: TeamaiConfig, context: ValidateContext = {
   warnUsers(config, userNames, topology, warnings); // §17.3: no edges / a panel with no login
   warnLegacyOperators(config, warnings); // FR-132: bindOperator is deprecated by users[]
   warnFederation(config, warnings); // §18.2/§18.8: http:// links, an accept nobody holds
+  warnPublishWithoutContent(config, warnings); // §18.11.1/FR-152: publish with nothing to publish
 
   return warnings;
 }
@@ -884,6 +891,25 @@ function collectImportNames(config: TeamaiConfig): Set<string> {
   return names;
 }
 
+// §18.11.4 / FR-152: an accept with `relay: true` is a routing tail and a
+// topology node exactly like an import, so its name must not collide with any
+// import's — one tail must resolve to one link. Accepts without `relay` stay
+// out of the set (compatibility: they are reply tails only, never topology nodes).
+function collectRelayAcceptNames(config: TeamaiConfig, importNames: Set<string>): Set<string> {
+  const names = new Set<string>();
+  for (const [i, entry] of (config.federation?.accept ?? []).entries()) {
+    if (entry.relay !== true) continue;
+    if (importNames.has(entry.name)) {
+      throw new ConfigError(
+        `relay accept name "${entry.name}" collides with an import — link names share one namespace (§10.17/§18.11.4)`,
+        { path: joinPointer(joinPointer("/federation/accept", String(i)), "name") },
+      );
+    }
+    names.add(entry.name);
+  }
+  return names;
+}
+
 // §18.5: a link name IS a queue directory segment (`<root>/fed/<link>/`), so it
 // must be a plain single segment — the same discipline queue keys live by.
 function assertLinkNameIsPathSafe(name: string, path: string): void {
@@ -954,10 +980,11 @@ function assertNoFqnSeparatorInNames(config: TeamaiConfig, importNames: Set<stri
   }
 }
 
-// §18.3 / §10.17: import names join the ONE shared namespace as the sixth set —
-// a topology node / `to` must still resolve to exactly one kind.
+// §18.3 / §10.17: link names (imports and relay accepts, §18.11.4) join the ONE
+// shared namespace as the sixth set — a topology node / `to` must still resolve
+// to exactly one kind.
 function assertImportNamespaceDisjoint(
-  importNames: Set<string>,
+  linkNames: Set<string>,
   agentNames: Set<string>,
   operatorNames: Set<string>,
   groupNames: Set<string>,
@@ -971,11 +998,11 @@ function assertImportNamespaceDisjoint(
     ["tag", tagNames],
     ["user", userNames],
   ];
-  for (const name of importNames) {
+  for (const name of linkNames) {
     for (const [kind, set] of others) {
       if (set.has(name)) {
         throw new ConfigError(
-          `name "${name}" is used by both an import and a ${kind} — the shared namespace must be disjoint (§10.17/§18.3)`,
+          `name "${name}" is used by both a federation link and a ${kind} — the shared namespace must be disjoint (§10.17/§18.3)`,
         );
       }
     }
@@ -1090,6 +1117,28 @@ function warnFederation(config: TeamaiConfig, warnings: string[]): void {
   }
   if (config.federation !== undefined && config.federation.accept.length === 0) {
     warnings.push("federation.accept is empty — the link listener admits nobody (§18.2)");
+  }
+}
+
+// §18.11.1 / FR-152 (advisory): `publish: true` with nothing to publish — no own
+// exported actor and no OTHER transit import whose branch could ride along (the
+// published link's own branch would only bounce off the hub's cycle guard).
+function warnPublishWithoutContent(config: TeamaiConfig, warnings: string[]): void {
+  const imports = config.imports ?? [];
+  const hasExported =
+    config.agents.some((agent) => agent.exported !== undefined) ||
+    (config.users ?? []).some((user) => user.exported !== undefined);
+  if (hasExported) return;
+  for (const entry of imports) {
+    if (entry.publish !== true) continue;
+    const otherTransit = imports.some(
+      (other) => other.name !== entry.name && (other.transit ?? true),
+    );
+    if (!otherTransit) {
+      warnings.push(
+        `import "${entry.name}" sets publish with no exported actors and no transit branches — nothing to publish (§18.11.1)`,
+      );
+    }
   }
 }
 
