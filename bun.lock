@@ -102,6 +102,7 @@
         "@teamai/channels": "workspace:*",
         "@teamai/config": "workspace:*",
         "@teamai/core": "workspace:*",
+        "@teamai/federation": "workspace:*",
         "@teamai/lifecycle": "workspace:*",
         "@teamai/orchestrator": "workspace:*",
         "@teamai/routines": "workspace:*",
