@@ -13,6 +13,7 @@ import { usePinnedFeed } from "./feed-pin";
 import { matchesParties, matchesQuery, partyOptions, toggleParty } from "./filter";
 import { useT } from "./i18n-context";
 import { IconCheck } from "./icons";
+import { TimeStamp } from "./timestamp";
 import { type ChatRecord, payloadParts } from "./types";
 
 export function TransportView(props: {
@@ -198,7 +199,7 @@ function TransportRow(props: { record: ChatRecord }): React.JSX.Element {
   const { text, blobs } = payloadParts(record.payload);
   return (
     <div className="transport-row">
-      <span className="transport-time">{new Date(record.ts).toLocaleTimeString()}</span>
+      <TimeStamp className="transport-time" ts={record.ts} />
       <span className="transport-route">
         {record.from} → {record.to}
       </span>

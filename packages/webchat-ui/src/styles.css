@@ -915,23 +915,46 @@ body,
   border-color: transparent;
 }
 
-/* expanded rows: a thin colored left edge — present but unobtrusive */
+/* expanded rows: the accent edge anchors the row's gradient (T220) — the
+   agent's color on the left melting rightward into the sidebar background;
+   transparent endpoints so it layers over hover/selected and both themes */
 .peer-row.peer-accent {
   border-left: 3px solid var(--peer-color);
   padding-left: 9px; /* 12px visual padding preserved next to the 3px edge */
+  background: linear-gradient(
+    90deg,
+    color-mix(in srgb, var(--peer-color) 14%, transparent) 0%,
+    color-mix(in srgb, var(--peer-color) 5%, transparent) 55%,
+    transparent 100%
+  );
+}
+.peer-row.peer-accent:hover {
+  background: linear-gradient(
+    90deg,
+    color-mix(in srgb, var(--peer-color) 22%, var(--bg-hover)) 0%,
+    color-mix(in srgb, var(--peer-color) 8%, var(--bg-hover)) 55%,
+    var(--bg-hover) 100%
+  );
 }
 .peer-row.peer-accent.selected {
-  background: color-mix(in srgb, var(--peer-color) 12%, var(--bg));
+  background: linear-gradient(
+    90deg,
+    color-mix(in srgb, var(--peer-color) 28%, var(--bg)) 0%,
+    color-mix(in srgb, var(--peer-color) 12%, var(--bg)) 55%,
+    color-mix(in srgb, var(--peer-color) 4%, var(--bg)) 100%
+  );
   box-shadow: inset 3px 0 var(--peer-color); /* widens the edge, same hue */
 }
 
-/* the open chat is washed with the agent's accent: a soft DIAGONAL gradient,
-   top-left corner → bottom-right (T100) */
+/* the open chat is washed with the agent's accent: a soft RADIAL halo (T220 —
+   the Gemini idiom), brightest around the composer and fading out toward the
+   edges; color-mix with the themed --bg keeps it working in both themes */
 .chat-pane.tinted {
-  background: linear-gradient(
-    135deg,
-    color-mix(in srgb, var(--agent-color) 14%, var(--bg)) 0%,
-    color-mix(in srgb, var(--agent-color) 5%, var(--bg)) 45%,
+  background: radial-gradient(
+    120% 85% at 50% 82%,
+    color-mix(in srgb, var(--agent-color) 16%, var(--bg)) 0%,
+    color-mix(in srgb, var(--agent-color) 9%, var(--bg)) 40%,
+    color-mix(in srgb, var(--agent-color) 3%, var(--bg)) 70%,
     var(--bg) 100%
   );
 }
@@ -973,13 +996,14 @@ body,
   animation: agent-breathe 6s ease-in-out infinite;
 }
 
-/* the pane inhales along the same diagonal as the base wash */
+/* the pane PULSES from the same halo center as the base wash (T220): a deeper
+   radial glow breathing in and out — the pulse radiates from the composer */
 .chat-pane.tinted.thinking::before {
-  background: linear-gradient(
-    135deg,
-    color-mix(in srgb, var(--agent-color) 16%, transparent),
-    transparent 50%,
-    color-mix(in srgb, var(--agent-color) 9%, transparent)
+  background: radial-gradient(
+    110% 75% at 50% 82%,
+    color-mix(in srgb, var(--agent-color) 15%, transparent) 0%,
+    color-mix(in srgb, var(--agent-color) 6%, transparent) 45%,
+    transparent 75%
   );
 }
 
