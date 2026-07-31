@@ -122,7 +122,9 @@ export function SettingsView(props: {
                 <div key={peer.name} className="agent-check">
                   <span
                     className="peer-avatar tinted"
-                    style={{ background: agentColor(peer.name, peer.color) }}
+                    style={
+                      { "--peer-color": agentColor(peer.name, peer.color) } as React.CSSProperties
+                    }
                   >
                     {(peer.name[0] ?? "?").toUpperCase()}
                   </span>

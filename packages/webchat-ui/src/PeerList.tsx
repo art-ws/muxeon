@@ -275,7 +275,7 @@ function AgentRow(props: {
         {/* the agent's accent paints the avatar circle (FR-73) */}
         <span
           className="peer-avatar tinted"
-          style={{ background: agentColor(peer.name, peer.color) }}
+          style={{ "--peer-color": agentColor(peer.name, peer.color) } as React.CSSProperties}
         >
           {initialOf(peer.name)}
           {/* the same live dot as the expanded row — pinned to the avatar; the
@@ -491,7 +491,7 @@ function RemoteRow(props: {
       >
         <span
           className="peer-avatar tinted"
-          style={{ background: agentColor(peer.name, peer.color) }}
+          style={{ "--peer-color": agentColor(peer.name, peer.color) } as React.CSSProperties}
         >
           {initialOf(peer.name)}
           <span className={dotClass(peer)} />
