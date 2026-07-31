@@ -1,3 +1,12 @@
+## [0.1.4](https://github.com/art-ws/teamai/compare/v0.1.3...v0.1.4) (2026-07-31)
+
+
+### Changes
+
+* **T228:** Screen Live moves to the chat's actions menu
+
+  Watching an agent's console observes the AGENT — it is not a way to compose a message, which is what everything else in the composer's "+" menu is for. The entry moves to the chat header's kebab, next to Reload, Shutdown and Pause, where the other agent actions already live (operator's call). ([2cba811](https://github.com/art-ws/teamai/commit/2cba8116c320b14c9d4202cf8d0adeac688a9c0a))
+
 ## [0.1.3](https://github.com/art-ws/teamai/compare/v0.1.2...v0.1.3) (2026-07-31)
 
 
