@@ -25,7 +25,9 @@ Rules for this task:
 
 TEAMAI is a **coordinator**, not an agent. It connects CLI agents that run in
 **tmux sessions**, routes messages between them along a declared topology, and
-exposes them to a human through channels.
+exposes them to a human through channels. Optionally, it **federates**: two or
+more TEAMAI servers can join so actors on one talk to exported actors on
+another (step 11) — a single-server deployment ignores all of that.
 
 The finished deployment is:
 
@@ -34,7 +36,8 @@ The finished deployment is:
   teamai.config.json        <- the only file you author by hand
   .env                      <- secrets, gitignored, mode 600
   queue/                    <- created at boot: per-participant maildirs
-                            <-   one per agent AND one per user (§17.5)
+                            <-   one per agent AND one per user (§17.5);
+                            <-   federation links get theirs under queue/fed/
   webchat/                  <- created by the panel: per-user history + sessions
   state/                    <- created only once routines exist (and pause flags)
   routines/                 <- optional: scheduled markdown tasks you author
@@ -271,8 +274,8 @@ config, do not work around it.
 
 ## 5. Secrets
 
-Channel credentials are **`$env` only**. An inline secret fails validation; a
-missing variable fails the boot.
+Channel credentials — and **federation link tokens** (step 11) — are **`$env`
+only**. An inline secret fails validation; a missing variable fails the boot.
 
 In the config, reference the variable:
 
@@ -527,7 +530,109 @@ http://localhost:8091/team/` returns `200`.
 
 ---
 
-## 11. Routines (only if asked)
+## 11. Federation — joining stands (only if asked)
+
+Federation connects two or more TEAMAI servers so actors on one reach actors
+on another. **Do not add it unless the human asked to join stands** — a config
+without `imports`/`federation` behaves exactly as before, and nothing below
+applies to a single server.
+
+Names across a link are email-style FQNs: `dev@hq` means "the actor exported
+as `dev` by the server this config imports under the name `hq`". Chains grow
+on the right (`bob@c@b`) and resolve by the **last** `@`. The `@` character is
+therefore reserved — a local name containing it fails validation.
+
+A link has two sides; the same server may play both roles at once, and two
+servers importing each other is legal (an instance-id cycle guard keeps the
+namespace from looping).
+
+**Exporter** — the side that accepts a connection:
+
+```jsonc
+{
+  "federation": {
+    "port": 8092,                 // its OWN listener: ≠ server.port, ≠ any channel port
+    "bind": "127.0.0.1",          // default; put a TLS reverse-proxy in front for a network
+    "accept": [                   // one token per importer; the name you choose here
+      { "name": "branch",         //   suffixes THEIR senders as seen on this side
+        "token": { "$env": "TEAMAI_FED_BRANCH_TOKEN" } }
+    ]
+  },
+  "agents": [ { "name": "dev", "type": "claude", "tmux": "dev", "exported": true } ],
+  "users":  [ { "name": "alex", "exported": "alexander" } ]   // export under an alias
+}
+```
+
+Only actors marked `exported` exist to the other side. Everything else —
+including their names — is invisible, even by enumeration.
+
+**Importer** — the side that connects:
+
+```jsonc
+{
+  "imports": [
+    { "name": "hq",                              // your local alias for that server;
+      "url": "http://127.0.0.1:8092",            //   it becomes the FQN suffix AND a
+      "token": { "$env": "TEAMAI_FED_HQ_TOKEN" } //   topology node. Token: issued by
+    }                                            //   the EXPORTER (same value both .env's)
+  ],
+  "topology": { "researcher": ["hq"] }   // an edge on the IMPORT NAME grants that
+}                                        // actor ALL of hq's exported actors
+```
+
+Rules that save a debugging cycle:
+
+- **Tokens are `$env`-only** (step 5) and the same value lives in both `.env`
+  files: the exporter's `accept` entry and the importer's `import` entry.
+- `federation.port` must differ from `server.port` and from every channel port
+  — validation says so.
+- `transit` on an import (default `true`) re-exports that neighbour's actors
+  to **your** importers, suffix appended: your `bob@c` shows up one hop further
+  as `bob@c@b`. Set `transit: false` to keep an import to yourself.
+- **Delivery is store-and-forward.** A send to `dev@hq` lands in a persistent
+  per-link queue (`queue/fed/hq/`, visible to `teamai queues`); a dead link
+  accumulates and drains on reconnect — nothing is lost. A refusal on the far
+  side (paused, WIP-full, unknown actor) comes back **later** as a
+  `[federation] not delivered: …` message in the sender's own chat with that
+  peer — asynchronous by design, do not wait for it synchronously.
+- **Remote statuses are a read-only projection.** Agents show
+  `idle`/`busy`/`down` (+ pause), users show presence — published by the owner.
+  When the link (or a transit hop) is down, or the neighbour sets
+  `federation.publishStatus: false`, they read **`unknown`** (a hollow gray dot
+  in the panel, with the cause in the tooltip) — never a stale value.
+- An exported actor can **reply** to whoever wrote to it (the stamped
+  `name@link` sender, with `replyTo`); cold initiative in the reverse direction
+  needs a mutual import.
+- What never crosses a link: slash commands, lifecycle, raw mode, screen
+  capture, group/tag broadcasts, the transport journal.
+- On a machine that exports `HTTP_PROXY`, loopback links need
+  `NO_PROXY=127.0.0.1,localhost` in the server's environment — otherwise the
+  link client dials the proxy instead of the neighbour.
+
+**Check** — exporter first, then importer, then end-to-end:
+
+```bash
+# 1. the exporter's listener answers with the export surface (run on the exporter)
+curl -s -H "authorization: Bearer <the accept token value>" \
+  http://127.0.0.1:8092/fed/actors
+# expected: {"actors":[{"name":"dev","type":"agent",...}]} — exactly the exported set
+
+# 2. the importer sees the peers (panel sidebar gets a "Servers" section; or MCP
+#    list_peers of an agent with an edge on the import shows dev@hq with a status)
+
+# 3. a message crosses (run on the importer; the sender needs an edge on "hq")
+npx @art-ws/teamai signals send --from <user> --to dev@hq "reply with the single word OK"
+```
+
+**Expected:** check 1 lists only the exported actors; check 3 prints
+`queued <id> → dev@hq`, and on the **exporter** the record shows up in
+`queue/<dev-tmux>/pending` (or `done/` once the turn ran) with the sender named
+`<user>@branch` — the receiving side stamps that suffix itself, which is why a
+federated `from` cannot be forged.
+
+---
+
+## 12. Routines (only if asked)
 
 Scheduled tasks are markdown files with frontmatter, discovered under
 `<ROOT>/routines/<owner>/*.md`. The **directory name is the owner** and must
@@ -554,7 +659,7 @@ npx @art-ws/teamai routines list
 
 ---
 
-## 12. Operating it
+## 13. Operating it
 
 The same binary is the operator CLI. It is a thin client to the loopback admin
 plane, so the server must be running.
@@ -576,7 +681,10 @@ options: --url <admin-url> | --config <path>
 
 `hash-password` is the one subcommand that talks to nothing — no server, no
 config — so it works before the stand exists. `pause` takes a user as well as an
-agent: for a person it is do-not-disturb (their own notes still land).
+agent: for a person it is do-not-disturb (their own notes still land). With
+federation, `queues` also takes a **link name** (`teamai queues peek hq`) — the
+per-link store-and-forward queue is a participant like any other, and `signals
+send --to <actor>@<import>` crosses the link.
 
 `restart <agent>` restarts an **agent**, not the server. Configuration is read
 once at boot — a config edit needs the server process restarted:
@@ -591,7 +699,7 @@ re-probes them. Queues live on disk and survive it.
 
 ---
 
-## 13. Security posture — state this to the human
+## 14. Security posture — state this to the human
 
 Do not deploy this quietly. The trust model is deliberate and the human must
 know it:
@@ -608,13 +716,19 @@ know it:
   with local access still reaches the admin plane.
 - A `role: "admin"` user additionally sees the server-wide transport journal —
   i.e. everyone's traffic. Say who you gave that to.
+- With **federation**, the link listener is a third surface: bearer-token
+  authenticated, loopback by default, TLS via a reverse-proxy when it faces a
+  network. One accept token grants the holder **all** exported actors (that
+  granularity is a design decision — say so). What crosses the link is bounded:
+  exported actors, their availability projection, and message traffic — never
+  consoles, lifecycle, the journal, or anything unexported.
 
 If the human asked you to expose any port publicly, stop and confirm — that is
 outside this design and needs an explicit decision.
 
 ---
 
-## 14. Troubleshooting
+## 15. Troubleshooting
 
 | Symptom | Cause | Fix |
 |---|---|---|
@@ -633,10 +747,15 @@ outside this design and needs an explicit decision.
 | Boot warns `no user bound to it` | users-mode channel with no binding | Nobody can log in — add `users[].channels` |
 | Telegram replies "not linked to a TEAMAI user" | Sender's alias is not bound | Add that account to some `users[].channels.<channel>.alias` |
 | A person sees no peers | No topology edges for that user | Their self-chat still works; add the edges |
+| Boot dies on a name with `@` | `@` is the FQN separator (federation) | Rename the local entity; only federated names carry `@` |
+| Send to `dev@hq` refused `TOPOLOGY_DENIED` | Sender has no edge on the import node | Add `"<sender>": ["hq"]` to the topology |
+| A `[federation] not delivered: UNKNOWN_ACTOR` note | The remote actor is not exported | The exporter must mark it `exported`; unexported names do not exist across a link |
+| Remote peers all read `unknown` | Link down, or the neighbour publishes no statuses | Check the link warns in the exporter's/importer's log; `publishStatus: false` is deliberate |
+| Link never comes up, log says connect failed | Wrong URL/token — or a proxy in the way | Same token value in both `.env`s; on proxied hosts set `NO_PROXY=127.0.0.1,localhost` |
 
 ---
 
-## 15. Report back
+## 16. Report back
 
 When you finish, report exactly this:
 
