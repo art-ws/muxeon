@@ -35,17 +35,6 @@ export type PeerKind = "agent" | "group" | "tag" | "user";
 /** A user peer's derived availability (§17.5, FR-133) — not a session status. */
 export type Presence = "online" | "offline";
 
-/** The pinned self-chat entry (§17.7, FR-128): notes to self + the aggregate inbox. */
-export interface SelfChatInfo {
-  readonly name: string;
-  readonly displayName?: string;
-  readonly color?: string;
-  readonly unread: number;
-  /** DND (§17.8, FR-134): the user has paused THEMSELVES. */
-  readonly paused?: boolean;
-  readonly lastMessage?: { readonly ts: number; readonly from: string; readonly preview: string };
-}
-
 export interface PeerInfo {
   readonly name: string;
   /**

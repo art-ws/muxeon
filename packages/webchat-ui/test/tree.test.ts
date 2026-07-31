@@ -24,6 +24,17 @@ const group = (name: string, overrides: Partial<PeerInfo> = {}): PeerInfo => ({
   ...overrides,
 });
 
+/** A user peer (§17.7) — no session, so a presence dot instead of a status. */
+const user = (name: string, overrides: Partial<PeerInfo> = {}): PeerInfo => ({
+  name,
+  type: "user",
+  status: null,
+  presence: "offline",
+  queueDepth: 0,
+  unread: 0,
+  ...overrides,
+});
+
 const tag = (name: string, overrides: Partial<PeerInfo> = {}): PeerInfo => ({
   name,
   type: "tag",
@@ -127,6 +138,18 @@ describe("buildTree (§15) — determinism & robustness", () => {
   test("tags are excluded from the tree", () => {
     const rows = buildTree([agent("dev"), tag("urgent")]);
     expect(shape(rows)).toEqual(["agent@0:dev"]);
+  });
+
+  test("user rows — the viewer's OWN row included — are leaves like agents (§17.7)", () => {
+    // the panel gets its own row inside `peers` (FR-128): it must nest by group
+    // and render in list order exactly like every other participant
+    const rows = buildTree([
+      group("eng"),
+      agent("dev", { group: "eng" }),
+      user("alex", { group: "eng" }), // the logged-in user themselves
+      user("kim"), // a groupless colleague
+    ]);
+    expect(shape(rows)).toEqual(["group@0:eng", "agent@1:dev", "agent@1:alex", "agent@0:kim"]);
   });
 });
 

@@ -37,7 +37,7 @@ import {
   threadOf,
 } from "./store";
 import { type Theme, applyTheme, loadTheme } from "./theme";
-import { type ChatRecord, type PanelEvent, type SelfChatInfo, peerKind } from "./types";
+import { type ChatRecord, type PanelEvent, peerKind } from "./types";
 import { loadVisibility, saveVisibility, visiblePeers } from "./visibility";
 
 type Action =
@@ -308,11 +308,10 @@ function Panel(props: {
   }, []);
 
   // The operator's own name (FR-68) — the sidebar account button. In users mode
-  // this is the logged-in user (§17.7), with their role (FR-131) and self-chat
-  // (FR-128) alongside.
+  // this is the logged-in user (§17.7), with their role (FR-131); their own row
+  // (self-chat, FR-128) arrives inside `peers` like any other.
   const [operator, setOperator] = useState<string | undefined>(undefined);
   const [role, setRole] = useState<"admin" | "user" | undefined>(undefined);
-  const [self, setSelf] = useState<SelfChatInfo | undefined>(undefined);
 
   // Agent visibility (T110, FR-76): the settings checklist decides which agents
   // the sidebar shows — "all" (default) or only the picked set; persisted.
@@ -365,12 +364,10 @@ function Panel(props: {
 
   // initial peers + the live feed
   useEffect(() => {
-    void api.fetchPeers().then(({ peers, operator: me, role: myRole, self: mySelf }) => {
+    void api.fetchPeers().then(({ peers, operator: me, role: myRole }) => {
       for (const peer of peers) peerSet.current.add(peer.name);
       setOperator(me);
       setRole(myRole);
-      setSelf(mySelf);
-      if (mySelf !== undefined) peerSet.current.add(mySelf.name);
       dispatch({ kind: "peers", peers });
     });
     return api.connectFeed({
@@ -395,9 +392,12 @@ function Panel(props: {
     const peer = route.peer;
     dispatch({ kind: "select", peer });
     // groups/tags (§15) have no unread watermark — skip markRead for a known
-    // broadcast target; an unknown/not-yet-loaded name is treated as an agent
+    // broadcast target; an unknown/not-yet-loaded name is treated as an agent.
+    // A user chat (§17.7) DOES have one: a colleague's message is unread exactly
+    // like an agent's, so opening it must move the server watermark too.
     const known = stateRef.current.peers.find((info) => info.name === peer);
-    if (known === undefined || peerKind(known) === "agent") void api.markRead(peer);
+    const kind = known === undefined ? "agent" : peerKind(known);
+    if (kind === "agent" || kind === "user") void api.markRead(peer);
     if (!threadOf(stateRef.current, peer).loaded) {
       void api.fetchHistory(peer).then((page) => dispatch({ kind: "page", peer, page }));
     }
@@ -484,7 +484,6 @@ function Panel(props: {
         {...(showTransport && role !== "user"
           ? { onTransport: () => navigate({ view: "transport" }) }
           : {})}
-        {...(self !== undefined ? { self } : {})}
         flat={props.flat}
         collapsed={props.collapsed}
         operator={operator}
