@@ -6,7 +6,12 @@ import type { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import type { AgentStatus } from "@teamai/core";
 import { Topology } from "@teamai/core";
 import { Router, TransportLog, ensureSessionQueue } from "@teamai/orchestrator";
-import { type AgentPlaneHandle, createAgentServer, startAgentPlane } from "../src/mcp";
+import {
+  type AgentPlaneHandle,
+  SCREEN_MAX_HISTORY_LINES,
+  createAgentServer,
+  startAgentPlane,
+} from "../src/mcp";
 import { LOOPBACK_DIRECT, connectClient } from "./mcp-helpers";
 
 // alice ─ bob ─ dave, and alice ─ op (operator). dave is a NODE but not alice's
@@ -361,5 +366,136 @@ describe.skipIf(!LOOPBACK_DIRECT)("agent-plane × pause (§16.5, FR-119)", () =>
     const tools = (await alice.listTools()).tools.map((tool) => tool.name);
     expect(tools).not.toContain("pause");
     expect(tools.some((name) => name.includes("pause"))).toBe(false);
+  });
+});
+
+// get_screen (T214, FR-147): a neighbour's console AS TEXT — the point is that an
+// agent can SEE what a peer is actually doing instead of inferring it from a
+// status. Observation only: the tool has no way to type, send or mutate anything
+// (§10.8), the topology edge is the whole gate (§10.2), and only an agent has a
+// console at all.
+describe.skipIf(!LOOPBACK_DIRECT)("get_screen (§8.6, FR-147)", () => {
+  let plane: AgentPlaneHandle;
+  let alice: Client;
+  let root: string;
+  /** What the wired port was asked for — the caps/arguments are asserted through it. */
+  let asked: { name: string; historyLines?: number }[];
+  let panes: Record<string, string | Error>;
+  let statuses: Record<string, AgentStatus>;
+  let kinds: Record<string, "agent" | "group" | "tag" | "user">;
+
+  const start = (withPort = true): void => {
+    const topology = new Topology(TOPOLOGY);
+    plane = startAgentPlane({
+      port: 0,
+      isKnownIdentity: (n) => n in KEY,
+      makeServer: (caller) =>
+        createAgentServer(caller, {
+          topology,
+          router: new Router({ topology, root, queueKeyOf: (n) => KEY[n] ?? null }),
+          peerStatus: (n) => statuses[n],
+          peerType: (n) => kinds[n] ?? "agent",
+          ...(withPort
+            ? {
+                screen: async (name: string, historyLines?: number) => {
+                  asked.push(historyLines === undefined ? { name } : { name, historyLines });
+                  const pane = panes[name];
+                  if (pane instanceof Error) throw pane;
+                  return pane ?? "";
+                },
+              }
+            : {}),
+        }),
+    });
+  };
+
+  beforeEach(async () => {
+    root = mkdtempSync(join(tmpdir(), "teamai-screen-"));
+    for (const key of Object.values(KEY)) await ensureSessionQueue(root, key);
+    asked = [];
+    panes = { bob: "> waiting for input\n$ ", op: "" };
+    statuses = { alice: "idle", bob: "busy", dave: "idle", op: "idle" };
+    kinds = {};
+    start();
+    alice = await connectClient(plane.url, "alice");
+  });
+
+  afterEach(async () => {
+    await alice?.close();
+    await plane?.stop();
+    rmSync(root, { recursive: true, force: true });
+  });
+
+  test("a neighbour's visible pane comes back as text", async () => {
+    const result = sc(await alice.callTool({ name: "get_screen", arguments: { name: "bob" } }));
+    expect(result).toEqual({ name: "bob", screen: "> waiting for input\n$ " });
+    // default = the VISIBLE screen: no scrollback is pulled unless asked for
+    expect(asked).toEqual([{ name: "bob", historyLines: 0 }]);
+  });
+
+  test("scrollback is opt-in and capped (one call cannot drag a whole session over)", async () => {
+    await alice.callTool({ name: "get_screen", arguments: { name: "bob", historyLines: 120 } });
+    await alice.callTool({ name: "get_screen", arguments: { name: "bob", historyLines: 99_999 } });
+    expect(asked.map((call) => call.historyLines)).toEqual([120, SCREEN_MAX_HISTORY_LINES]);
+  });
+
+  test("neighbour-scope (§10.11): a non-neighbour, self or an unknown name is UNKNOWN_PEER", async () => {
+    for (const name of ["dave", "alice", "ghost"]) {
+      const result = await alice.callTool({ name: "get_screen", arguments: { name } });
+      expect(result.isError).toBe(true);
+      expect(sc(result)).toEqual({ error: "UNKNOWN_PEER" });
+    }
+    expect(asked).toEqual([]); // nothing was captured — the gate is BEFORE the port
+  });
+
+  test("only an agent has a console: a person/group/tag is NOT_CAPTURABLE (§17.7/§15.5)", async () => {
+    kinds = { bob: "user" };
+    const result = await alice.callTool({ name: "get_screen", arguments: { name: "bob" } });
+    expect(result.isError).toBe(true);
+    expect(sc(result)).toEqual({ error: "NOT_CAPTURABLE" });
+    expect(asked).toEqual([]);
+  });
+
+  test("a down neighbour answers AGENT_DOWN, not an empty screen", async () => {
+    statuses = { ...statuses, bob: "down" };
+    const result = await alice.callTool({ name: "get_screen", arguments: { name: "bob" } });
+    expect(result.isError).toBe(true);
+    expect(sc(result)).toEqual({ error: "AGENT_DOWN" });
+    expect(asked).toEqual([]);
+  });
+
+  test("a PAUSED neighbour is still observable — pause gates delivery, not watching (§16)", async () => {
+    // the pause flag never reaches this tool: capture is read-only either way
+    const result = sc(await alice.callTool({ name: "get_screen", arguments: { name: "bob" } }));
+    expect(result.screen).toBe("> waiting for input\n$ ");
+  });
+
+  test("a failing capture surfaces as SCREEN_FAILED, never as a fake empty pane", async () => {
+    panes = { ...panes, bob: new Error("can't find pane: bob-s") };
+    const result = await alice.callTool({ name: "get_screen", arguments: { name: "bob" } });
+    expect(result.isError).toBe(true);
+    expect(sc(result)).toEqual({ error: "SCREEN_FAILED" });
+  });
+
+  test("junk arguments are refused before anything is captured", async () => {
+    for (const args of [
+      { name: 7 },
+      { name: "bob", historyLines: -1 },
+      { name: "bob", historyLines: 1.5 },
+    ]) {
+      const result = await alice.callTool({ name: "get_screen", arguments: args });
+      expect(sc(result)).toEqual({ error: "INVALID_ARGS" });
+    }
+    expect(asked).toEqual([]);
+  });
+
+  test("without a wired port the tool is UNAVAILABLE, not an empty success", async () => {
+    await alice.close();
+    await plane.stop();
+    start(false);
+    alice = await connectClient(plane.url, "alice");
+    const result = await alice.callTool({ name: "get_screen", arguments: { name: "bob" } });
+    expect(result.isError).toBe(true);
+    expect(sc(result)).toEqual({ error: "UNAVAILABLE" });
   });
 });
