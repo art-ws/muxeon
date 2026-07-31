@@ -123,20 +123,6 @@ export function Composer(props: {
     }
   };
 
-  // Esc shrinks the full-screen composer (T222) — window-level, like the old
-  // editor dialog, so it fires even when a click moved focus off the textarea.
-  useEffect(() => {
-    if (!expanded) return;
-    const onKey = (event: KeyboardEvent): void => {
-      if (event.key === "Escape") {
-        event.preventDefault();
-        setExpanded(false);
-      }
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [expanded]);
-
   // Growing or shrinking keeps the caret where the writing happens.
   // biome-ignore lint/correctness/useExhaustiveDependencies: the refocus fires BECAUSE the mode flipped — `expanded` is the trigger, not a read
   useEffect(() => {
@@ -195,6 +181,20 @@ export function Composer(props: {
     }
   };
 
+  // Esc shrinks the full-screen composer (T222) — window-level, like the old
+  // editor dialog, so it fires even when a click moved focus off the textarea.
+  useEffect(() => {
+    if (!expanded) return;
+    const onKey = (event: KeyboardEvent): void => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        setExpanded(false);
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [expanded]);
+
   const hasCamera = typeof navigator !== "undefined" && navigator.mediaDevices !== undefined;
   const commands = props.commands ?? [];
   // The "+" always opens the full-screen editor (FR-70), plus attach/camera
@@ -205,6 +205,18 @@ export function Composer(props: {
   // (there is something worth a bigger canvas) and stays while grown (it is the
   // way back). Mirrors the Gemini corner control on the reference screenshot.
   const showCorner = expanded || text.split("\n").length >= 4;
+  // One control in two places (T223): the corner button and the "+" menu item
+  // are the SAME toggle, so they must read the same — icon and wording follow
+  // the state, never drift apart.
+  const expandLabel = t(expanded ? "Collapse" : "Full screen");
+  const ExpandIcon = expanded ? IconCollapse : IconExpand;
+  // The hint never lies about the key (T223): full screen changes what Enter
+  // does, so it changes what the field promises.
+  const placeholder = expanded
+    ? t("Message… (Enter for a new line, send with the button)")
+    : raw
+      ? t("Terminal command or prompt… (Enter to send)")
+      : t("Message… (Enter to send, Shift+Enter for a new line)");
 
   return (
     <footer
@@ -220,12 +232,12 @@ export function Composer(props: {
         <button
           type="button"
           className="composer-expand"
-          title={t(expanded ? "Collapse" : "Full screen")}
-          aria-label={t(expanded ? "Collapse" : "Full screen")}
+          title={expandLabel}
+          aria-label={expandLabel}
           aria-expanded={expanded}
           onClick={() => setExpanded((current) => !current)}
         >
-          {expanded ? <IconCollapse size={15} /> : <IconExpand size={15} />}
+          <ExpandIcon size={15} />
         </button>
       )}
       {commandOutput !== undefined && (
@@ -301,20 +313,22 @@ export function Composer(props: {
                 {/* biome-ignore lint/a11y/useKeyWithClickEvents: a transparent click-away backdrop, Esc/menu buttons carry the keyboard path */}
                 <span className="menu-backdrop" onClick={closeMenu} />
                 <span className="composer-menu" role="menu">
-                  {/* full-screen composer for long messages (FR-70, T222) — always available */}
+                  {/* full-screen composer for long messages (FR-70, T222) — always
+                      available, and the SAME toggle as the corner button (T223) */}
                   <button
                     type="button"
                     role="menuitem"
                     className="menu-item"
+                    aria-expanded={expanded}
                     onClick={() => {
                       closeMenu();
-                      setExpanded(true);
+                      setExpanded((current) => !current);
                     }}
                   >
                     <span className="menu-icon">
-                      <IconExpand size={14} />
+                      <ExpandIcon size={14} />
                     </span>{" "}
-                    {t("Full screen")}
+                    {expandLabel}
                   </button>
                   {/* live console watch (FR-102) — present when the parent wires it */}
                   {props.onScreen !== undefined && (
@@ -440,11 +454,7 @@ export function Composer(props: {
           /* the persisted manual height (FR-69) wins over auto rows — except
              full-screen (T222), where the grid owns the whole canvas */
           style={!expanded && height !== undefined ? { height: `${height}px` } : undefined}
-          placeholder={
-            raw
-              ? t("Terminal command or prompt… (Enter to send)")
-              : t("Message… (Enter to send, Shift+Enter for a new line)")
-          }
+          placeholder={placeholder}
           value={text}
           onChange={(event) => setText(event.target.value)}
           onPointerUp={adoptManualHeight}
@@ -457,6 +467,11 @@ export function Composer(props: {
             }
           }}
           onKeyDown={(event) => {
+            // Full screen is the mode for LONG text (T223, operator's call):
+            // there Enter breaks the line like any editor and the send button is
+            // the only way out — the placeholder above says exactly that. In the
+            // resting pill Enter sends, Shift+Enter breaks the line.
+            if (expanded) return;
             if (event.key === "Enter" && !event.shiftKey) {
               event.preventDefault();
               void submit();

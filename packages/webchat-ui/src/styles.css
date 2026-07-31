@@ -946,17 +946,29 @@ body,
   box-shadow: inset 3px 0 var(--peer-color); /* widens the edge, same hue */
 }
 
-/* the open chat is washed with the agent's accent: a soft RADIAL halo (T220 —
-   the Gemini idiom), brightest around the composer and fading out toward the
-   edges; color-mix with the themed --bg keeps it working in both themes */
+/* the open chat is washed with the agent's accent (T220, reshaped in T223 —
+   the Gemini idiom): the colour POOLS at the edges — a broad glow rising from
+   under the composer plus a wash in the upper corners — and the middle of the
+   pane, where the messages are, stays light. Translucent layers over the themed
+   --bg, so it works in both themes. */
 .chat-pane.tinted {
-  background: radial-gradient(
-    120% 85% at 50% 82%,
-    color-mix(in srgb, var(--agent-color) 16%, var(--bg)) 0%,
-    color-mix(in srgb, var(--agent-color) 9%, var(--bg)) 40%,
-    color-mix(in srgb, var(--agent-color) 3%, var(--bg)) 70%,
-    var(--bg) 100%
-  );
+  background-color: var(--bg);
+  background-image: radial-gradient(
+      125% 80% at 50% 118%,
+      color-mix(in srgb, var(--agent-color) 30%, transparent) 0%,
+      color-mix(in srgb, var(--agent-color) 12%, transparent) 40%,
+      transparent 72%
+    ),
+    radial-gradient(
+      62% 58% at 0% 0%,
+      color-mix(in srgb, var(--agent-color) 16%, transparent) 0%,
+      transparent 70%
+    ),
+    radial-gradient(
+      62% 58% at 100% 0%,
+      color-mix(in srgb, var(--agent-color) 16%, transparent) 0%,
+      transparent 70%
+    );
 }
 
 /* the header sits on the wash with a matching tint */
@@ -967,8 +979,8 @@ body,
 .chat-pane.tinted .composer {
   background: color-mix(
     in srgb,
-    var(--agent-color) 7%,
-    color-mix(in srgb, var(--bg-raised) 72%, transparent)
+    var(--agent-color) 9%,
+    color-mix(in srgb, var(--bg-raised) 52%, transparent)
   );
 }
 
@@ -996,15 +1008,26 @@ body,
   animation: agent-breathe 6s ease-in-out infinite;
 }
 
-/* the pane PULSES from the same halo center as the base wash (T220): a deeper
-   radial glow breathing in and out — the pulse radiates from the composer */
+/* the pane PULSES on the same edges as the base wash (T220/T223): the glow under
+   the composer and the corner washes deepen and recede — the light middle of the
+   pane, where the text is, never moves */
 .chat-pane.tinted.thinking::before {
-  background: radial-gradient(
-    110% 75% at 50% 82%,
-    color-mix(in srgb, var(--agent-color) 15%, transparent) 0%,
-    color-mix(in srgb, var(--agent-color) 6%, transparent) 45%,
-    transparent 75%
-  );
+  background-image: radial-gradient(
+      125% 80% at 50% 118%,
+      color-mix(in srgb, var(--agent-color) 24%, transparent) 0%,
+      color-mix(in srgb, var(--agent-color) 9%, transparent) 42%,
+      transparent 74%
+    ),
+    radial-gradient(
+      62% 58% at 0% 0%,
+      color-mix(in srgb, var(--agent-color) 13%, transparent) 0%,
+      transparent 70%
+    ),
+    radial-gradient(
+      62% 58% at 100% 0%,
+      color-mix(in srgb, var(--agent-color) 13%, transparent) 0%,
+      transparent 70%
+    );
 }
 
 /* the toolbar swells around its center with the same tint */
@@ -1041,8 +1064,27 @@ body,
   display: flex;
   flex-direction: column;
   min-width: 0;
-  position: relative; /* the floating composer (T222) anchors to the pane */
+  position: relative;
 }
+
+/* A CHAT pane — the one that has a composer — is a GRID (T223): the header and
+   the filter note own a row each, and the feed and the floating composer SHARE
+   the last one. So the composer floats over the messages and nothing floats
+   over the composer: grown full-screen it fills exactly that cell — whole and
+   unobscured, with the header still readable above it. Panes without a composer
+   (transport, settings) stay a plain column. */
+.chat-pane:has(> .composer) {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: auto auto minmax(0, 1fr);
+}
+.chat-pane > .feed,
+.chat-pane > .broadcast-actions,
+.chat-pane > .composer {
+  grid-row: 3;
+  grid-column: 1;
+}
+
 .chat-pane.empty {
   display: grid;
   place-items: center;
@@ -1186,7 +1228,7 @@ body,
 .feed-content {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 14px; /* messages breathe (T223) — the transport log keeps its own tight gap */
 }
 
 /* deep-linked message flash (T107, FR-75) — an accent ring fading out */
@@ -1473,10 +1515,11 @@ body,
    behind a backdrop blur (text on top stays fully opaque and readable), a
    hairline near-invisible border and a soft shadow. */
 .composer {
-  position: absolute;
-  left: 50%;
-  bottom: 14px;
-  transform: translateX(-50%);
+  /* it rides the feed's grid cell (T223) — parked at the bottom, centred */
+  position: relative;
+  align-self: end;
+  justify-self: center;
+  margin-bottom: 14px;
   z-index: 3;
   width: min(880px, calc(100% - 28px));
   display: flex;
@@ -1486,10 +1529,10 @@ body,
   padding: 10px 12px;
   border: 1px solid color-mix(in srgb, var(--text) 13%, transparent);
   border-radius: 22px;
-  background: color-mix(in srgb, var(--bg-raised) 74%, transparent);
-  -webkit-backdrop-filter: blur(14px) saturate(1.15);
-  backdrop-filter: blur(14px) saturate(1.15);
-  box-shadow: 0 8px 28px rgb(0 0 0 / 12%);
+  background: color-mix(in srgb, var(--bg-raised) 55%, transparent);
+  -webkit-backdrop-filter: blur(24px) saturate(1.7);
+  backdrop-filter: blur(24px) saturate(1.7);
+  box-shadow: 0 10px 34px rgb(0 0 0 / 14%);
 }
 .composer:focus-within {
   border-color: color-mix(in srgb, var(--accent) 55%, transparent);
@@ -1512,7 +1555,8 @@ body,
    no second window. The shell turns into a grid: the textarea is the whole
    canvas, the +/mic/send row settles at the bottom (the reference layout). */
 .composer.expanded {
-  top: 14px;
+  align-self: stretch; /* the whole feed cell — header and messages stay clear */
+  margin: 14px 0;
   flex-direction: column;
   align-items: stretch;
   flex-wrap: nowrap;
@@ -2060,8 +2104,16 @@ dialog.camera-dialog {
   display: flex;
   justify-content: flex-end;
   padding: 6px 16px 0;
+  /* it shares the feed cell with the floating composer (T223): it sits just
+     above the card instead of hiding under it, and only the button itself
+     takes clicks — the strip must not eat them on the messages behind */
+  align-self: end;
+  margin-bottom: 84px;
+  z-index: 3;
+  pointer-events: none;
 }
 .cmdfan-launch {
+  pointer-events: auto;
   font-size: 13px;
   padding: 5px 12px;
   border: 1px solid var(--border);
