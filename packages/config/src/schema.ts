@@ -358,23 +358,32 @@ export interface UserConfig {
  * topology node (§18.5, decision §18.10-6). `token` is issued by THE OTHER side
  * and must arrive as an `$env` reference (§10.7 — channel-class secret, no
  * relaxation). `transit` (default true, decision §18.10-1) re-exports the
- * neighbour's visible actors to this server's own importers.
+ * neighbour's visible actors to this server's own importers. `publish`
+ * (default false, §18.11/FR-152) sends this server's OWN export surface UP the
+ * link — the satellite half of relay mode; it takes effect only when the hub's
+ * accept entry consents with `relay` (invariant §10.28), and needs no
+ * `federation` block of its own.
  */
 export interface ImportConfig {
   readonly name: string;
   readonly url: string;
   readonly token: string;
   readonly transit?: boolean;
+  readonly publish?: boolean;
 }
 
 /**
  * One issued federation token (§18.2): `name` is what THIS server calls the
  * importer holding it — the suffix stamped onto inbound `from` FQNs (§18.5,
  * anti-spoof §10.24) and the reply tail those FQNs resolve back through.
+ * `relay` (default false, §18.11/FR-152) is the hub half of relay mode: accept
+ * this importer's published surface and re-export it to every neighbour; the
+ * name then joins the shared link-name namespace (§10.17) as a topology node.
  */
 export interface FederationAcceptConfig {
   readonly name: string;
   readonly token: string;
+  readonly relay?: boolean;
 }
 
 /**
@@ -404,6 +413,10 @@ export const DEFAULT_FEDERATION_PUBLISH_STATUS = true;
 export const DEFAULT_FEDERATION_STATUS_DEBOUNCE_MS = 1000;
 /** Default per-import `transit` (§18.2, decision §18.10-1). */
 export const DEFAULT_IMPORT_TRANSIT = true;
+/** Default per-import `publish` (§18.11, FR-152) — relay is a two-sided opt-in. */
+export const DEFAULT_IMPORT_PUBLISH = false;
+/** Default per-accept `relay` (§18.11, FR-152). */
+export const DEFAULT_ACCEPT_RELAY = false;
 
 /** The channel's binding key (§17.2, FR-125): its `name`, defaulting to its `type`. */
 export function channelName(channel: ChannelConfig): string {
@@ -939,7 +952,7 @@ function validateExported(value: unknown, path: string): true | string {
 // The token arrives here already $env-resolved (§7.3); inline values were
 // rejected pre-resolution (assertFederationTokensAreEnvRefs). Name uniqueness,
 // namespace and url-scheme rules are §7.5 (validate.ts).
-const IMPORT_FIELDS = ["name", "url", "token", "transit"] as const;
+const IMPORT_FIELDS = ["name", "url", "token", "transit", "publish"] as const;
 
 function validateImports(value: unknown, path: string): ImportConfig[] {
   return requireArray(value, path).map((item, i) => {
@@ -956,7 +969,14 @@ function validateImports(value: unknown, path: string): ImportConfig[] {
     const url = requireNonEmptyString(obj.url, joinPointer(itemPath, "url"));
     const token = requireNonEmptyString(obj.token, joinPointer(itemPath, "token"));
     const transit = optionalField(obj, "transit", itemPath, requireBoolean);
-    return { name, url, token, ...(transit !== undefined ? { transit } : {}) };
+    const publish = optionalField(obj, "publish", itemPath, requireBoolean);
+    return {
+      name,
+      url,
+      token,
+      ...(transit !== undefined ? { transit } : {}),
+      ...(publish !== undefined ? { publish } : {}),
+    };
   });
 }
 
@@ -994,15 +1014,17 @@ function validateFederation(value: unknown, path: string): FederationConfig {
     const itemPath = joinPointer(acceptPath, String(i));
     const record = requireObject(item, itemPath);
     for (const key of Object.keys(record)) {
-      if (key !== "name" && key !== "token") {
+      if (key !== "name" && key !== "token" && key !== "relay") {
         throw new ConfigError(`unknown accept field "${key}"`, {
           path: joinPointer(itemPath, key),
         });
       }
     }
+    const relay = optionalField(record, "relay", itemPath, requireBoolean);
     return {
       name: requireNonEmptyString(record.name, joinPointer(itemPath, "name")),
       token: requireNonEmptyString(record.token, joinPointer(itemPath, "token")),
+      ...(relay !== undefined ? { relay } : {}),
     };
   });
   return {

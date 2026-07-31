@@ -57,7 +57,8 @@
       "name": "hq",
       "url": "https://hq.example.com:8092",
       "token": { "$env": "TEAMAI_FED_HQ_TOKEN" },
-      "transit": true
+      "transit": true,
+      "publish": false
     }
   ],
 
@@ -66,7 +67,7 @@
     "bind": "127.0.0.1",
     "publishStatus": true,
     "statusDebounceMs": 1000,
-    "accept": [{ "name": "branch", "token": { "$env": "TEAMAI_FED_BRANCH_TOKEN" } }]
+    "accept": [{ "name": "branch", "token": { "$env": "TEAMAI_FED_BRANCH_TOKEN" }, "relay": false }]
   },
 
   "commandGrants": {

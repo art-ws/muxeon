@@ -278,3 +278,74 @@ describe("federation warnings and compatibility (§18.2, §18.8, FR-146)", () =>
     expect(check(BASE)).toEqual([]);
   });
 });
+
+describe("relay mode config (§18.11, FR-152)", () => {
+  test("publish and relay parse as booleans, default absent", () => {
+    const config = validateStructure({
+      ...BASE,
+      imports: [{ name: "c", url: "https://hub.example:8092", token: "t", publish: true }],
+      federation: { port: 8092, accept: [{ name: "a", token: "t2", relay: true }] },
+    });
+    expect(config.imports?.[0]?.publish).toBe(true);
+    expect(config.federation?.accept[0]?.relay).toBe(true);
+    const plain = validateStructure({ ...BASE, imports: IMPORTS, federation: FEDERATION });
+    expect(plain.imports?.[0]?.publish).toBeUndefined();
+    expect(plain.federation?.accept[0]?.relay).toBeUndefined();
+  });
+
+  test("a relay accept name joins the shared namespace; a plain accept stays out (§18.11.4)", () => {
+    const withAccept = (accept: object) => ({
+      ...BASE,
+      federation: { port: 8092, accept: [accept] },
+    });
+    // Collision with an agent: fatal for relay, legal for a plain accept (compat).
+    expect(() => check(withAccept({ name: "dev", token: "t", relay: true }))).toThrow(
+      /must be disjoint/,
+    );
+    expect(() => check(withAccept({ name: "dev", token: "t" }))).not.toThrow();
+    // Collision with an import: link names share one namespace.
+    expect(() =>
+      check({
+        ...BASE,
+        imports: IMPORTS,
+        federation: { port: 8092, accept: [{ name: "hq", token: "t", relay: true }] },
+      }),
+    ).toThrow(/collides with an import/);
+  });
+
+  test("a relay accept is a topology node; a plain accept is not (§18.11.3/FR-154)", () => {
+    const config = (relay: boolean) => ({
+      ...BASE,
+      federation: { port: 8092, accept: [{ name: "a", token: "t", ...(relay ? { relay } : {}) }] },
+      topology: { dev: ["a"] },
+    });
+    expect(() => check(config(true))).not.toThrow();
+    expect(() => check(config(false))).toThrow(/unknown participant/);
+  });
+
+  test("publish with nothing to publish warns (§18.11.1)", () => {
+    const importsWith = (extra: object[] = []) => [
+      { name: "c", url: "https://hub.example:8092", token: "t", publish: true },
+      ...extra,
+    ];
+    expect(check({ ...BASE, imports: importsWith() })).toContain(
+      'import "c" sets publish with no exported actors and no transit branches — nothing to publish (§18.11.1)',
+    );
+    // An exported actor is content...
+    expect(
+      check({
+        ...BASE,
+        agents: [{ name: "dev", type: "claude", tmux: "s", exported: true }],
+        imports: importsWith(),
+      }),
+    ).toEqual([]);
+    // ...and so is ANOTHER import's transit branch (the published link's own
+    // branch would only bounce off the hub's cycle guard).
+    expect(
+      check({
+        ...BASE,
+        imports: importsWith([{ name: "d", url: "https://d.example:8092", token: "t2" }]),
+      }),
+    ).toEqual([]);
+  });
+});

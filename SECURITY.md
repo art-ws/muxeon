@@ -19,6 +19,18 @@ oversights:
   from `$env`; unauthenticated requests never reach the core ports, and an
   authenticated session is capability-capped to the operator's own channel and
   topology neighbours.
+- **The federation listener is a third, bearer-token surface.** Loopback by
+  default; TLS is the reverse-proxy's job when it faces a network. One accept
+  token grants its holder every `exported` actor — server-level granularity by
+  design. What crosses a link is bounded: exported actors, their availability
+  projection and message traffic; never consoles, lifecycle, the journal, or
+  anything unexported, and the receiving side stamps the sender's suffix
+  itself, so a federated `from` cannot be forged. **Relay mode widens the
+  consent knowingly**: a satellite that sets `publish` makes its exported
+  actors reachable to the hub's entire downstream, and the hub carries — and
+  can read — the satellite-to-satellite traffic (no end-to-end encryption).
+  Both flags (`publish` on the satellite, `relay` on the hub's accept) default
+  to false; relay is for hubs the satellites trust.
 
 In short: run TEAMAI on a machine whose local processes you trust, and keep its
 ports off the network.

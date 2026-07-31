@@ -115,7 +115,10 @@ deliver through a single router that enforces the topology; one dispatcher loop
 per session injects into tmux, detects the turn end via the agent type's
 adapter, and archives the record. Agents coordinate over a least-privilege MCP
 agent-plane; the operator manages everything over a separate loopback-only
-HTTP-admin plane. Delivery is at-least-once with id-based dedup.
+HTTP-admin plane. Delivery is at-least-once with id-based dedup. Several
+servers can **federate** over token-authenticated links — actors get
+email-style names (`dev@hq`), each link is store-and-forward, and two servers
+that cannot reach each other can relay through a shared hub they both import.
 
 Agents that cannot (or should not) speak MCP use the **file exchange** instead:
 an incoming message is materialized as `.teamai/inbox/<id>/message.json` in the
@@ -142,6 +145,7 @@ edge against the layering, a cycle, or an unauthorized consumer of
 | `signals` | Signal envelope + on-demand send through the router. |
 | `routines` | MD+frontmatter routines: discovery (central + cwd), cron/once scheduler, crash-safe state. |
 | `channels` | Unified connector interface + telegram / slack / web. |
+| `federation` | Server-to-server links (§18): handshake + WS wire protocol, link client/listener, remote-actor registry, status publisher. Routing authority stays in `orchestrator`. |
 | `webchat` | Operator web panel surface: own port, auth gate, REST + WS, durable chat history, media via blobs. |
 | `webchat-ui` | React SPA of the panel — build-time only (`bun run build` → `dist/`), served by `webchat`, outside the runtime graph. |
 | `server` | Composition root: both network planes, channel wiring, admin, CLI. |

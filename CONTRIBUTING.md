@@ -33,6 +33,15 @@ router, the dispatcher or the queue:
 - **Untrusted input cannot leave its sandbox** — blob refs, ids and session
   names are containment-checked before any filesystem access.
 - A **once-routine never runs twice**, across restarts included.
+- Across a federation link the **export grant is the only gate**: an unexported
+  actor does not exist to the link (even by enumeration), the receiving side
+  stamps the sender's suffix itself, and system kinds never cross. Remote
+  statuses are an ephemeral read-only projection — an unreachable source reads
+  `unknown`, never a stale value.
+- **Relay is a two-sided opt-in**: the reverse visibility stream over a link
+  exists only when the satellite's `publish` meets the hub's `relay`; without
+  either flag the link behaves exactly as base federation, and the dial
+  direction alone never adds visibility.
 
 ## Working on a change
 

@@ -105,7 +105,8 @@ export interface FederationHandle {
   readonly port?: number;
   /** Import names — surfaces gate remote peers on a topology edge to these nodes. */
   readonly importNames: readonly string[];
-  /** Remote peers visible through an edge on `node` (FR-140) — [] for non-imports. */
+  /** Remote peers visible through an edge on `node` (FR-140) — imports and relay
+   * accepts (§18.11.8-2) are peer nodes; [] for anything else. */
   readonly peersOf: (node: string) => readonly RemotePeer[];
   readonly egresses: ReadonlyMap<string, EgressDispatcher>;
   readonly runs: readonly Promise<void>[];
@@ -128,6 +129,11 @@ export async function wireFederation(
   const start = options.start ?? true;
   const accepts = federation?.accept ?? [];
   const acceptNames = accepts.map((entry) => entry.name);
+  // Relay mode (§18.11, FR-152/FR-153): accepts this hub consented to relay, and
+  // imports this satellite publishes up. Either can exist without the other —
+  // the flags only meet in the handshake (invariant §10.28).
+  const relayAccepts = accepts.filter((entry) => entry.relay === true).map((entry) => entry.name);
+  const publishesAny = imports.some((entry) => entry.publish === true);
   const linkNames = [...new Set([...imports.map((entry) => entry.name), ...acceptNames])];
 
   // §18.5: one persistent maildir per link under <root>/fed/ — routing to a down
@@ -179,6 +185,7 @@ export async function wireFederation(
     transitImports: imports
       .filter((entry) => entry.transit ?? DEFAULT_IMPORT_TRANSIT)
       .map((entry) => entry.name),
+    relayAccepts,
     publishStatus,
     statusDebounceMs: federation?.statusDebounceMs ?? DEFAULT_FEDERATION_STATUS_DEBOUNCE_MS,
     warn,
@@ -218,15 +225,25 @@ export async function wireFederation(
       name: entry.name,
       url: entry.url,
       token: entry.token,
+      publish: entry.publish === true,
+      statusPublished: publishStatus,
       onUp: (handshake, actors, send) => {
         connection = { send: (frame) => send(JSON.stringify(frame)) };
         manager.attach(entry.name, connection);
         manager.registry.linkUp(entry.name, handshake.statusPublished);
         manager.registry.surface(entry.name, actors.actors);
+        // Relay negotiation outcome (§18.11.5): re-decided on EVERY reconnect —
+        // the hub may have changed its accept's `relay` between link lives.
+        if (entry.publish === true && handshake.relay === true) {
+          manager.publishGranted(entry.name, connection);
+        } else {
+          manager.publishRevoked(entry.name);
+        }
       },
       onDown: () => {
         if (connection !== null) manager.detach(entry.name, connection);
         connection = null;
+        manager.publishRevoked(entry.name);
         manager.registry.linkDown(entry.name);
       },
       onMessage: (raw) => {
@@ -238,6 +255,11 @@ export async function wireFederation(
   }
 
   // The listener (FR-138): the accept side — a separate surface on its own port.
+  // For a relay accept (§18.11) the connection doubles as the registry's source:
+  // link state and the satellite's declared statusPublished feed the same
+  // honesty rules an import's do (§10.27).
+  const relayAcceptSet = new Set(relayAccepts);
+  const satelliteStatusPublished = new Map<string, boolean>();
   let listener: FederationListener | undefined;
   if (federation !== undefined) {
     listener = new FederationListener({
@@ -248,13 +270,20 @@ export async function wireFederation(
       statusPublished: publishStatus,
       surface: () => manager.surface(),
       statuses: () => manager.statuses(),
+      onHandshake: (accept, request) => {
+        satelliteStatusPublished.set(accept, request.statusPublished ?? true);
+      },
       onOpen: (accept, send) => {
         const connection: LinkConnection = { send: (frame) => send(JSON.stringify(frame)) };
         manager.acceptOpened(accept, connection);
+        if (relayAcceptSet.has(accept)) {
+          manager.registry.linkUp(accept, satelliteStatusPublished.get(accept) ?? true);
+        }
         return connection;
       },
       onClose: (accept, handle) => {
         manager.detach(accept, handle as LinkConnection);
+        if (relayAcceptSet.has(accept)) manager.registry.linkDown(accept);
       },
       onMessage: (accept, raw, handle) => {
         void manager.handleMessage(accept, raw, handle as LinkConnection, "accept");
@@ -262,20 +291,25 @@ export async function wireFederation(
       warn,
     });
     listener.start();
-    // The publisher (FR-149): surface refreshes for everyone, coalesced status
-    // deltas when publishing — ephemeral frames only, nothing queued (§10.27).
-    if (start) runs.push(manager.runPublisher(acceptNames, signal));
+  }
+  // The publisher (FR-149): surface refreshes for everyone, coalesced status
+  // deltas when publishing — ephemeral frames only, nothing queued (§10.27).
+  // A satellite that publishes (§18.11.2) needs it too, listener or not.
+  if (start && (federation !== undefined || publishesAny)) {
+    runs.push(manager.runPublisher(acceptNames, signal));
   }
 
   const importNames = imports.map((entry) => entry.name);
-  const importSet = new Set(importNames);
+  // §18.11.8-2: a relay branch is visible to the hub's local plane exactly like
+  // an import — an edge on the accept node reveals its published actors.
+  const peerNodes = new Set([...importNames, ...relayAccepts]);
   return {
     instanceId,
     manager,
     registry: manager.registry,
     ...(listener !== undefined ? { port: listener.port } : {}),
     importNames,
-    peersOf: (node) => (importSet.has(node) ? manager.registry.peersOf(node) : []),
+    peersOf: (node) => (peerNodes.has(node) ? manager.registry.peersOf(node) : []),
     egresses,
     runs,
     stop: async () => {
