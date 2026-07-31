@@ -1351,6 +1351,11 @@ body,
   text-align: right;
 }
 
+/* "from → to" ahead of the time (FR-148) — same idiom as .transport-route */
+.bubble-route {
+  font-weight: 600;
+}
+
 .tick.done {
   color: var(--idle);
 }

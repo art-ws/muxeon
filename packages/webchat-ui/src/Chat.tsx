@@ -535,6 +535,12 @@ function Bubble(props: {
           <MediaBubble key={blob.blob} blob={blob} />
         ))}
         <span className="bubble-meta">
+          {/* Route in front of the time (FR-148): the bubble side alone says who
+              wrote it only as long as the chat has two distinct sides — a note to
+              SELF (§17.7) has the same name on both ends and a broadcast bubble
+              (§15) hides which target it went to. The same `from → to` idiom as
+              the transport journal (FR-48), one text node so it wraps as a unit. */}
+          <span className="bubble-route">{`${props.record.from} → ${props.record.to}`}</span>{" "}
           {new Date(props.record.ts).toLocaleTimeString()}
           {props.mine && props.phase !== undefined && (
             <span className={`tick ${props.phase}`} title={props.phase}>
