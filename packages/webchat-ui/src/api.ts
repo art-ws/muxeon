@@ -3,14 +3,7 @@
 // the client never sees the token, fetch just carries it.
 
 import type { ServerInfo } from "./server-info";
-import type {
-  BlobMeta,
-  HistoryPage,
-  PanelEvent,
-  PeerInfo,
-  SelfChatInfo,
-  TokenSeries,
-} from "./types";
+import type { BlobMeta, HistoryPage, PanelEvent, PeerInfo, TokenSeries } from "./types";
 
 /** Client-generated message id — the §10.9 idempotency key for send retries. */
 export const newMessageId = (): string => crypto.randomUUID();
@@ -48,19 +41,20 @@ export async function fetchPeers(): Promise<{
   peers: readonly PeerInfo[];
   /** The bound operator's name (FR-68) — the sidebar account button. */
   operator?: string;
-  /** The logged-in user (§17.7, FR-127); equals `operator` in legacy mode. */
+  /**
+   * The logged-in user (§17.7, FR-127); equals `operator` in legacy mode. In
+   * users mode `peers` also carries a row for this very name — the self-chat
+   * (FR-128), an ordinary user row.
+   */
   user?: string;
   /** Panel role (§17.7, FR-131): only "admin" sees the transport journal. */
   role?: "admin" | "user";
-  /** The pinned self-chat entry (§17.7, FR-128); absent for a legacy operator. */
-  self?: SelfChatInfo;
 }> {
   return jsonOrThrow<{
     peers: readonly PeerInfo[];
     operator?: string;
     user?: string;
     role?: "admin" | "user";
-    self?: SelfChatInfo;
   }>(await fetch("api/peers"));
 }
 

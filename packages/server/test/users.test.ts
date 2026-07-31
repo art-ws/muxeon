@@ -177,6 +177,17 @@ describe("presence (§17.5, FR-133)", () => {
     expect(server.presence.presence("alex")).toBe("offline");
     await server.stop();
   });
+
+  test("a note to SELF counts as activity — the own row goes online (FR-128/FR-133)", async () => {
+    const server = await boot();
+    expect(server.presence.presence("alex")).toBe("offline");
+    // self-delivery needs no edge (§10.2) and still passes the single delivery
+    // point, so the presence hook sees it like any other outgoing message
+    const routed = await server.router.route(mkMessage("alex", "alex", "note"));
+    expect(routed.ok).toBe(true);
+    expect(server.presence.presence("alex")).toBe("online");
+    await server.stop();
+  });
 });
 
 describe("groups and broadcast (§17.5, FR-130)", () => {
@@ -272,16 +283,27 @@ describe("panel surface with a user peer (§17.7, FR-129)", () => {
     const body = (await response.json()) as {
       user: string;
       role: string;
-      self?: { name: string };
-      peers: { name: string; type?: string; commands?: string[]; presence?: string }[];
+      peers: {
+        name: string;
+        type?: string;
+        commands?: string[];
+        presence?: string;
+        actions?: { pause?: boolean };
+      }[];
     };
     expect(body.user).toBe("alex");
     expect(body.role).toBe("admin");
-    expect(body.self?.name).toBe("alex"); // the pinned self-chat (FR-128)
     const kim = body.peers.find((peer) => peer.name === "kim");
     expect(kim?.type).toBe("user");
     expect(kim?.commands).toEqual([]); // no console ⇒ no catalog, and no throw
     expect(kim?.presence).toBe("offline"); // nothing sent yet (FR-133)
+    // the self-chat is a row of the SAME list (FR-128) — a user row like kim's,
+    // built by the same code path, so it too has no catalog and cannot throw
+    const me = body.peers.find((peer) => peer.name === "alex");
+    expect(me?.type).toBe("user");
+    expect(me?.commands).toEqual([]);
+    expect(me?.presence).toBe("offline");
+    expect(me?.actions?.pause).toBe(true); // DND on oneself (§17.8, FR-134)
     await server.stop();
   });
 });

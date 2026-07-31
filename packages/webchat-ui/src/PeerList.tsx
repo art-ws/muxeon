@@ -1,5 +1,8 @@
 // Sidebar (§12.7, FR-68): one entry per topology neighbor (§10.2) — live status,
-// queue depth, unread badge, last-message preview. Two layouts off ONE list:
+// queue depth, unread badge, last-message preview. The logged-in user's OWN row
+// (self-chat, §17.7/FR-128) is one of them: the server ships it inside `peers`,
+// so it sorts and renders like every other user row — no pinned special case.
+// Two layouts off ONE list:
 // expanded rows with text, or a collapsed icon rail (initial-letter buttons with
 // the same live status dot / unread badge); the logo in the topbar toggles them.
 // Agent colors (T99, FR-73): the accent paints the collapsed avatar circle and,
@@ -21,7 +24,7 @@ import { IconChevron, IconGear, IconGroup, IconPower, IconRadio, IconTag, IconUs
 import { agentColor } from "./palette";
 import { loadExpandedGroups, loadPref, saveExpandedGroups, savePref } from "./prefs";
 import { type TreeRow, buildTree, tagPeers } from "./tree";
-import { type PeerInfo, type SelfChatInfo, peerKind } from "./types";
+import { type PeerInfo, peerKind } from "./types";
 
 const STATUS_LABEL: Record<string, string> = {
   idle: "idle",
@@ -75,12 +78,6 @@ export function PeerList(props: {
   onLogout?: () => void;
   /** Opens the settings page (T110, FR-76) — an account-menu item. */
   onSettings?: () => void;
-  /**
-   * The pinned self-chat (§17.7, FR-128): notes to self plus everything addressed
-   * to this user, always available (self-delivery needs no edge, §10.2). Absent
-   * for a legacy operator — that panel has no user identity to talk to.
-   */
-  self?: SelfChatInfo;
 }): React.JSX.Element {
   const t = useT();
   const collapsed = props.collapsed === true;
@@ -126,34 +123,6 @@ export function PeerList(props: {
       {/* the rows scroll on their own (T109) — the footer stays pinned and the
           account menu is not clipped by the scroll container */}
       <div className="peer-scroll">
-        {props.self !== undefined && (
-          <button
-            type="button"
-            className={`peer-row self-entry${props.selected === props.self.name ? " selected" : ""}${
-              props.self.paused === true ? " peer-paused" : ""
-            }`}
-            title={collapsed ? `${t("Saved messages")}` : undefined}
-            onClick={() => props.onSelect(props.self?.name ?? "")}
-          >
-            {collapsed ? (
-              <span className="peer-avatar">
-                <IconUser size={18} />
-              </span>
-            ) : (
-              <span className="peer-info">
-                <span className="peer-name">
-                  <IconUser size={14} /> {t("Saved messages")}
-                </span>
-                <span className="peer-preview">
-                  {props.self.paused === true
-                    ? t("do not disturb")
-                    : (props.self.lastMessage?.preview ?? t("notes to self and your inbox"))}
-                </span>
-              </span>
-            )}
-            {props.self.unread > 0 && <span className="unread-badge">{props.self.unread}</span>}
-          </button>
-        )}
         {props.onTransport !== undefined && (
           <button
             type="button"

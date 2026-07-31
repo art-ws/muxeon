@@ -1838,11 +1838,6 @@ dialog.expand-dialog {
   border-top: 1px solid var(--border);
 }
 
-/* Self-chat (§17.7, FR-128): the pinned top row — notes to self + the inbox */
-.self-entry {
-  border-bottom: 1px solid var(--border);
-}
-
 /* Transport observability view (FR-48, §12.4) — read-only routed-message feed */
 .transport-entry {
   border-bottom: 1px solid var(--border);

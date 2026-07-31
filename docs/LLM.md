@@ -220,9 +220,12 @@ binds. A name that resolves to none of those aborts the boot.
 
 - their own chat history and unread counters — another user's is unreachable,
   not merely hidden;
-- a pinned **self-chat**: notes to themselves plus everything addressed to them;
+- a **self-chat**: notes to themselves plus everything addressed to them. It is
+  an ordinary row of their own sidebar — same place in the sorted list, same
+  presence dot / preview / unread / actions menu as any other person, no pinned
+  special case;
 - **presence**: online while their last outgoing message is younger than
-  `server.presenceTtl` (default `15m`);
+  `server.presenceTtl` (default `15m`) — a note to self counts, too;
 - **do not disturb**: they can pause themselves; a `role: "admin"` user can pause
   anyone. While paused, messages from others are refused (not queued) — their own
   notes still land;

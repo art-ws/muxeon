@@ -729,20 +729,27 @@ export class WebchatConnector implements ChannelConnector {
   // status, queue depth, unread badge, a last-message preview and the available
   // lifecycle actions (FR-65 — drives the panel's Shutdown/Reload buttons).
   // `operator` = the bound operator's name — the sidebar's account button (FR-68).
+  // Self-chat (§17.7, FR-128) rides in the SAME array: the user's own name joins
+  // their neighbors (self-delivery needs no edge, §10.2) and is built by the same
+  // code path, so the sidebar row is a user row like any other — same presence
+  // dot, preview, unread badge and group placement. A legacy operator (§17.9) has
+  // no user identity and therefore no self entry.
   async handlePeers(me: Identity): Promise<Response> {
     const ports = me.ports;
     const history = me.history;
     const lifecycle = me.lifecycle;
-    const names = ports?.listPeers() ?? [];
+    const neighbors = ports?.listPeers() ?? [];
+    const names = me.isUser ? [...neighbors, me.name].sort() : neighbors;
     const rz = ports?.rendezvousState?.() ?? { waiting: [], awaited: [] };
     const peers = await Promise.all(
       names.map(async (name) => {
         const last = await history?.last(name);
         const color = ports?.peerColor?.(name);
         // A user peer (§17.7, FR-129) has no session: no queue depth, no console,
-        // no lifecycle — a presence dot instead of a status dot (FR-133).
+        // no lifecycle — a presence dot instead of a status dot (FR-133). The
+        // viewer's own row is a user row too (self-chat, FR-128).
         const kind = ports?.peerType?.(name) ?? "agent";
-        const isUserPeer = kind === "user";
+        const isUserPeer = kind === "user" || (me.isUser && name === me.name);
         const depth = isUserPeer ? 0 : ((await ports?.queueDepth(name).catch(() => 0)) ?? 0);
         const marks =
           ports === undefined || isUserPeer ? undefined : this.#peerMarks(name, depth, rz, ports);
@@ -782,32 +789,14 @@ export class WebchatConnector implements ChannelConnector {
     // but no status/queue/unread/actions. They ride in the same peers array; the
     // sidebar renders the group tree and the Tags section from `type`.
     const broadcast = ports?.broadcastPeers?.() ?? [];
-    // Self-chat (§17.7, FR-128): the pinned top entry — always available, since
-    // self-delivery needs no edge (§10.2). Legacy operators have none (§17.1).
-    const self = me.isUser
-      ? {
-          name: me.name,
-          ...(me.displayName !== undefined ? { displayName: me.displayName } : {}),
-          ...(me.color !== undefined ? { color: me.color } : {}),
-          unread: (await history?.unread(me.name)) ?? 0,
-          paused: me.ports?.peerPaused?.(me.name) ?? false,
-          lastMessage: await history
-            ?.last(me.name)
-            .then((last) =>
-              last === undefined
-                ? undefined
-                : { ts: last.ts, from: last.from, preview: preview(last.payload) },
-            ),
-        }
-      : undefined;
     return json({
       peers: [...peers, ...broadcast],
       // `operator` stays for compatibility with the pre-§17 panel; `user`/`role`
-      // are the users-mode identity (FR-127/FR-131).
+      // are the users-mode identity (FR-127/FR-131). `user` also names the row
+      // that is the self-chat — the panel needs no separate self object.
       operator: me.name,
       user: me.name,
       role: me.role,
-      ...(self !== undefined ? { self } : {}),
     });
   }
 

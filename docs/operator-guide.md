@@ -459,9 +459,12 @@ or slack identity.
 - **Roles** are a panel capability, never a transport ACL: who may talk to whom
   is the topology and nothing else. `admin` additionally sees the Transport
   journal and may toggle another user's Do-not-disturb.
-- **Self-chat** ("Saved messages") is pinned at the top of the sidebar: notes to
-  yourself plus everything addressed to you. It always works — self-delivery
-  needs no edge.
+- **Self-chat**: you are a row of your own sidebar, listed and sorted among the
+  others and rendered exactly like any other person — presence dot, last-message
+  preview, unread badge, your group, the same actions menu. Notes to yourself
+  plus everything addressed to you. It always works — self-delivery needs no
+  edge — and writing to yourself counts as activity, so your own dot turns
+  online just like anyone else's.
 - **Do not disturb** (§16 for people): you can pause yourself, an `admin` can
   pause anyone. While paused, messages from others are rejected (not queued) —
   your own notes still land.

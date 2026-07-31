@@ -171,12 +171,15 @@ describe("per-user isolation (§10.22, FR-127)", () => {
   test("each user sees only their OWN peers (§10.2)", async () => {
     const alex = (await (
       await connector.handleRequest(get("/api/peers", await login("alex")))
-    ).json()) as { peers: { name: string }[] };
+    ).json()) as { peers: { name: string }[]; user: string };
     const kim = (await (
       await connector.handleRequest(get("/api/peers", await login("kim")))
-    ).json()) as { peers: { name: string }[] };
-    expect(alex.peers.map((p) => p.name)).toEqual(["dev", "kim"]);
-    expect(kim.peers.map((p) => p.name)).toEqual(["dev", "alex"]);
+    ).json()) as { peers: { name: string }[]; user: string };
+    // each list = that user's neighbors + their OWN row (self-chat, FR-128), sorted;
+    // here the two neighborhoods happen to coincide, so the identity is what differs
+    expect(alex.peers.map((p) => p.name)).toEqual(["alex", "dev", "kim"]);
+    expect(kim.peers.map((p) => p.name)).toEqual(["alex", "dev", "kim"]);
+    expect([alex.user, kim.user]).toEqual(["alex", "kim"]);
   });
 
   test("one user's history is unreachable from another's session", async () => {
@@ -213,12 +216,69 @@ describe("per-user isolation (§10.22, FR-127)", () => {
 });
 
 describe("self-chat (§17.7, FR-128)", () => {
-  test("/api/peers carries the pinned self entry", async () => {
+  test("/api/peers carries the self row INSIDE peers, sorted among the neighbors", async () => {
     const body = (await (
       await connector.handleRequest(get("/api/peers", await login("kim")))
-    ).json()) as { self?: { name: string; unread: number }; user: string; role: string };
-    expect(body.self?.name).toBe("kim");
+    ).json()) as {
+      peers: { name: string; type?: string; presence?: string; status: string | null }[];
+      self?: unknown;
+      user: string;
+    };
     expect(body.user).toBe("kim");
+    // no pinned side-channel any more — the row is an ordinary list member
+    expect(body.self).toBeUndefined();
+    expect(body.peers.map((peer) => peer.name)).toEqual(["alex", "dev", "kim"]);
+    const me = body.peers.find((peer) => peer.name === "kim");
+    // …and an ordinary USER row: presence dot instead of a status (FR-133)
+    expect(me).toMatchObject({ type: "user", status: null, presence: "online" });
+  });
+
+  test("the self row carries the same live surfaces as any other row", async () => {
+    const token = await login("kim");
+    await histories.get("kim")?.append({
+      id: "note-0",
+      from: "kim",
+      to: "kim",
+      kind: "message",
+      ts: 1,
+      payload: "a note",
+    });
+    const body = (await (await connector.handleRequest(get("/api/peers", token))).json()) as {
+      peers: {
+        name: string;
+        unread: number;
+        paused?: boolean;
+        actions?: { pause?: boolean };
+        lastMessage?: { preview: string };
+      }[];
+    };
+    const me = body.peers.find((peer) => peer.name === "kim");
+    expect(me?.lastMessage?.preview).toBe("a note");
+    // a note to self is never "unread" — the badge counts what OTHERS sent (§12.7)
+    expect(me?.unread).toBe(0);
+    // DND is the row's own pause action (§17.8, FR-134) — the same kebab item
+    expect(me?.actions?.pause).toBe(true);
+    expect(me?.paused).toBe(false);
+  });
+
+  test("a legacy operator (§17.9) gets no self row — no user identity to talk to", async () => {
+    const legacy = new WebchatConnector({
+      port: 0,
+      password: "op-pw",
+      bindOperator: "operator-web",
+      ports: { ...ports("alex"), listPeers: () => ["dev"] },
+    });
+    await legacy.start(async () => undefined);
+    try {
+      const response = await legacy.handleRequest(post("/api/login", { password: "op-pw" }));
+      const token = /teamai_webchat=([^;]+)/.exec(response.headers.get("set-cookie") ?? "")?.[1];
+      const body = (await (await legacy.handleRequest(get("/api/peers", token))).json()) as {
+        peers: { name: string }[];
+      };
+      expect(body.peers.map((peer) => peer.name)).toEqual(["dev"]);
+    } finally {
+      await legacy.stop();
+    }
   });
 
   test("the composer can send to SELF — it routes, and the panel does not double-log it", async () => {
