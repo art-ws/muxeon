@@ -22,39 +22,10 @@ import { RzArrows } from "./RzArrows";
 import { useT } from "./i18n-context";
 import { IconChevron, IconGear, IconGroup, IconPower, IconRadio, IconTag, IconUser } from "./icons";
 import { agentColor } from "./palette";
+import { dotClass, liveLabel, statusLabel } from "./peer-surface";
 import { loadExpandedGroups, loadPref, saveExpandedGroups, savePref } from "./prefs";
 import { type TreeRow, buildTree, tagPeers } from "./tree";
 import { type PeerInfo, peerKind } from "./types";
-
-const STATUS_LABEL: Record<string, string> = {
-  idle: "idle",
-  busy: "busy…",
-  down: "down",
-};
-
-/**
- * The row's status line and tooltip (§16.6, FR-120). A paused agent SHOWS "paused"
- * — that is the state the operator acted on — while the real session status stays
- * visible in the tooltip ("paused · idle"): the marker must not lie about the
- * session. `status` alone is used when nothing is paused.
- */
-function statusLabel(peer: PeerInfo): string {
-  if (peer.paused === true) return "paused";
-  // A user peer (§17.7) has no session: presence answers "are they around" (FR-133).
-  if (peerKind(peer) === "user") return peer.presence === "online" ? "online" : "offline";
-  return STATUS_LABEL[peer.status ?? ""] ?? "—";
-}
-
-/**
- * The activity dot's class (§12.7, §17.7): an agent shows its session status, a
- * user their presence (FR-133) — the same dot in the same place, so the sidebar
- * reads uniformly; `paused` mutes either of them (§16.6/FR-134 DND).
- */
-function dotClass(peer: PeerInfo): string {
-  const state =
-    peerKind(peer) === "user" ? (peer.presence ?? "offline") : (peer.status ?? "unknown");
-  return `status-dot ${state}${peer.paused === true ? " paused" : ""}`;
-}
 
 /** The collapsed-rail avatar text: the first character, uppercased. */
 export const initialOf = (name: string): string => (name[0] ?? "?").toUpperCase();
@@ -258,7 +229,7 @@ function AgentRow(props: {
         type="button"
         className={`peer-row${props.selected ? " selected" : ""}${peer.paused === true ? " peer-paused" : ""}`}
         title={`${peer.name} — ${t(statusLabel(peer))}${
-          peer.paused === true ? ` · ${t(STATUS_LABEL[peer.status ?? ""] ?? "—")}` : ""
+          peer.paused === true ? ` · ${t(liveLabel(peer))}` : ""
         }`}
         onClick={props.onSelect}
       >
@@ -283,9 +254,7 @@ function AgentRow(props: {
         peer.paused === true ? " peer-paused" : ""
       }`}
       title={
-        peer.paused === true
-          ? `${peer.name} — ${t("paused")} · ${t(STATUS_LABEL[peer.status ?? ""] ?? "—")}`
-          : undefined
+        peer.paused === true ? `${peer.name} — ${t("paused")} · ${t(liveLabel(peer))}` : undefined
       }
       /* expanded: the accent is a thin colored edge — unobtrusive (FR-73) */
       style={

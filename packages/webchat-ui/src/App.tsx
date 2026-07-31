@@ -22,6 +22,7 @@ import {
 import { I18nContext, useT } from "./i18n-context";
 import { authMode, instanceName } from "./instance";
 import { agentColor } from "./palette";
+import { chatSurface, hasConsole } from "./peer-surface";
 import { loadPref, savePref } from "./prefs";
 import { type Route, parseRoute, routeHash } from "./route";
 import type { ServerInfo } from "./server-info";
@@ -466,7 +467,11 @@ function Panel(props: {
     openChat !== undefined ? state.peers.find((info) => info.name === openChat) : undefined;
   // Groups & tags (§15) are input-only broadcast targets: no live status (so no
   // "thinking" wash) and raw mode is server-rejected — the composer forces it off.
-  const openIsBroadcast = openPeer !== undefined && peerKind(openPeer) !== "agent";
+  const openIsBroadcast = openPeer !== undefined && chatSurface(openPeer) === "broadcast";
+  // Console-backed affordances (raw mode §14, slash commands FR-66, Screen Live
+  // FR-102) exist only behind an AGENT: a person (§17.7) has no terminal, so the
+  // server would reject them — the composer must not offer them at all.
+  const openHasConsole = hasConsole(openPeer);
   // Command-fanout modal (§15.8, FR-115): launched from a group/tag chat, seeded
   // with that target; closed automatically when the open chat changes.
   const [commandOpen, setCommandOpen] = useState(false);
@@ -568,13 +573,17 @@ function Panel(props: {
             key={openChat}
             peer={openChat}
             onSend={(draft) => send(openChat, draft)}
-            commands={openIsBroadcast ? [] : (openPeer?.commands ?? [])}
+            commands={openHasConsole ? (openPeer?.commands ?? []) : []}
             onCommand={(slash) => api.runAgentCommand(openChat, slash)}
-            onScreen={() => api.fetchAgentScreen(openChat)}
-            /* a group/tag has no terminal — raw mode is off (server-rejected, §15) */
-            raw={openIsBroadcast ? false : raw}
+            /* Screen Live watches a tmux pane — only an agent has one (FR-102) */
+            {...(openHasConsole ? { onScreen: () => api.fetchAgentScreen(openChat) } : {})}
+            /* no terminal behind a group/tag (§15) or a person (§17.7) — raw mode
+               is off there (the server rejects it anyway) */
+            raw={openHasConsole ? raw : false}
             /* the pause note (§16.6, FR-120); a group/tag is never paused (§16.1) */
             paused={openIsBroadcast ? false : openPeer?.paused === true}
+            /* …but for a person the same flag is their do-not-disturb (§17.8) */
+            dnd={chatSurface(openPeer) === "person"}
           />
           {commandOpen && (
             <CommandFanout
