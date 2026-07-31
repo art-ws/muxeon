@@ -602,12 +602,80 @@ Rules that save a debugging cycle:
   in the panel, with the cause in the tooltip) — never a stale value.
 - An exported actor can **reply** to whoever wrote to it (the stamped
   `name@link` sender, with `replyTo`); cold initiative in the reverse direction
-  needs a mutual import.
+  needs a mutual import — or relay mode, below.
 - What never crosses a link: slash commands, lifecycle, raw mode, screen
   capture, group/tag broadcasts, the transport journal.
 - On a machine that exports `HTTP_PROXY`, loopback links need
   `NO_PROXY=127.0.0.1,localhost` in the server's environment — otherwise the
   link client dials the proxy instead of the neighbour.
+
+### Relay through a hub (when the two servers cannot reach each other)
+
+Use this when both servers sit behind NAT/firewalls with no inbound port —
+i.e. **neither can be the exporter** — but both can dial a third server. The
+two satellites each import the hub and **publish** their surface up that link;
+the hub **relays** each publication to all its neighbours. The result behaves
+like a direct mutual import.
+
+Satellite (both A and B look like this — note there is **no `federation`
+block**: no listener, no port, no reverse-proxy):
+
+```jsonc
+{
+  "imports": [
+    { "name": "c", "url": "https://hub.example:8092",
+      "token": { "$env": "TEAMAI_FED_C_TOKEN" },
+      "publish": true }                       // send MY export surface up this link
+  ],
+  "agents": [ { "name": "ann", "type": "claude", "tmux": "ann", "exported": true } ],
+  "topology": { "ann": ["c"] }                // the hub edge covers relayed actors too
+}
+```
+
+Hub:
+
+```jsonc
+{
+  "federation": {
+    "port": 8092,
+    "accept": [
+      { "name": "a", "token": { "$env": "TEAMAI_FED_A_TOKEN" }, "relay": true },
+      { "name": "b", "token": { "$env": "TEAMAI_FED_B_TOKEN" }, "relay": true }
+    ]
+  }
+}
+```
+
+Rules:
+
+- **Both flags are required and both default to false.** `publish` without the
+  hub's `relay` is a warning in the satellite's log
+  (`publish requested but the hub did not grant relay`) and the link runs in
+  plain import mode; `relay` without `publish` relays nothing.
+- On the hub the published actors appear under the **accept's name** (`ann@a`);
+  one server further the chain grows as usual (`ann@a@c`). A relay-enabled
+  accept name becomes a **topology node** exactly like an import name — the
+  hub's own actors need an edge on it to talk to the satellite.
+- The hub **queues for an offline satellite** (`queue/fed/<accept>/`) — a
+  mailbox that drains when the satellite reconnects. Delivery through the hub
+  is two hops of the same store-and-forward as everything else.
+- Published actors are **first-class addressees** — the reply-only restriction
+  of plain federation does not apply to them.
+- **State this to the human**: `publish` is a broad consent — the satellite's
+  exported actors become reachable to the hub's *entire* downstream (its
+  importers and their transit), and the hub sees the A↔B traffic in plain
+  text. Relay is for hubs the satellites trust.
+
+**Check** (run on one satellite once all three are up): the other satellite's
+actor shows up as `<name>@<their-accept>@<your-import>` (e.g. `bob@b@c`) in the
+panel/`list_peers`, and a send to it round-trips:
+
+```bash
+npx @art-ws/teamai signals send --from <user> --to bob@b@c "reply with the single word OK"
+```
+
+On the far satellite the record arrives with the sender named
+`<user>@a@c` — each hop stamps its own suffix.
 
 **Check** — exporter first, then importer, then end-to-end:
 
@@ -722,6 +790,10 @@ know it:
   granularity is a design decision — say so). What crosses the link is bounded:
   exported actors, their availability projection, and message traffic — never
   consoles, lifecycle, the journal, or anything unexported.
+- With **relay**, `publish: true` widens that consent: the satellite's exported
+  actors become reachable to the hub's entire downstream, and the hub carries —
+  and can read — the satellite-to-satellite traffic. Both sides opted in
+  explicitly (`publish` + `relay`), but the human must know what the hub sees.
 
 If the human asked you to expose any port publicly, stop and confirm — that is
 outside this design and needs an explicit decision.
@@ -752,6 +824,8 @@ outside this design and needs an explicit decision.
 | A `[federation] not delivered: UNKNOWN_ACTOR` note | The remote actor is not exported | The exporter must mark it `exported`; unexported names do not exist across a link |
 | Remote peers all read `unknown` | Link down, or the neighbour publishes no statuses | Check the link warns in the exporter's/importer's log; `publishStatus: false` is deliberate |
 | Link never comes up, log says connect failed | Wrong URL/token — or a proxy in the way | Same token value in both `.env`s; on proxied hosts set `NO_PROXY=127.0.0.1,localhost` |
+| Log warns `publish requested but the hub did not grant relay` | The hub's accept entry lacks `relay: true` | Add `"relay": true` to that satellite's accept on the hub (both flags are required); the link meanwhile works in plain import mode |
+| The other satellite's actors never appear (`bob@b@c` missing) | One of the two relay flags is missing, or that actor is not `exported` | Reachability is `publish` ∧ `relay` ∧ `exported` — check all three on the respective servers |
 
 ---
 
