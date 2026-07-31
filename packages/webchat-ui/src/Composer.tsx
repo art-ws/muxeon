@@ -1,7 +1,8 @@
 // Composer (T49/T50, §12.5/§12.7): text + every media source over ONE path —
 // pick/drag/paste a file, record the mic, capture the camera → upload → an
 // attachment chip → /api/send with opaque blob ids. Enter sends, Shift+Enter
-// breaks the line.
+// breaks the line — except in full screen (T223), where Enter breaks the line
+// and the send button is the only way out.
 // Pill layout (T94, FR-70): one rounded shell — a single "+" button on the left
 // opens an UPWARD menu with icon+label rows (attach / camera / slash commands
 // as a SUBMENU, FR-66); the mic and a round ↑ send button sit on the right.
@@ -12,6 +13,7 @@
 // page and coming back restores the composer; a successful send clears the text.
 
 import { useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { CameraDialog } from "./Camera";
 import { blobUrl, uploadBlob } from "./api";
 import {
@@ -84,9 +86,9 @@ export function Composer(props: {
   const [menuOpen, setMenuOpen] = useState(false);
   const [commandsOpen, setCommandsOpen] = useState(false);
   // Full-screen mode for long messages (FR-70, T222): the composer card itself
-  // GROWS to fill the pane (the Gemini idiom) — no separate editor window. The
-  // same textarea and the same text state, so drafts persist and Enter still
-  // sends; Esc or the corner button shrink it back.
+  // GROWS to fill the feed (the Gemini idiom) — no separate editor window. The
+  // same textarea and the same text state, so drafts persist; Esc or the corner
+  // button shrink it back.
   const [expanded, setExpanded] = useState(false);
   // Screen Live (FR-102): a popup that polls the peer's console snapshot; the
   // "+" menu opens it, closing the popup stops the polling.
@@ -96,6 +98,7 @@ export function Composer(props: {
   );
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const menuAnchorRef = useRef<HTMLSpanElement>(null);
 
   // Persist on every change (FR-69) — small strings, no debounce needed; an
   // empty draft removes the key.
@@ -133,6 +136,23 @@ export function Composer(props: {
     setMenuOpen(false);
     setCommandsOpen(false);
   };
+
+  // Click-away for the "+" menu (T224) — a document listener, NOT the usual
+  // full-page backdrop element: the composer's frosted glass (backdrop-filter)
+  // makes the card a containing block for position:fixed descendants, so a
+  // backdrop rendered inside it covered the card and nothing else — clicks on
+  // the feed never closed the menu. The listener has no geometry to get wrong.
+  useEffect(() => {
+    if (!menuOpen) return;
+    const onDown = (event: MouseEvent): void => {
+      const target = event.target;
+      if (target instanceof Node && menuAnchorRef.current?.contains(target) === true) return;
+      setMenuOpen(false);
+      setCommandsOpen(false);
+    };
+    document.addEventListener("mousedown", onDown);
+    return () => document.removeEventListener("mousedown", onDown);
+  }, [menuOpen]);
 
   const runCommand = async (slash: string): Promise<void> => {
     const onCommand = props.onCommand;
@@ -307,117 +327,113 @@ export function Composer(props: {
           }}
         />
         {hasMenuItems && (
-          <span className="plus-anchor">
+          <span className="plus-anchor" ref={menuAnchorRef}>
             {menuOpen && (
-              <>
-                {/* biome-ignore lint/a11y/useKeyWithClickEvents: a transparent click-away backdrop, Esc/menu buttons carry the keyboard path */}
-                <span className="menu-backdrop" onClick={closeMenu} />
-                <span className="composer-menu" role="menu">
-                  {/* full-screen composer for long messages (FR-70, T222) — always
+              <span className="composer-menu" role="menu">
+                {/* full-screen composer for long messages (FR-70, T222) — always
                       available, and the SAME toggle as the corner button (T223) */}
+                <button
+                  type="button"
+                  role="menuitem"
+                  className="menu-item"
+                  aria-expanded={expanded}
+                  onClick={() => {
+                    closeMenu();
+                    setExpanded((current) => !current);
+                  }}
+                >
+                  <span className="menu-icon">
+                    <ExpandIcon size={14} />
+                  </span>{" "}
+                  {expandLabel}
+                </button>
+                {/* live console watch (FR-102) — present when the parent wires it */}
+                {props.onScreen !== undefined && (
                   <button
                     type="button"
                     role="menuitem"
                     className="menu-item"
-                    aria-expanded={expanded}
                     onClick={() => {
                       closeMenu();
-                      setExpanded((current) => !current);
+                      setScreenLive(true);
                     }}
                   >
                     <span className="menu-icon">
-                      <ExpandIcon size={14} />
+                      <IconMonitor size={14} />
                     </span>{" "}
-                    {expandLabel}
+                    {t("Screen Live")}
                   </button>
-                  {/* live console watch (FR-102) — present when the parent wires it */}
-                  {props.onScreen !== undefined && (
-                    <button
-                      type="button"
-                      role="menuitem"
-                      className="menu-item"
-                      onClick={() => {
-                        closeMenu();
-                        setScreenLive(true);
-                      }}
-                    >
-                      <span className="menu-icon">
-                        <IconMonitor size={14} />
-                      </span>{" "}
-                      {t("Screen Live")}
-                    </button>
-                  )}
-                  {/* media items hide in raw mode (§14.3) */}
-                  {!raw && <span className="menu-separator" />}
-                  {!raw && (
-                    <button
-                      type="button"
-                      role="menuitem"
-                      className="menu-item"
-                      onClick={() => {
-                        closeMenu();
-                        fileInputRef.current?.click();
-                      }}
-                    >
-                      <span className="menu-icon">
-                        <IconPaperclip size={14} />
-                      </span>{" "}
-                      {t("Attach files")}
-                    </button>
-                  )}
-                  {!raw && hasCamera && (
-                    <button
-                      type="button"
-                      role="menuitem"
-                      className="menu-item"
-                      onClick={() => {
-                        closeMenu();
-                        setCamera(true);
-                      }}
-                    >
-                      <span className="menu-icon">
-                        <IconCamera size={14} />
-                      </span>{" "}
-                      {t("Camera")}
-                    </button>
-                  )}
-                  {commands.length > 0 && (
-                    <>
-                      {/* always divided from the item(s) above — expand is always present */}
-                      <span className="menu-separator" />
-                      <span className="submenu-anchor">
-                        <button
-                          type="button"
-                          role="menuitem"
-                          className={`menu-item${commandsOpen ? " active" : ""}`}
-                          aria-haspopup="menu"
-                          aria-expanded={commandsOpen}
-                          onClick={() => setCommandsOpen(!commandsOpen)}
-                        >
-                          <span className="menu-icon">/</span> {t("Slash commands")}
-                          <span className="submenu-arrow">›</span>
-                        </button>
-                        {commandsOpen && (
-                          <span className="composer-menu submenu" role="menu">
-                            {commands.map((slash) => (
-                              <button
-                                type="button"
-                                role="menuitem"
-                                key={slash}
-                                className="menu-item"
-                                disabled={running !== undefined}
-                                onClick={() => void runCommand(slash)}
-                              >
-                                /{slash}
-                              </button>
-                            ))}
-                          </span>
-                        )}
-                      </span>
-                    </>
-                  )}
-                </span>
-              </>
+                )}
+                {/* media items hide in raw mode (§14.3) */}
+                {!raw && <span className="menu-separator" />}
+                {!raw && (
+                  <button
+                    type="button"
+                    role="menuitem"
+                    className="menu-item"
+                    onClick={() => {
+                      closeMenu();
+                      fileInputRef.current?.click();
+                    }}
+                  >
+                    <span className="menu-icon">
+                      <IconPaperclip size={14} />
+                    </span>{" "}
+                    {t("Attach files")}
+                  </button>
+                )}
+                {!raw && hasCamera && (
+                  <button
+                    type="button"
+                    role="menuitem"
+                    className="menu-item"
+                    onClick={() => {
+                      closeMenu();
+                      setCamera(true);
+                    }}
+                  >
+                    <span className="menu-icon">
+                      <IconCamera size={14} />
+                    </span>{" "}
+                    {t("Camera")}
+                  </button>
+                )}
+                {commands.length > 0 && (
+                  <>
+                    {/* always divided from the item(s) above — expand is always present */}
+                    <span className="menu-separator" />
+                    <span className="submenu-anchor">
+                      <button
+                        type="button"
+                        role="menuitem"
+                        className={`menu-item${commandsOpen ? " active" : ""}`}
+                        aria-haspopup="menu"
+                        aria-expanded={commandsOpen}
+                        onClick={() => setCommandsOpen(!commandsOpen)}
+                      >
+                        <span className="menu-icon">/</span> {t("Slash commands")}
+                        <span className="submenu-arrow">›</span>
+                      </button>
+                      {commandsOpen && (
+                        <span className="composer-menu submenu" role="menu">
+                          {commands.map((slash) => (
+                            <button
+                              type="button"
+                              role="menuitem"
+                              key={slash}
+                              className="menu-item"
+                              disabled={running !== undefined}
+                              onClick={() => void runCommand(slash)}
+                            >
+                              /{slash}
+                            </button>
+                          ))}
+                        </span>
+                      )}
+                    </span>
+                  </>
+                )}
+              </span>
             )}
             <button
               type="button"
@@ -528,18 +544,28 @@ export function Composer(props: {
         </p>
       )}
       {error !== undefined && <p className="error">{error}</p>}
-      {camera && (
-        <CameraDialog
-          onCaptured={(file) => {
-            setCamera(false);
-            void attach([file]);
-          }}
-          onClose={() => setCamera(false)}
-        />
-      )}
-      {screenLive && props.onScreen !== undefined && (
-        <ScreenLiveDialog fetchScreen={props.onScreen} onClose={() => setScreenLive(false)} />
-      )}
+      {/* Both popups PORTAL to the body (T224). They cover the viewport with a
+          position:fixed overlay, and the composer's frosted glass makes the card
+          a containing block for fixed descendants — rendered in place they were
+          trapped inside the card, painting their backdrop over the composer and
+          spilling the dialog off its edge. */}
+      {camera &&
+        createPortal(
+          <CameraDialog
+            onCaptured={(file) => {
+              setCamera(false);
+              void attach([file]);
+            }}
+            onClose={() => setCamera(false)}
+          />,
+          document.body,
+        )}
+      {screenLive &&
+        props.onScreen !== undefined &&
+        createPortal(
+          <ScreenLiveDialog fetchScreen={props.onScreen} onClose={() => setScreenLive(false)} />,
+          document.body,
+        )}
     </footer>
   );
 }
