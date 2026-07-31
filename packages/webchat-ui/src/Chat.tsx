@@ -31,6 +31,7 @@ import {
 import { chatSurface, dotClass, liveLabel } from "./peer-surface";
 import { routeHash } from "./route";
 import type { ChatThread } from "./store";
+import { TimeStamp } from "./timestamp";
 import {
   type BlobRef,
   type ChatRecord,
@@ -541,7 +542,7 @@ function Bubble(props: {
               (§15) hides which target it went to. The same `from → to` idiom as
               the transport journal (FR-48), one text node so it wraps as a unit. */}
           <span className="bubble-route">{`${props.record.from} → ${props.record.to}`}</span>{" "}
-          {new Date(props.record.ts).toLocaleTimeString()}
+          <TimeStamp ts={props.record.ts} />
           {props.mine && props.phase !== undefined && (
             <span className={`tick ${props.phase}`} title={props.phase}>
               {" "}
