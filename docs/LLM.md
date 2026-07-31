@@ -34,7 +34,9 @@ The finished deployment is:
   teamai.config.json        <- the only file you author by hand
   .env                      <- secrets, gitignored, mode 600
   queue/                    <- created at boot: per-participant maildirs
-  state/                    <- created only once routines exist
+                            <-   one per agent AND one per user (§17.5)
+  webchat/                  <- created by the panel: per-user history + sessions
+  state/                    <- created only once routines exist (and pause flags)
   routines/                 <- optional: scheduled markdown tasks you author
 ```
 
@@ -150,15 +152,17 @@ The smallest config that actually boots — two agents and one edge:
 }
 ```
 
-**An operator is not a free-standing name.** Operators are declared *implicitly*
-by a channel's `bindOperator`. Referencing `operator` in the topology without a
-channel that binds it is a fatal config error:
+**A human is a declared participant.** People go in `users[]`; each one is a full
+transport node — own topology edges, own queue, own history. Referencing a name
+in the topology that is neither an agent nor a declared user is a fatal config
+error:
 
 ```
-teamai: topology references unknown participant "operator" (at /topology/researcher/0)
+teamai: topology references unknown participant "alex" (at /topology/researcher/0)
 ```
 
-So the moment you want a human in the topology, the channel comes with it:
+So the moment you want a human in the topology, they arrive with the channel
+they log in through:
 
 ```json
 {
@@ -167,14 +171,28 @@ So the moment you want a human in the topology, the channel comes with it:
   "agents": [
     { "name": "researcher", "type": "claude", "tmux": "researcher" }
   ],
-  "topology": { "researcher": ["operator"] },
+  "users": [
+    { "name": "alex", "role": "admin",
+      "auth": { "password": { "$env": "TEAMAI_ALEX_PASSWORD" } },
+      "channels": { "web": true } }
+  ],
+  "topology": { "researcher": ["alex"] },
   "channels": [
-    { "type": "webchat", "port": 8091, "basePath": "/team",
-      "bindOperator": "operator",
-      "auth": { "password": { "$env": "TEAMAI_WEB_PASSWORD" } } }
+    { "name": "web", "type": "webchat", "port": 8091, "basePath": "/team",
+      "auth": { "mode": "users" } }
   ]
 }
 ```
+
+`channels[].name` is the binding key (default: the channel `type`), and
+`users[].channels` says which channels that person reaches you through. A
+webchat binding is `true` — the login *is* the identity.
+
+> **Legacy shape.** A channel may instead carry `bindOperator: "operator"` plus
+> `auth.password`, which makes one shared login and declares that operator
+> implicitly. It still works and nothing about it changed — but do not mix the
+> two on one channel (validation rejects that), and prefer `users[]` for anything
+> new. Ask the human which they want if the task does not say.
 
 Field by field:
 
@@ -187,11 +205,28 @@ Field by field:
 | `agents[].type` | Adapter: **`claude`**, **`codex`**, or **`auto`** (detects). |
 | `agents[].tmux` | The tmux session name. **Stable** — it keys the queue across restarts. |
 | `agents[].cwd` | Optional working directory; also where the file exchange lands. |
+| `users[].name` | A person's topology identity — and their queue key. |
+| `users[].role` | `"admin"` or `"user"` (default). Panel capability only, never a transport ACL. |
+| `users[].auth` | Exactly one of `password` (literal or `$env`) or `passwordHash`. |
+| `users[].channels` | Bindings keyed by `channels[].name`: `true` for webchat, `{ "alias": "…" }` elsewhere. |
+| `channels[].name` | Channel instance name = the binding key. Default: the `type`. |
 | `topology` | Undirected. An edge is permission to talk. No edge ⇒ delivery refused. |
 
 Every name in `topology` must resolve to a declared participant: an agent from
-`agents`, or an operator that some channel binds. A name that resolves to
-neither aborts the boot.
+`agents`, a user from `users`, a group/tag, or an operator that some channel
+binds. A name that resolves to none of those aborts the boot.
+
+**What a user gets** (state it to the human, they usually ask):
+
+- their own chat history and unread counters — another user's is unreachable,
+  not merely hidden;
+- a pinned **self-chat**: notes to themselves plus everything addressed to them;
+- **presence**: online while their last outgoing message is younger than
+  `server.presenceTtl` (default `15m`);
+- **do not disturb**: they can pause themselves; a `role: "admin"` user can pause
+  anyone. While paused, messages from others are refused (not queued) — their own
+  notes still land;
+- the server-wide transport journal **only** with `role: "admin"`.
 
 ### Optional blocks (add only if asked)
 
@@ -239,9 +274,7 @@ missing variable fails the boot.
 In the config, reference the variable:
 
 ```json
-{ "type": "webchat", "port": 8091, "basePath": "/team",
-  "bindOperator": "operator",
-  "auth": { "password": { "$env": "TEAMAI_WEB_PASSWORD" } } }
+{ "name": "tg-main", "type": "telegram", "token": { "$env": "TG_TOKEN" } }
 ```
 
 Put the value in `<ROOT>/.env`:
@@ -250,12 +283,29 @@ Put the value in `<ROOT>/.env`:
 cd <ROOT>
 umask 077
 cat > .env <<'EOF'
-TEAMAI_WEB_PASSWORD=<value the human gave you>
+TG_TOKEN=<value the human gave you>
+TEAMAI_ALEX_PASSWORD=<value the human gave you>
 EOF
 chmod 600 .env
 ```
 
 **Check:** `ls -l .env` shows `-rw-------`.
+
+**User passwords have one relaxation** (§17.2): `users[].auth.password` may be a
+literal instead of an `$env` reference — the config sits on a trusted host, so it
+is allowed, and the boot warns about it. Prefer `$env` anyway. The third option
+is a hash, which is not a secret and may live inline:
+
+```bash
+teamai hash-password            # reads the password without echoing it
+teamai hash-password --stdin    # or from a pipe, for non-interactive use
+```
+
+```json
+{ "name": "alex", "auth": { "passwordHash": "$argon2id$v=19$m=65536,t=2,p=1$…" } }
+```
+
+It needs neither a running server nor a config — it is a pure local computation.
 
 Rules you must not break:
 
@@ -366,10 +416,27 @@ ls -d queue
 
 1. `admin 200`
 2. one line per agent: `<name> (<tmux>): idle|busy|down`
-3. `queue` exists
+3. `queue` exists — with one directory per participant, **including one named
+   after each user**: that pseudo-session is where their messages land
 
 `state/` is **not** created until routines exist — its absence here is normal,
 not a failure.
+
+With a webchat channel, also prove a person can actually get in (this is the
+step humans notice when it is missing):
+
+```bash
+curl -s -o /dev/null -w 'panel %{http_code}\n' http://localhost:8091/team/
+curl -s -X POST http://localhost:8091/team/api/login \
+  -H 'content-type: application/json' \
+  -d '{"user":"<user>","password":"<the value from .env>"}'
+```
+
+**Expected:** `panel 200`, and the login answers
+`{"ok":true,"user":"<user>","role":"…"}`. A `400 "user" is required` means the
+channel runs in users mode and you omitted the name; a `401 invalid credentials`
+means the name or the password is wrong — the two are deliberately
+indistinguishable, so check both. Do **not** put the password in your report.
 
 > **If a request to localhost hangs or returns something strange**, check
 > whether the shell exports `HTTP_PROXY`. A proxy intercepts loopback. Re-run
@@ -380,8 +447,11 @@ not a failure.
 Prove a message actually reaches an agent. Pick an agent that is `idle`:
 
 ```bash
-npx @art-ws/teamai signals send --from operator --to <agent> "reply with the single word OK"
+npx @art-ws/teamai signals send --from <user> --to <agent> "reply with the single word OK"
 ```
+
+`<user>` is a name from `users[]` (or the legacy operator) that has an edge to
+that agent — the router refuses anything else.
 
 **Check:** the command prints `queued <id> → <agent>`. Then, within a few
 seconds:
@@ -400,7 +470,9 @@ including the pane contents.
 
 ## 10. Channels (only if asked)
 
-A channel connects a human. Each channel binds **one** operator.
+A channel is how people reach the stand. In users mode it carries **many**
+people, each identified by their binding; in the legacy shape it binds **one**
+operator.
 
 **Default to `webchat`.** It is the only channel that needs nothing outside this
 machine — a port and a password — so it is the right answer unless the human
@@ -409,20 +481,19 @@ public endpoint, and none of that is yours to invent.
 
 ```jsonc
 "channels": [
-  { "type": "webchat", "port": 8091, "basePath": "/team",
-    "bindOperator": "operator",
-    "auth": { "password": { "$env": "TEAMAI_WEB_PASSWORD" } } }
+  { "name": "web", "type": "webchat", "port": 8091, "basePath": "/team",
+    "auth": { "mode": "users" } }        // identities come from users[]
 ]
 ```
 
 The other types, for when the human asks for one and supplies the credential:
 
 ```jsonc
-{ "type": "telegram", "token": { "$env": "TELEGRAM_TOKEN" },
-  "bindOperator": "ops-tg", "defaultTarget": "researcher" }
+{ "name": "tg-main", "type": "telegram", "token": { "$env": "TELEGRAM_TOKEN" } }
+// …and in users[]: "channels": { "tg-main": { "alias": "<their telegram @username>" } }
 
-{ "type": "slack", "token": { "$env": "SLACK_TOKEN" },
-  "channel": "C0123456", "bindOperator": "ops-slack" }
+{ "name": "slack-main", "type": "slack", "token": { "$env": "SLACK_TOKEN" },
+  "channel": "C0123456" }
 
 { "type": "web", "port": 8090, "deliverUrl": "https://hooks.example/teamai",
   "secret": { "$env": "WEB_HOOK_SECRET" }, "bindOperator": "ops-hook" }
@@ -433,11 +504,18 @@ Notes that save a debugging cycle:
 - **`webchat` rejects `defaultTarget`** — the panel picks the recipient in the
   UI, so the field is a config error there, not a harmless extra. It belongs to
   the text channels (telegram / slack / web) only.
-- In those text channels, inbound text is addressed by a leading `@agent`;
-  without one it goes to `defaultTarget`. Neither present ⇒ the message is
-  refused and the human is told why.
-- The `@agent` must be a **topology neighbour of that operator**, or delivery is
+- In those text channels, inbound text is addressed by a leading `@agent`. In
+  **users mode** the fallback is a note to self, so `defaultTarget` is rejected
+  there too; in the **legacy** shape the fallback is `defaultTarget`, and without
+  either the message is refused with a clear reply.
+- An **alias** must be unique within its channel — two people behind one alias
+  makes the sender unresolvable, and validation says so.
+- A telegram/slack account that no user binds is **refused politely** and never
+  reaches the transport. There is no guest access; add the person to `users[]`.
+- The `@agent` must be a **topology neighbour of that sender**, or delivery is
   refused.
+- The generic `web` channel has no per-user identity, so it still requires
+  `bindOperator`.
 - With `basePath: "/team"` the panel lives at `http://host:8091/team/` and the
   **root path 404s**. That is not a bug; check the right URL.
 
@@ -481,6 +559,7 @@ plane, so the server must be running.
 ```
 teamai agents
 teamai provision|kill|restart <agent>
+teamai pause|resume <agent|user>
 teamai command <slash> <selector…>
 teamai channels
 teamai signals send --from <node> --to <node> [--blob <path>] <text…>
@@ -488,8 +567,13 @@ teamai queues peek|cancel|requeue <participant> [<id>]
 teamai routines list [<owner>]
 teamai routines get|delete|enable|disable|run-once <owner> <id>
 teamai routines put <owner> <id> <file.md>
+teamai hash-password [--stdin]
 options: --url <admin-url> | --config <path>
 ```
+
+`hash-password` is the one subcommand that talks to nothing — no server, no
+config — so it works before the stand exists. `pause` takes a user as well as an
+agent: for a person it is do-not-disturb (their own notes still land).
 
 `restart <agent>` restarts an **agent**, not the server. Configuration is read
 once at boot — a config edit needs the server process restarted:
@@ -515,7 +599,12 @@ know it:
   never put it behind a public reverse proxy.
 - Agent identity on the MCP plane is **self-declared**. The topology is a routing
   constraint, not an anti-spoofing control.
-- The **web panel is the only authenticated surface** (password from `$env`).
+- The **web panel is the only authenticated surface**. With `users[]` each person
+  has their own login and sees only their own chats, peers and blobs — that is
+  isolation between *people*, not a security boundary against the machine: anyone
+  with local access still reaches the admin plane.
+- A `role: "admin"` user additionally sees the server-wide transport journal —
+  i.e. everyone's traffic. Say who you gave that to.
 
 If the human asked you to expose any port publicly, stop and confirm — that is
 outside this design and needs an explicit decision.
@@ -535,6 +624,12 @@ outside this design and needs an explicit decision.
 | Delivery refused | No topology edge, or unknown name | Add the edge; names are the `agents[].name`, not tmux names |
 | Message sits in `cur/` | Turn never detected as finished | Capture the pane and report; the agent may be blocked on a prompt |
 | `bun: not found` from `npx` | Node shim cannot find bun | Install bun, or set `TEAMAI_BUN=/path/to/bun` |
+| Login answers `"user" is required` | Channel is in users mode | Send `{"user":…,"password":…}` — the name is a `users[].name` |
+| Login answers `invalid credentials` | Wrong name **or** wrong password | The two are deliberately indistinguishable; check both |
+| Boot warns `inline auth.password` | A literal user password | Allowed (§17.2), but move it to `$env` or `passwordHash` |
+| Boot warns `no user bound to it` | users-mode channel with no binding | Nobody can log in — add `users[].channels` |
+| Telegram replies "not linked to a TEAMAI user" | Sender's alias is not bound | Add that account to some `users[].channels.<channel>.alias` |
+| A person sees no peers | No topology edges for that user | Their self-chat still works; add the edges |
 
 ---
 
@@ -545,8 +640,9 @@ When you finish, report exactly this:
 1. **Versions**: bun, tmux, node, and the TEAMAI version you installed.
 2. **`<ROOT>`** and the install method you used (a, b or c from step 2).
 3. **The config**: agent names, their types and tmux sessions, the topology
-   edges, and the channels — **with secret values replaced by their variable
-   names**.
+   edges, the channels, and **who can log in** — the `users[]` names with their
+   roles (say plainly which of them are `admin`) — **with secret values replaced
+   by their variable names**.
 4. **Check results** from step 9, including the end-to-end message result.
 5. **Anything you could not do**, and why. Say it plainly; a partial deployment
    reported accurately is far more useful than a complete-sounding one that

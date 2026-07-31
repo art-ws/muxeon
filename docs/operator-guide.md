@@ -44,8 +44,11 @@ itself (bring-up stays `provision`/auto-revive/operator territory).
       "outputPollMs": 100, "downProbeMs": 1000,
       "routineTickMs": 1000, "routineRescanMs": 30000, "retentionSweepMs": 60000,
       "idleTeardownSweepMs": 60000,  // idle auto-teardown sweep (§5.1/FR-92)
-      "livenessProbeMs": 2000        // liveness re-probe of non-busy sessions (§5.1/FR-93)
-    }
+      "livenessProbeMs": 2000,       // liveness re-probe of non-busy sessions (§5.1/FR-93)
+      "presenceSweepMs": 60000       // user-presence fade-out sweep (§17.5/FR-133)
+    },
+    "presenceTtl": "15m"            // a user counts as online this long after their
+                                    //   last outgoing message (§17.5/FR-133)
   },
   "agents": [
     {
@@ -73,15 +76,21 @@ itself (bring-up stays `provision`/auto-revive/operator territory).
     "writer": { "researcher": ["restart", "stop"] },   // directed: <from>: { <to>: [<action>] }
     "*": { "researcher": ["*"] }  // "*" = any sender / any recipient / every action
   },
-  "channels": [                   // one channel binds ONE operator (§7.5)
-    { "type": "telegram", "token": { "$env": "TELEGRAM_TOKEN" },
-      "bindOperator": "operator", "defaultTarget": "researcher" },
+  "users": [                      // the PEOPLE on this stand (§17.2, section 8.1a)
+    { "name": "alex", "role": "admin",
+      "auth": { "password": { "$env": "TEAMAI_ALEX_PASSWORD" } },
+      "channels": { "web": true, "tg-main": { "alias": "alex_tg" } } }
+  ],
+  "channels": [                   // `name` = the binding key (default: the type)
+    { "name": "tg-main", "type": "telegram",           // users mode: identities
+      "token": { "$env": "TELEGRAM_TOKEN" } },         //   come from users[]
+    { "name": "web", "type": "webchat", "port": 8091,  // web panel (§12, section 8)
+      "auth": { "mode": "users" } },
+    // legacy single-login channels still work — one channel binds ONE operator (§7.5):
     { "type": "slack", "token": { "$env": "SLACK_TOKEN" }, "channel": "C0123456",
       "bindOperator": "ops2" },
     { "type": "web", "port": 8090, "deliverUrl": "https://hooks.example/teamai",
-      "secret": { "$env": "WEB_HOOK_SECRET" }, "bindOperator": "ops3" },
-    { "type": "webchat", "port": 8091, "bindOperator": "operator-web",
-      "auth": { "password": { "$env": "TEAMAI_WEB_PASSWORD" } } }  // web panel (§12, section 8)
+      "secret": { "$env": "WEB_HOOK_SECRET" }, "bindOperator": "ops3" }
   ]
 }
 ```
@@ -89,8 +98,10 @@ itself (bring-up stays `provision`/auto-revive/operator territory).
 - **Secrets only via `$env`** (§7.3) — an inline token fails validation; a
   missing variable fails the boot. Resolved secrets never appear in queue
   records, logs, or error responses (§8.7).
-- Operators are declared implicitly by `bindOperator` and become topology
+- Humans are declared **explicitly** in `users[]` (§17.2) — or implicitly by a
+  channel's `bindOperator` in the legacy shape. Either way they become topology
   nodes; give them edges or they can neither send nor receive (warning at boot).
+  A user with no edges still has a working self-chat.
 - **Agent→agent slash commands (`commandGrants`, FR-94/95)** let one agent run
   another's slash commands over MCP (`send_command`), and introspect what it may
   run (`list_commands`). The grant is **directed** — `{ "<from>": { "<to>":
@@ -115,6 +126,11 @@ itself (bring-up stays `provision`/auto-revive/operator territory).
   recipient. Fail-fast validation: unknown agent, an explicit pair without an edge,
   an unknown action, or `start`/`restart`/`reload` on a provision-less recipient all
   fail the boot (§7.5).
+- **Users (`users[]`, FR-121…FR-135)** declare the PEOPLE on this stand — see
+  section 8.1a. Each one is a full transport participant (their own topology
+  edges, queue, history and channel identities), so `users[]` is what replaces
+  the single shared `bindOperator` login. `channels[].name` names a channel
+  instance and is the key of a user's binding; it defaults to the channel `type`.
 - The config may be split across files with local `$ref` (§7.2); the monolith
   stays equivalent.
 - **Idle auto-teardown (`teardown.idle`, FR-92)** retires an agent **the system
@@ -136,6 +152,16 @@ come back on the same channel, attributed `[agent-name] …`.
 
 Delivery is **at-least-once**: after a crash or a channel outage the same
 message may be pushed twice; dedup by id suppresses most repeats.
+
+**With `users[]` (§17.6) a channel carries many people.** The sender is resolved
+through the bindings — `users[].channels[<channel>].alias` — to exactly one user;
+an account nobody claims gets a polite refusal and never reaches the transport
+(there are no guests). The recipient is then resolved in order: a channel-native
+mention of another bound user, else an `@name` of one of the sender's peers, else
+the message is a **note to self** and lands in their own chat. `defaultTarget`
+does not apply in that mode — there is no single sender to authorize it against.
+Outbound messages fan out to **every** channel the user is bound to; their panel
+history is the durable copy, each channel push is best-effort.
 
 ### 3.1 Agent replies: the file exchange (§13, FR-52..56) — the default path
 
@@ -358,11 +384,14 @@ to unauthenticated visitors; a non-git deployment simply shows the version.
 
 ```jsonc
 {
+  "name": "web",                    // the binding key for users[].channels (§17.2)
   "type": "webchat",
-  "bindOperator": "operator-web",   // its topology edges = the visible agents (§10.2)
+  "auth": { "mode": "users" },      // identities = the users bound to this channel
+  // legacy alternative, mutually exclusive with the two lines above:
+  //   "bindOperator": "operator-web",  // its topology edges = the visible agents (§10.2)
+  //   "auth": { "password": { "$env": "TEAMAI_WEB_PASSWORD" } },  // $env only
   "port": 8091,                     // REQUIRED, ≠ server.port
   "bind": "127.0.0.1",              // default; keep loopback, proxy from outside
-  "auth": { "password": { "$env": "TEAMAI_WEB_PASSWORD" } },  // REQUIRED, $env only
   "upload": { "maxBytes": 26214400, "mime": ["image/*", "audio/*", "video/*",
               "application/pdf", "text/*"] },                 // defaults shown
   "history": { "retain": { "age": "90d", "count": 10000 } }   // defaults shown
@@ -370,7 +399,7 @@ to unauthenticated visitors; a non-git deployment simply shows the version.
 ```
 
 `defaultTarget` is rejected here — the recipient is always chosen in the UI.
-Chat history lives in `<config_dir>/webchat/history/<operator>/<agent>.jsonl`
+Chat history lives in `<config_dir>/webchat/history/<user>/<agent>.jsonl`
 (append-only; survives restarts; pruned by `history.retain`; its blob
 references keep media alive past the queue's `done/` window).
 
@@ -391,7 +420,7 @@ customize the capture (e.g. navigate a pager before snapping) set a key-DSL rule
 Raw mode is direct terminal access for the (already trusted, loopback+auth)
 operator; it adds no new capability to agents (the flag is operator-side only).
 
-### 8.1a Многие люди на одном стенде: `users[]` (§17)
+### 8.1a Many people on one stand: `users[]` (§17)
 
 Since §17 the panel can carry **named people** instead of one shared login. A
 user is a full transport participant: their own topology edges, their own

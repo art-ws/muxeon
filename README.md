@@ -7,9 +7,10 @@
 TEAMAI is a **transport and coordinator** for local CLI agents (`claude`,
 `codex`, …) running in **tmux sessions**. It is not an agent itself: it
 connects agents, tracks their lifecycle, routes messages between them along a
-declared topology, and lets a human operator reach them through channels (a web
-panel out of the box; Telegram, Slack and a minimal webhook when you bring the
-credentials) — the operator is modeled as just another agent.
+declared topology, and lets **people** reach them through channels (a web panel
+out of the box; Telegram, Slack and a minimal webhook when you bring the
+credentials) — a human is modeled as just another participant, with their own
+edges, queue and history.
 
 TypeScript monorepo on [bun](https://bun.sh). MIT licensed.
 
@@ -57,19 +58,29 @@ A minimal config is one agent, a human, and the edge between them:
   "agents": [
     { "name": "researcher", "type": "claude", "tmux": "researcher-session" }
   ],
-  "topology": { "researcher": ["operator"] },
+  "users": [
+    { "name": "alex", "role": "admin",
+      "auth": { "password": { "$env": "TEAMAI_ALEX_PASSWORD" } },
+      "channels": { "web": true } }
+  ],
+  "topology": { "researcher": ["alex"] },
   "channels": [
-    { "type": "webchat", "port": 8091, "basePath": "/team",
-      "bindOperator": "operator",
-      "auth": { "password": { "$env": "TEAMAI_WEB_PASSWORD" } } }
+    { "name": "web", "type": "webchat", "port": 8091, "basePath": "/team",
+      "auth": { "mode": "users" } }
   ]
 }
 ```
 
 That gives you the web panel on `http://localhost:8091/team/` — the quickest way
-in, since it needs nothing but a password. `operator` is not a free-standing
-name: an operator exists because a channel binds it, so the channel and the
-topology edge arrive together.
+in, since it needs nothing but a name and a password. People are declared in
+`users[]`: each is a full participant with their own topology edges, queue,
+history and channel identities, so several humans can share one stand and still
+see only what they are wired to. Add more by adding entries — and give someone
+`"role": "admin"` if they should also see the server-wide transport journal.
+
+The older single-login shape (a channel with `bindOperator` and one shared
+password) still works unchanged; it is simply the `users[]` case with one
+nameless person.
 
 Channel secrets are `$env`-only — an inline token fails validation, a missing
 variable fails the boot.
@@ -81,7 +92,7 @@ loopback HTTP-admin):
 teamai agents                         # names + idle/busy/down
 teamai kill researcher                # interrupt; queue keeps accumulating
 teamai restart researcher             # kill + provision; queue drains
-teamai signals send --from operator --to researcher "ship the report"
+teamai signals send --from alex --to researcher "ship the report"
 teamai queues peek researcher         # inspect pending/ and cur/
 teamai routines list                  # scheduled MD routines
 ```
