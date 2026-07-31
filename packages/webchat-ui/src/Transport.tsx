@@ -199,16 +199,18 @@ function TransportRow(props: { record: ChatRecord }): React.JSX.Element {
   const { text, blobs } = payloadParts(record.payload);
   return (
     <div className="transport-row">
-      <TimeStamp className="transport-time" ts={record.ts} />
-      <span className="transport-route">
-        {record.from} → {record.to}
-      </span>
-      {record.kind !== "message" && <span className="transport-badge">{record.kind}</span>}
-      {record.origin !== undefined && <span className="transport-badge">{record.origin}</span>}
       <div className="transport-text">
         {text !== undefined && <MessageText text={text} />}
         {blobs.length > 0 && <span>[{blobs.length} attachment(s)]</span>}
       </div>
+      {/* the chat bubble's idiom (T225): who and when go UNDER the message, so
+          the text owns the full width instead of hanging in a second column */}
+      <span className="transport-meta">
+        <span className="transport-route">{`${record.from} → ${record.to}`}</span>
+        {record.kind !== "message" && <span className="transport-badge">{record.kind}</span>}
+        {record.origin !== undefined && <span className="transport-badge">{record.origin}</span>}
+        <TimeStamp className="transport-time" ts={record.ts} />
+      </span>
     </div>
   );
 }

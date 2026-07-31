@@ -2036,18 +2036,32 @@ dialog.camera-dialog {
 }
 
 .transport-feed .feed-content {
-  gap: 2px;
+  gap: 10px; /* the log breathes too (T225) — denser than the chat's 14px */
 }
 
+/* ONE column (T225): the message spans the full width and the meta line sits
+   under it, the way chat bubbles are built — no hanging second column */
 .transport-row {
   position: relative; /* hosts the msg-actions overlay (FR-61) */
-  display: flex;
-  align-items: baseline;
-  gap: 8px;
-  padding: 4px 8px;
-  border-radius: 6px;
+  padding: 6px 10px;
+  border-radius: 8px;
   font-size: 13px;
   background: var(--bg-raised);
+}
+
+/* who and when, under the message — the .bubble-meta idiom */
+.transport-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: flex-end;
+  gap: 6px;
+  margin-top: 4px;
+  font-size: 10px;
+  color: var(--text-dim);
+}
+.transport-meta .transport-badge {
+  font-size: inherit;
 }
 
 .transport-row .msg-actions {
