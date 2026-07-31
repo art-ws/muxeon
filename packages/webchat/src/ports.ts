@@ -52,6 +52,24 @@ export interface TagPeer {
 
 export type BroadcastPeer = GroupPeer | TagPeer;
 
+/**
+ * A federated peer (§18.4, FR-144/FR-150): a remote actor imported over a link,
+ * FQN-named, read-only — the panel shows its projection and opens a plain 1:1
+ * chat, never lifecycle/commands/console. `unknown` is an honest value of its
+ * own (§10.27), with the cause for the tooltip.
+ */
+export interface RemotePeerRow {
+  readonly name: string;
+  readonly type: "agent" | "user";
+  /** The import this peer arrived through — the panel's server group (§18.4). */
+  readonly server: string;
+  readonly link: "up" | "down";
+  readonly status?: AgentStatus | "unknown";
+  readonly presence?: "online" | "offline" | "unknown";
+  readonly paused: boolean;
+  readonly reason?: "link-down" | "not-published" | "hop-down";
+}
+
 /** Panel role (§17.2/§17.7, FR-121/FR-131). Declared here so webchat stays free of a config dep. */
 export type WebchatRole = "admin" | "user";
 
@@ -116,6 +134,12 @@ export interface WebchatPorts {
    * some intent — the "меня ждут" / ↓ marker). Absent ⇒ rendezvous disabled (no arrows).
    */
   rendezvousState?(): { readonly waiting: readonly string[]; readonly awaited: readonly string[] };
+  /**
+   * Federated peers the identity can see (§18.4, FR-144/FR-150): every actor of
+   * every import the identity has a topology edge on — same edge rule as agents.
+   * Absent ⇒ no federation configured.
+   */
+  remotePeers?(): readonly RemotePeerRow[];
 }
 
 /** A backward-cursor page of the transport log (§8.2, FR-48). */

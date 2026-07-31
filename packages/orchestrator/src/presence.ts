@@ -77,10 +77,23 @@ export class PresenceTracker {
     return faded;
   }
 
-  /** Sweep loop on the configured cadence; stops with the shutdown signal. */
+  /**
+   * Sweep loop on the configured cadence; stops with the shutdown signal. The
+   * sleep itself is abort-aware (FR-49 spirit): shutdown must never sit out a
+   * sweep tick — with the default 60s cadence that used to hold `server.stop()`
+   * for up to a minute, well past the 15s shutdown watchdog (FR-136).
+   */
   async run(signal: AbortSignal, intervalMs: number): Promise<void> {
     while (!signal.aborted) {
-      await new Promise((resolve) => setTimeout(resolve, intervalMs));
+      await new Promise<void>((resolve) => {
+        const timer = setTimeout(done, intervalMs);
+        function done(): void {
+          clearTimeout(timer);
+          signal.removeEventListener("abort", done);
+          resolve();
+        }
+        signal.addEventListener("abort", done, { once: true });
+      });
       if (signal.aborted) return;
       this.sweep();
     }

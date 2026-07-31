@@ -3,6 +3,7 @@
 // operator egress dispatcher. Owns §10.1/§10.2/§10.8. (SPEC.md §8.2)
 // Populated in T14–T17, T28.
 export * from "./router";
+export * from "./federation";
 export * from "./broadcast";
 export * from "./intersect";
 export * from "./command-fanout";

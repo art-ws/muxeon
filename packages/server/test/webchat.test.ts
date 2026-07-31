@@ -38,12 +38,12 @@ function dummyRegistry(): AdapterRegistry {
   return new AdapterRegistry([adapter]);
 }
 
-function writeConfig(channel: Record<string, unknown>): string {
+function writeConfig(channel: Record<string, unknown>, serverPort = 0): string {
   const configFile = join(dir, "teamai.config.json");
   writeFileSync(
     configFile,
     JSON.stringify({
-      server: { port: 8080, mcp: false, queueDir: "./queue" },
+      server: { port: serverPort, mcp: false, queueDir: "./queue" },
       agents: [
         { name: "researcher", type: "dummy", tmux: "researcher-s" },
         { name: "loner", type: "dummy", tmux: "loner-s" }, // no edge to the operator
@@ -55,15 +55,18 @@ function writeConfig(channel: Record<string, unknown>): string {
   return configFile;
 }
 
-async function boot(channelOverrides: Record<string, unknown> = {}) {
+async function boot(channelOverrides: Record<string, unknown> = {}, serverPort = 0) {
   return bootstrap({
-    configFile: writeConfig({
-      type: "webchat",
-      bindOperator: "operator-web",
-      port: PANEL_PORT,
-      auth: { password: { $env: "TEAMAI_WEB_PASSWORD" } },
-      ...channelOverrides,
-    }),
+    configFile: writeConfig(
+      {
+        type: "webchat",
+        bindOperator: "operator-web",
+        port: PANEL_PORT,
+        auth: { password: { $env: "TEAMAI_WEB_PASSWORD" } },
+        ...channelOverrides,
+      },
+      serverPort,
+    ),
     env: (name) => (name === "TEAMAI_WEB_PASSWORD" ? "hunter2" : undefined),
     registry: dummyRegistry(),
     probe: async () => true,
@@ -433,7 +436,10 @@ describe("webchat wiring (T44: §12, §10.12, FR-38/FR-42)", () => {
   });
 
   test("fail-fast: webchat port colliding with server.port refuses to boot (§12.2)", async () => {
-    await expect(boot({ port: 8080 })).rejects.toThrow(/must differ from server\.port/);
+    // fail-fast at validation — nothing binds, so the literal port never collides
+    await expect(boot({ port: PANEL_PORT }, PANEL_PORT)).rejects.toThrow(
+      /must differ from server\.port/,
+    );
   });
 
   test("fail-fast: a missing auth refuses to boot (§12.2)", async () => {

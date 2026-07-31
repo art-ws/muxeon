@@ -22,6 +22,12 @@ export interface RetentionTarget {
   readonly policy: RetentionPolicy;
   /** Shrinks the owner's live dedup window after done/ pruning (§10.9). */
   readonly forgetDone: (ids: Iterable<string>) => void;
+  /**
+   * Queue-root override: federation link queues live under `<root>/fed/`
+   * (§18.5) but prune exactly like every other maildir. Targets with an
+   * override are excluded from blob GC (blob refs never federate).
+   */
+  readonly root?: string;
 }
 
 export interface RetentionOptions {
@@ -64,14 +70,17 @@ const abortableSleep = (ms: number, signal: AbortSignal): Promise<void> =>
 export function createRetention(options: RetentionOptions): RetentionHandle {
   const now = options.now ?? Date.now;
   const intervalMs = options.intervalMs ?? 60_000;
-  const pathsOf = new Map<string, QueuePaths>(
-    options.targets.map((target) => [target.session, queuePaths(options.root, target.session)]),
+  const pathsOf = new Map<RetentionTarget, QueuePaths>(
+    options.targets.map((target) => [
+      target,
+      queuePaths(target.root ?? options.root, target.session),
+    ]),
   );
 
   const sweep = async (): Promise<void> => {
     const at = now();
     for (const target of options.targets) {
-      const paths = pathsOf.get(target.session);
+      const paths = pathsOf.get(target);
       if (paths === undefined) continue;
       const pruned = await pruneArchive(paths, "done", target.policy, at);
       target.forgetDone(pruned); // §10.9: the window IS the current done/
@@ -80,7 +89,11 @@ export function createRetention(options: RetentionOptions): RetentionHandle {
     for (const extra of options.extraSweeps ?? []) await extra(); // §12.3: prune BEFORE GC
     await gcBlobs({
       root: options.root,
-      sessions: options.targets.map((target) => target.session),
+      // Only the queues under the shared root reference blobs (§5.3); an
+      // overridden-root target (a link queue) holds no local blob refs (§18.5).
+      sessions: options.targets
+        .filter((target) => target.root === undefined)
+        .map((target) => target.session),
       ageMs: options.blobAgeMs,
       ...(options.extraRefFiles !== undefined ? { extraRefFiles: options.extraRefFiles } : {}),
       now,

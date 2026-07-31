@@ -34,8 +34,35 @@ export function chatSurface(peer: PeerInfo | undefined): ChatSurface {
   }
 }
 
+/**
+ * A federated peer (§18.4, FR-144/FR-150): imported over a link — its chrome is
+ * the read-only projection: an agent surface WITHOUT the console (no slash/raw/
+ * Screen Live), a person surface without DND; lifecycle/pause never render (the
+ * server ships `actions` all-false, this predicate closes the composer half).
+ */
+export const isRemote = (peer: PeerInfo | undefined): boolean => peer?.server !== undefined;
+
 /** Whether this peer has a console behind it: raw mode, slash commands, Screen Live. */
-export const hasConsole = (peer: PeerInfo | undefined): boolean => chatSurface(peer) === "agent";
+export const hasConsole = (peer: PeerInfo | undefined): boolean =>
+  chatSurface(peer) === "agent" && !isRemote(peer);
+
+/**
+ * Why a federated peer reads "unknown" (§18.4) — the tooltip cause, never a
+ * fourth status: a dead link, a neighbour that does not publish, or a dead hop
+ * further up the transit chain. Undefined for local peers and live projections.
+ */
+export function unknownReason(peer: PeerInfo | undefined): string | undefined {
+  switch (peer?.reason) {
+    case "link-down":
+      return "link unreachable";
+    case "not-published":
+      return "the server does not publish statuses";
+    case "hop-down":
+      return "a transit hop is unreachable";
+    default:
+      return undefined;
+  }
+}
 
 /**
  * The row's / header's status line and tooltip (§16.6, FR-120). A paused peer
@@ -46,8 +73,12 @@ export const hasConsole = (peer: PeerInfo | undefined): boolean => chatSurface(p
 export function statusLabel(peer: PeerInfo | undefined): string {
   if (peer === undefined) return "—";
   if (peer.paused === true) return "paused";
-  // A person has no session: presence answers "are they around" (FR-133).
-  if (chatSurface(peer) === "person") return peer.presence === "online" ? "online" : "offline";
+  // A person has no session: presence answers "are they around" (FR-133). A
+  // federated person may honestly not be known (§18.4/§10.27).
+  if (chatSurface(peer) === "person") {
+    if (peer.presence === "unknown") return "unknown";
+    return peer.presence === "online" ? "online" : "offline";
+  }
   switch (peer.status) {
     case "idle":
       return "idle";
@@ -55,6 +86,9 @@ export function statusLabel(peer: PeerInfo | undefined): string {
       return "busy…";
     case "down":
       return "down";
+    case "unknown":
+      // A federated agent behind a dead link/hop (§18.4): honesty, not a guess.
+      return "unknown";
     default:
       return "—";
   }

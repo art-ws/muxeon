@@ -86,7 +86,8 @@ export type WebchatEvent =
   | {
       readonly type: "status";
       readonly peer: string;
-      readonly status: AgentStatus | undefined;
+      /** Session status (§5.1); a federated peer may read "unknown" (§18.4/§10.27). */
+      readonly status?: AgentStatus | "unknown" | undefined;
       /** Operator-declared pause (§16, FR-119) — orthogonal to `status` (§16.1). */
       readonly paused: boolean;
       readonly queueDepth: number;
@@ -98,6 +99,12 @@ export type WebchatEvent =
       readonly awaited: boolean;
       /** Presence of a user peer (§17.5, FR-133); absent for agents. */
       readonly presence?: string;
+      /** Federated peer only (§18.4, FR-150): its import name. */
+      readonly server?: string;
+      /** Federated peer only (FR-139/FR-140): link reachability. */
+      readonly link?: "up" | "down";
+      /** Federated peer only (§18.4): why the projection reads `unknown`. */
+      readonly reason?: "link-down" | "not-published" | "hop-down";
     }
   | {
       readonly type: "queue-progress";
@@ -240,7 +247,7 @@ interface Identity {
 
 /** Live per-peer dynamics of one identity (the WS status-diff source, §12.7). */
 interface PeerDynamics {
-  status: AgentStatus | undefined;
+  status: AgentStatus | "unknown" | undefined;
   paused: boolean;
   depth: number;
   atWipLimit: boolean;
@@ -248,6 +255,8 @@ interface PeerDynamics {
   awaited: boolean;
   /** Presence of a user peer (§17.5, FR-133); undefined for agents. */
   presence: string | undefined;
+  /** Federated peer only (§18.4): link reachability joins the diff. */
+  link?: "up" | "down";
 }
 
 export class WebchatConnector implements ChannelConnector {
@@ -789,8 +798,33 @@ export class WebchatConnector implements ChannelConnector {
     // but no status/queue/unread/actions. They ride in the same peers array; the
     // sidebar renders the group tree and the Tags section from `type`.
     const broadcast = ports?.broadcastPeers?.() ?? [];
+    // Federated peers (§18.4, FR-144/FR-150): read-only rows — the projection plus
+    // `server`/`link`, an ordinary 1:1 chat with history/unread, and NO console
+    // affordances: actions all false, commands empty — the panel's chrome follows.
+    const remote = await Promise.all(
+      (ports?.remotePeers?.() ?? []).map(async (peer) => {
+        const last = await history?.last(peer.name);
+        return {
+          name: peer.name,
+          type: peer.type,
+          server: peer.server,
+          link: peer.link,
+          status: peer.status ?? null,
+          ...(peer.presence !== undefined ? { presence: peer.presence } : {}),
+          paused: peer.paused,
+          ...(peer.reason !== undefined ? { reason: peer.reason } : {}),
+          queueDepth: 0,
+          unread: (await history?.unread(peer.name)) ?? 0,
+          actions: { shutdown: false, reload: false, pause: false },
+          commands: [],
+          ...(last !== undefined
+            ? { lastMessage: { ts: last.ts, from: last.from, preview: preview(last.payload) } }
+            : {}),
+        };
+      }),
+    );
     return json({
-      peers: [...peers, ...broadcast],
+      peers: [...peers, ...broadcast, ...remote],
       // `operator` stays for compatibility with the pre-§17 panel; `user`/`role`
       // are the users-mode identity (FR-127/FR-131). `user` also names the row
       // that is the self-chat — the panel needs no separate self object.
@@ -1217,6 +1251,53 @@ export class WebchatConnector implements ChannelConnector {
                 waiting,
                 awaited,
                 ...(presence !== undefined ? { presence } : {}),
+              },
+              identity.name,
+            );
+          }
+        }
+      }
+      // Federated peers (§18.4, FR-150) join the same diff loop — one push
+      // mechanism, the panel learns no second one. The registry read is cheap;
+      // coalescing already happened on the link (statusDebounceMs).
+      for (const identity of this.#identities.values()) {
+        const ports = identity.ports;
+        if (ports?.remotePeers === undefined) continue;
+        for (const peer of ports.remotePeers()) {
+          const key = `${identity.name} ${peer.name}`;
+          const seen = this.#dynamics.get(key);
+          const presence = peer.presence;
+          if (
+            seen === undefined ||
+            seen.status !== peer.status ||
+            seen.paused !== peer.paused ||
+            seen.presence !== presence ||
+            seen.link !== peer.link
+          ) {
+            this.#dynamics.set(key, {
+              status: peer.status,
+              paused: peer.paused,
+              depth: 0,
+              atWipLimit: false,
+              waiting: false,
+              awaited: false,
+              presence,
+              link: peer.link,
+            });
+            this.#push(
+              {
+                type: "status",
+                peer: peer.name,
+                ...(peer.status !== undefined ? { status: peer.status } : {}),
+                paused: peer.paused,
+                queueDepth: 0,
+                atWipLimit: false,
+                waiting: false,
+                awaited: false,
+                ...(presence !== undefined ? { presence } : {}),
+                server: peer.server,
+                link: peer.link,
+                ...(peer.reason !== undefined ? { reason: peer.reason } : {}),
               },
               identity.name,
             );

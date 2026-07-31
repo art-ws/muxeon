@@ -17,7 +17,7 @@ const SCOPE = "@teamai/";
 
 // SPEC.md §8 layering (lower index = lower layer). The 13-package set is fixed:
 // core < {config, tmux, queue} < adapters < orchestrator
-//      < {lifecycle, signals, routines, channels, webchat} < server
+//      < {lifecycle, signals, routines, channels, webchat, federation} < server
 // webchat-ui (§12.7) is BUILD-TIME ONLY: bundled browser assets served as
 // statics by webchat — never a runtime import, so it sits outside the layering
 // (it must not depend on any @teamai package and nothing may depend on it).
@@ -33,6 +33,7 @@ const LAYER: Record<string, number> = {
   routines: 4,
   channels: 4,
   webchat: 4,
+  federation: 4,
   server: 5,
 };
 const ASSET_PACKAGES = new Set(["webchat-ui"]);

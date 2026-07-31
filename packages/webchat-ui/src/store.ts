@@ -139,10 +139,10 @@ export function applyEvent(
         ...state,
         peers: state.peers.map((info) => {
           if (info.name !== event.peer) return info;
-          const { busySince: _, ...base } = info;
+          const { busySince: _, reason: staleReason, ...base } = info;
           const next = {
             ...base,
-            status: event.status,
+            status: event.status ?? null,
             queueDepth: event.queueDepth,
             // pause (§16, FR-120) and the rendezvous / WIP markers (FR-104/FR-105)
             // — normalize absent ⇒ false
@@ -153,6 +153,15 @@ export function applyEvent(
             // presence of a user peer (§17.5, FR-133) — kept as-is when the event
             // carries none (an agent row, or a pre-§17 server)
             ...(event.presence !== undefined ? { presence: event.presence } : {}),
+            // federated peers (§18.4, FR-150): `link` rides every fed frame; a fed
+            // frame WITHOUT a reason means the value became real — the stale
+            // `unknown` cause is dropped, a local frame keeps whatever was there
+            ...(event.link !== undefined ? { link: event.link } : {}),
+            ...(event.reason !== undefined
+              ? { reason: event.reason }
+              : event.link === undefined && staleReason !== undefined
+                ? { reason: staleReason }
+                : {}),
           };
           // the busy EDGE stamps the timer (FR-63); staying busy keeps it,
           // leaving busy drops it — the header timer disappears with the status

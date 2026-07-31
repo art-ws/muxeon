@@ -5,8 +5,17 @@
 // @teamai/queue is depended on only by @teamai/orchestrator (§8, enforced by the
 // architecture guard), and within it the router is the only caller of enqueue.
 
-import type { Signal, Topology } from "@teamai/core";
+import { type Signal, type Topology, appendServer, isFqn, splitFqn } from "@teamai/core";
 import { enqueue, queueDepth, queuePaths, sanitizeFileId } from "@teamai/queue";
+import {
+  DEFAULT_HOP_CAP,
+  type FederationIngressResult,
+  type FederationReceiptCode,
+  type FederationReceiptPayload,
+  type LinkRecord,
+  type RouterFederation,
+  fedQueueRoot,
+} from "./federation";
 
 export type RouteCode = "TOPOLOGY_DENIED" | "UNKNOWN_PEER" | "WIP_LIMIT" | "AGENT_PAUSED";
 
@@ -115,6 +124,13 @@ export interface RouterOptions {
    * (buildBroadcastResolver).
    */
   readonly resolveBroadcast?: (to: string) => BroadcastResolution | null;
+  /**
+   * Federation ports (§18.5, FR-141/FR-142): with them an FQN `to` routes into a
+   * persistent link queue and inbound link envelopes pass the owner's gates HERE
+   * (§10.26 — the router on both sides, a link cannot enqueue past it). Absent ⇒
+   * no federation configured; an FQN `to` is UNKNOWN_PEER exactly as before (FR-146).
+   */
+  readonly federation?: RouterFederation;
 }
 
 /** Per-route overrides (§8.2). */
@@ -144,6 +160,7 @@ export class Router {
       ) => void)
     | undefined;
   readonly #resolveBroadcast: ((to: string) => BroadcastResolution | null) | undefined;
+  readonly #federation: RouterFederation | undefined;
   // Global monotonic counter shared by all producers → total order of locally
   // produced messages (§5.3); one Router per server process.
   #seq = 0;
@@ -159,6 +176,7 @@ export class Router {
     this.#onRouted = options.onRouted;
     this.#onRefused = options.onRefused;
     this.#resolveBroadcast = options.resolveBroadcast;
+    this.#federation = options.federation;
   }
 
   /**
@@ -196,6 +214,14 @@ export class Router {
    * only (FR-105) — it does NOT skip the pause gate.
    */
   async route(message: Signal, options?: RouteOptions): Promise<RouteResult> {
+    // Federated egress (§18.5, FR-141): an FQN `to` resolves by its LAST `@` — the
+    // tail must be a configured link — and lands in that link's persistent queue.
+    // Checked before broadcast/queueKeyOf: `@` is banned in local names (§18.3), so
+    // an FQN can never be a local participant. Without federation ports the name
+    // simply falls through to UNKNOWN_PEER below (FR-146).
+    if (this.#federation !== undefined && isFqn(message.to)) {
+      return this.#routeFederatedEgress(message);
+    }
     // Broadcast fan-out (§15.4, §10.16): a `to` naming a group/tag is expanded HERE,
     // in the single delivery point, into one copy per resolved member. This is checked
     // FIRST — a group/tag has no queue key, so queueKeyOf would otherwise reject it as
@@ -312,5 +338,241 @@ export class Router {
     });
     this.#onRouted?.(copy);
     return { to: copy.to, id: copy.id, ok: true };
+  }
+
+  /** Enqueue one record into a link's persistent queue (§18.5, store-and-forward). */
+  async #enqueueLink(link: string, record: LinkRecord): Promise<string> {
+    return enqueue(queuePaths(fedQueueRoot(this.#root), link), {
+      ...this.stamp(),
+      fileId: sanitizeFileId(record.id),
+      message: record,
+    });
+  }
+
+  /**
+   * Federated egress (§18.5, FR-141): authorization is the sender's edge on the
+   * link node (§18.10-6) — or, toward a link with no edge (typically an accept),
+   * reply-correlation (§18.10-3): the send must answer a journaled exchange with
+   * that FQN. No pause/WIP gates — a link queue is store-and-forward by design
+   * (§10.25, the OWNER's gates run on the owning server at ingress). Only the
+   * message/reply family crosses the boundary: system kinds (nudge/rendezvous/
+   * broadcast) are refused here so they can never leave the server (§18.5, §10.24).
+   */
+  async #routeFederatedEgress(message: Signal): Promise<RouteResult> {
+    const federation = this.#federation;
+    if (federation === undefined) return this.#refuse(message, { ok: false, code: "UNKNOWN_PEER" });
+    if (message.kind !== "message") {
+      // The boundary denies the kind, not the address — a system notice aimed at an
+      // FQN is a routing dead-end by design, not an unknown peer.
+      return this.#refuse(message, { ok: false, code: "TOPOLOGY_DENIED" });
+    }
+    const parts = splitFqn(message.to);
+    if (parts === null) return this.#refuse(message, { ok: false, code: "UNKNOWN_PEER" });
+    if (federation.linkKind(parts.tail) === null) {
+      return this.#refuse(message, { ok: false, code: "UNKNOWN_PEER" });
+    }
+    const edge = this.#topology.canDeliver(message.from, parts.tail);
+    if (!edge && !(await federation.hasCorrelation(message.from, message.to, message.replyTo))) {
+      return this.#refuse(message, { ok: false, code: "TOPOLOGY_DENIED" });
+    }
+    // The queue record keeps the local view (`to` = the full FQN); the wire frame is
+    // derived from `fed` at the deliver port. `raw` never crosses the boundary (§18.5).
+    const record: LinkRecord = {
+      id: message.id,
+      from: message.from,
+      to: message.to,
+      kind: message.kind,
+      ts: message.ts,
+      payload: message.payload,
+      ...(message.replyTo !== undefined ? { replyTo: message.replyTo } : {}),
+      ...(message.origin !== undefined ? { origin: message.origin } : {}),
+      fed: { to: parts.head, hops: 0 },
+    };
+    const filename = await this.#enqueueLink(parts.tail, record);
+    this.#onRouted?.(message); // journal sees from → FQN; feeds reply-correlation back in
+    return { ok: true, key: parts.tail, filename };
+  }
+
+  /**
+   * Federated ingress (§18.5, FR-142; §10.26): every envelope and receipt a link
+   * receives passes HERE. `from` gets the receiving link's suffix appended —
+   * stamped by this side, never by the sender, so an FQN cannot be forged
+   * (§10.24). An envelope resolves to a local exported actor (export-grant),
+   * to a correlated non-exported actor (§18.10-3), or transits into the next
+   * link's queue (hop-capped, FR-141); refusals travel back as receipts queued
+   * on the SAME link (§10.25 — асинхронно, never lost silently). Local-owner
+   * gates: pause §10.19 (DND included) and WIP §10.14. `onRefused` deliberately
+   * does NOT fire: a rendezvous intent for a remote sender could never resolve
+   * (the coordinator watches local idles only) — the receipt IS the refusal path.
+   */
+  async routeFederatedIngress(
+    record: LinkRecord,
+    linkName: string,
+  ): Promise<FederationIngressResult> {
+    const federation = this.#federation;
+    if (federation === undefined) return { ok: false, code: "UNKNOWN_ACTOR" };
+    const stampedFrom = appendServer(record.from, linkName);
+    if (record.fed.receipt !== undefined) {
+      return this.#ingressReceipt(record, record.fed.receipt, stampedFrom, linkName, federation);
+    }
+    const hopCap = federation.hopCap ?? DEFAULT_HOP_CAP;
+    const head = record.fed.to;
+    const refuse = async (
+      code: FederationReceiptCode,
+      detail?: string,
+    ): Promise<FederationIngressResult> => {
+      await this.#enqueueLink(linkName, {
+        id: `${record.id}:receipt`,
+        from: head,
+        to: stampedFrom,
+        kind: "message",
+        ts: this.#now(),
+        payload: null,
+        fed: {
+          to: record.from,
+          hops: 0,
+          receipt: { ref: record.id, code, ...(detail !== undefined ? { detail } : {}) },
+        },
+      });
+      return { ok: false, code };
+    };
+    // System kinds never cross the boundary (§18.5/§10.24) — an authenticated link
+    // still cannot inject a nudge/rendezvous/broadcast into this server.
+    if (record.kind !== "message") return refuse("UNKNOWN_ACTOR");
+    if (isFqn(head)) {
+      // Transit (§18.5, FR-141): forward the head into the next link's queue. No
+      // local topology is consulted — authorization happened at the origin and the
+      // owner's gates run at the destination (§10.26); this hop only counts.
+      if (record.fed.hops + 1 > hopCap) return refuse("HOP_CAP", `hop cap ${hopCap} exceeded`);
+      const next = splitFqn(head);
+      if (next === null) return refuse("UNKNOWN_ACTOR");
+      const kind = federation.linkKind(next.tail);
+      if (kind === null) return refuse("UNKNOWN_ACTOR");
+      // Toward an import the hop must be re-exported (§18.2 transit); toward an
+      // accept it is a reply path and always open — answers flow back (§18.10-3).
+      if (kind === "import" && !federation.transitAllowed(next.tail)) {
+        return refuse("UNKNOWN_ACTOR");
+      }
+      await this.#enqueueLink(next.tail, {
+        ...record,
+        from: stampedFrom,
+        to: head,
+        fed: { to: next.head, hops: record.fed.hops + 1 },
+      });
+      // No onRouted: a transit record is not this server's exchange — the journal
+      // (and the reply-correlation built on it) tracks only local endpoints.
+      return { ok: true };
+    }
+    // Local delivery: the export-grant IS the authorization (§18.10-2) — exported ⇒
+    // reachable to any authenticated importer. A non-exported actor is reachable
+    // only through reply-correlation (§18.10-3) and otherwise does not exist
+    // (UNKNOWN_ACTOR — never a hint that the name is real, §10.24).
+    const local = federation.exportedToLocal(head);
+    let recipient = local;
+    if (recipient === null) {
+      const candidate = this.#queueKeyOf(head) !== null ? head : null;
+      if (
+        candidate === null ||
+        !(await federation.hasCorrelation(candidate, stampedFrom, record.replyTo))
+      ) {
+        return refuse("UNKNOWN_ACTOR");
+      }
+      recipient = candidate;
+    }
+    const key = this.#queueKeyOf(recipient);
+    if (key === null) return refuse("UNKNOWN_ACTOR");
+    if (this.#isPaused?.(recipient) === true) return refuse("AGENT_PAUSED");
+    const limit = this.#wipLimitOf?.(recipient) ?? null;
+    if (limit !== null && limit > 0) {
+      const depth = await queueDepth(queuePaths(this.#root, key));
+      if (depth >= limit) return refuse("WIP_LIMIT", `limit ${limit}, depth ${depth}`);
+    }
+    const delivered: Signal = {
+      id: record.id,
+      from: stampedFrom,
+      to: recipient,
+      kind: record.kind,
+      ts: record.ts,
+      payload: record.payload,
+      ...(record.replyTo !== undefined ? { replyTo: record.replyTo } : {}),
+      origin: `fed:${linkName}`,
+    };
+    await enqueue(queuePaths(this.#root, key), {
+      ...this.stamp(),
+      fileId: sanitizeFileId(delivered.id),
+      message: delivered,
+    });
+    // The journal records the local endpoint's view (from = the stamped FQN) — this
+    // is what authorizes the actor's replies back through the link (§18.10-3).
+    this.#onRouted?.(delivered);
+    await this.#enqueueLink(linkName, {
+      id: `${record.id}:receipt`,
+      from: head,
+      to: stampedFrom,
+      kind: "message",
+      ts: this.#now(),
+      payload: null,
+      fed: { to: record.from, hops: 0, receipt: { ref: record.id, code: "ok" } },
+    });
+    return { ok: true };
+  }
+
+  /**
+   * A receipt arriving over a link (§18.5, FR-143): transit back hop by hop
+   * (`fed.to` strips one tail per hop, exactly like envelopes), or — at the
+   * origin — notify the local sender through its queue: a failure becomes a
+   * `[federation]` notice in the pair's own chat (replyTo = the refused id),
+   * an `ok` is silent. Receipts never generate receipts, so the chain always
+   * terminates; a hop overrun is dropped, not looped.
+   */
+  async #ingressReceipt(
+    record: LinkRecord,
+    receipt: FederationReceiptPayload,
+    stampedFrom: string,
+    linkName: string,
+    federation: RouterFederation,
+  ): Promise<FederationIngressResult> {
+    const head = record.fed.to;
+    const hopCap = federation.hopCap ?? DEFAULT_HOP_CAP;
+    if (isFqn(head)) {
+      if (record.fed.hops + 1 > hopCap) return { ok: false, code: "HOP_CAP" };
+      const next = splitFqn(head);
+      if (next === null || federation.linkKind(next.tail) === null) {
+        return { ok: false, code: "UNKNOWN_ACTOR" };
+      }
+      await this.#enqueueLink(next.tail, {
+        ...record,
+        from: stampedFrom,
+        to: head,
+        fed: { to: next.head, hops: record.fed.hops + 1, receipt },
+      });
+      return { ok: true };
+    }
+    const key = this.#queueKeyOf(head);
+    if (key === null) return { ok: false, code: "UNKNOWN_ACTOR" };
+    if (receipt.code === "ok") return { ok: true }; // delivered — nothing to say
+    const notice: Signal = {
+      id: `${receipt.ref}:fed-receipt`,
+      from: stampedFrom,
+      to: head,
+      kind: "message",
+      ts: this.#now(),
+      payload: `[federation] not delivered: ${receipt.code}${
+        receipt.detail !== undefined ? ` (${receipt.detail})` : ""
+      }`,
+      replyTo: receipt.ref,
+      origin: `fed:${linkName}`,
+    };
+    // Straight into the sender's queue: the FR-104 refusal tail of an ALREADY
+    // authorized egress — no edge re-check (the remote `from` is not a node), no
+    // WIP (a receipt must not be lost, §10.25), no pause drop (the dispatcher
+    // holds a paused agent anyway; a DND user still owns their send's outcome).
+    await enqueue(queuePaths(this.#root, key), {
+      ...this.stamp(),
+      fileId: sanitizeFileId(notice.id),
+      message: notice,
+    });
+    this.#onRouted?.(notice);
+    return { ok: true };
   }
 }

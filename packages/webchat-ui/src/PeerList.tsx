@@ -20,9 +20,18 @@
 import { useState } from "react";
 import { RzArrows } from "./RzArrows";
 import { useT } from "./i18n-context";
-import { IconChevron, IconGear, IconGroup, IconPower, IconRadio, IconTag, IconUser } from "./icons";
+import {
+  IconChevron,
+  IconGear,
+  IconGroup,
+  IconMonitor,
+  IconPower,
+  IconRadio,
+  IconTag,
+  IconUser,
+} from "./icons";
 import { agentColor } from "./palette";
-import { dotClass, liveLabel, statusLabel } from "./peer-surface";
+import { dotClass, liveLabel, statusLabel, unknownReason } from "./peer-surface";
 import { loadExpandedGroups, loadPref, saveExpandedGroups, savePref } from "./prefs";
 import { type TreeRow, buildTree, tagPeers } from "./tree";
 import { type PeerInfo, peerKind } from "./types";
@@ -79,15 +88,34 @@ export function PeerList(props: {
     savePref("tags-collapsed", next);
   };
 
+  // The "Servers" section collapse (§18.4, FR-144) — same persisted idiom.
+  const [serversCollapsed, setServersCollapsed] = useState(() =>
+    loadPref("servers-collapsed", false),
+  );
+  const toggleServers = (): void => {
+    const next = !serversCollapsed;
+    setServersCollapsed(next);
+    savePref("servers-collapsed", next);
+  };
+
   // Flat layout (§15 settings toggle): the classic list — every AGENT as a depth-0
   // row, no group headers, no Tags section. Tree layout: the group tree + tags.
+  // Federated peers (§18.4) stay out of both — they render in the Servers section.
   const flat = props.flat === true;
   const rows: readonly TreeRow[] = flat
     ? props.peers
-        .filter((peer) => peerKind(peer) === "agent" || peerKind(peer) === "user")
+        .filter(
+          (peer) =>
+            (peerKind(peer) === "agent" || peerKind(peer) === "user") && peer.server === undefined,
+        )
         .map((peer) => ({ kind: "agent", name: peer.name, depth: 0, peer }))
     : buildTree(props.peers, expanded);
   const tags = flat ? [] : tagPeers(props.peers);
+  // Remote peers grouped by their import (§18.4): one sub-header per server with
+  // the link marker, the actors beneath — rendered in BOTH layouts (an imported
+  // actor has no local group/tag to disappear into).
+  const remote = props.peers.filter((peer) => peer.server !== undefined);
+  const servers = [...new Set(remote.map((peer) => peer.server as string))].sort();
 
   return (
     <nav className={`peer-list${collapsed ? " collapsed" : ""}`}>
@@ -146,6 +174,17 @@ export function PeerList(props: {
             sectionCollapsed={tagsCollapsed}
             selected={props.selected}
             onToggleSection={toggleTags}
+            onSelect={props.onSelect}
+          />
+        )}
+        {servers.length > 0 && (
+          <ServersSection
+            servers={servers}
+            remote={remote}
+            collapsed={collapsed}
+            sectionCollapsed={serversCollapsed}
+            selected={props.selected}
+            onToggleSection={toggleServers}
             onSelect={props.onSelect}
           />
         )}
@@ -349,6 +388,136 @@ function TagsSection(props: {
           </button>
         ))}
     </>
+  );
+}
+
+// The "Servers" section (§18.4, FR-144/FR-150): federated peers grouped by their
+// import — a sub-header per server with the LINK marker (up/down), the actors
+// beneath as ordinary rows (the same dot idiom; `unknown` is the hollow gray dot
+// with the cause in the tooltip). Read-only rows: an actor opens a plain 1:1
+// chat, the server sub-header is not addressable. On the collapsed rail each
+// actor is one avatar; the sub-headers are skipped (like the Tags header).
+function ServersSection(props: {
+  servers: readonly string[];
+  remote: readonly PeerInfo[];
+  collapsed: boolean;
+  sectionCollapsed: boolean;
+  selected?: string | undefined;
+  onToggleSection: () => void;
+  onSelect: (peer: string) => void;
+}): React.JSX.Element {
+  const t = useT();
+  if (props.collapsed) {
+    return (
+      <>
+        <span className="rail-divider" aria-hidden="true" />
+        {props.remote.map((peer) => (
+          <RemoteRow
+            key={`s:${peer.name}`}
+            peer={peer}
+            collapsed={true}
+            selected={peer.name === props.selected}
+            onSelect={() => props.onSelect(peer.name)}
+          />
+        ))}
+      </>
+    );
+  }
+  return (
+    <>
+      <button
+        type="button"
+        className="peer-section-header"
+        aria-expanded={!props.sectionCollapsed}
+        onClick={props.onToggleSection}
+      >
+        <span className={`group-chevron${props.sectionCollapsed ? "" : " open"}`}>
+          <IconChevron size={14} />
+        </span>
+        <span className="peer-section-title">{t("Servers")}</span>
+      </button>
+      {!props.sectionCollapsed &&
+        props.servers.map((server) => {
+          const peers = props.remote.filter((peer) => peer.server === server);
+          const link = peers[0]?.link ?? "down";
+          return (
+            <div key={`srv:${server}`} className="server-group">
+              <div
+                className="peer-row server-row"
+                title={link === "up" ? t("link up") : t("link down")}
+              >
+                <span className={`link-dot ${link}`} />
+                <span className="server-icon">
+                  <IconMonitor size={14} />
+                </span>
+                <span className="peer-name server-name">{server}</span>
+              </div>
+              {peers.map((peer) => (
+                <RemoteRow
+                  key={`s:${peer.name}`}
+                  peer={peer}
+                  collapsed={false}
+                  selected={peer.name === props.selected}
+                  onSelect={() => props.onSelect(peer.name)}
+                />
+              ))}
+            </div>
+          );
+        })}
+    </>
+  );
+}
+
+// One federated actor row (§18.4): the same dot/name/preview idiom as an agent
+// row — the projection IS the status — indented under its server; the tooltip
+// names the `unknown` cause when there is one (FR-150).
+function RemoteRow(props: {
+  peer: PeerInfo;
+  collapsed: boolean;
+  selected: boolean;
+  onSelect: () => void;
+}): React.JSX.Element {
+  const t = useT();
+  const peer = props.peer;
+  const cause = unknownReason(peer);
+  const tooltip = `${peer.name} — ${t(statusLabel(peer))}${cause !== undefined ? ` · ${t(cause)}` : ""}`;
+  if (props.collapsed) {
+    return (
+      <button
+        type="button"
+        className={`peer-row remote-row${props.selected ? " selected" : ""}`}
+        title={tooltip}
+        onClick={props.onSelect}
+      >
+        <span
+          className="peer-avatar tinted"
+          style={{ background: agentColor(peer.name, peer.color) }}
+        >
+          {initialOf(peer.name)}
+          <span className={dotClass(peer)} />
+        </span>
+        {peer.unread > 0 && <span className="unread-badge">{peer.unread}</span>}
+      </button>
+    );
+  }
+  return (
+    <button
+      type="button"
+      className={`peer-row remote-row${props.selected ? " selected" : ""}`}
+      title={cause !== undefined ? tooltip : undefined}
+      style={{ "--tree-depth": 1 } as React.CSSProperties}
+      onClick={props.onSelect}
+    >
+      <span className={dotClass(peer)} />
+      <span className="peer-info">
+        <span className="peer-name">{peer.name}</span>
+        <span className="peer-preview">
+          {t(statusLabel(peer))}
+          {peer.lastMessage !== undefined && ` · ${peer.lastMessage.preview}`}
+        </span>
+      </span>
+      {peer.unread > 0 && <span className="unread-badge">{peer.unread}</span>}
+    </button>
   );
 }
 

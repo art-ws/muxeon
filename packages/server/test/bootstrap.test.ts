@@ -30,7 +30,7 @@ const noopDriver = (): SessionDriver => ({
 });
 
 const CONFIG = {
-  server: { port: 8080, mcp: false }, // these tests exercise boot/routing, not the MCP listener
+  server: { port: 0, mcp: false }, // boot/routing only; port 0 never collides with a live stand
   agents: [
     { name: "researcher", type: "claude", tmux: "researcher-session" },
     { name: "writer", type: "claude", tmux: "writer-session" },
@@ -198,7 +198,7 @@ describe("auto-provision (FR-50/FR-51, §5.1)", () => {
 
   function provisionedConfig(auto: boolean | undefined) {
     return {
-      server: { port: 8080, mcp: false, cadence: { outputPollMs: 5 } },
+      server: { port: 0, mcp: false, cadence: { outputPollMs: 5 } },
       agents: [
         {
           name: "researcher",

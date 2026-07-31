@@ -585,6 +585,15 @@ body,
   background: var(--down);
   opacity: 0.55;
 }
+/* a FEDERATED peer whose source is unreachable (§18.4/§10.27): a hollow gray
+   dot — honestly "not known", never a fake down; the cause is in the tooltip */
+.status-dot.unknown {
+  background: transparent;
+  border: 2px solid var(--text-dim);
+  width: 7px;
+  height: 7px;
+  opacity: 0.7;
+}
 
 @keyframes pulse {
   50% {
@@ -812,6 +821,45 @@ body,
   height: 1px;
   margin: 4px 0;
   background: var(--border);
+}
+
+/* --- federated servers (§18.4, FR-144/FR-150) --------------------------- */
+
+/* a server sub-header: the link marker + a monitor glyph + the import name —
+   not addressable, so a plain div (no hover affordance beyond the tooltip) */
+.peer-row.server-row {
+  gap: 6px;
+  cursor: default;
+  color: var(--text-dim);
+}
+.peer-row.server-row .server-icon {
+  display: inline-flex;
+  align-items: center;
+  flex-shrink: 0;
+}
+.peer-row.server-row .server-name {
+  font-weight: 700;
+}
+/* the link marker (FR-139/FR-140): a small square so it never reads as a
+   status dot — green when the link is up, red when it is down */
+.link-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 2px;
+  flex-shrink: 0;
+  background: var(--down);
+}
+.link-dot.up {
+  background: var(--idle);
+}
+
+/* a remote actor row: indented under its server, otherwise the agent idiom */
+.peer-row.remote-row {
+  padding-left: calc(12px + var(--tree-depth, 0) * 16px);
+}
+.peer-row.remote-row.selected {
+  background: var(--bg-hover);
+  box-shadow: inset 3px 0 var(--accent);
 }
 
 /* the group/tag broadcast chat header (§15): an icon + name + a "broadcast →"

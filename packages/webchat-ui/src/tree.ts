@@ -38,8 +38,13 @@ export function buildTree(
 ): readonly TreeRow[] {
   const groups = peers.filter((peer) => peerKind(peer) === "group");
   // Users are members of the tree exactly like agents (§17.7, FR-129/FR-130) —
-  // they sit in their group, or at the root when they declare none.
-  const agents = peers.filter((peer) => peerKind(peer) === "agent" || peerKind(peer) === "user");
+  // they sit in their group, or at the root when they declare none. Federated
+  // peers (§18.4) never join the tree: they render in the Servers section,
+  // grouped by their import.
+  const agents = peers.filter(
+    (peer) =>
+      (peerKind(peer) === "agent" || peerKind(peer) === "user") && peer.server === undefined,
+  );
   const groupNames = new Set(groups.map((group) => group.name));
 
   // Child groups indexed by parent name; a parent that is not a real group peer

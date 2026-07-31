@@ -15,6 +15,7 @@ export type BoolPref =
   | "transport"
   | "raw"
   | "tags-collapsed"
+  | "servers-collapsed"
   // Sidebar layout (§15): ON = the classic FLAT agent list (no groups/tags); OFF
   // (the default) = the group tree + Tags section. Persisted (FR-72).
   | "flat-peers"

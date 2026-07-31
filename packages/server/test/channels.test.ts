@@ -81,7 +81,7 @@ function writeConfig(): string {
   writeFileSync(
     configFile,
     JSON.stringify({
-      server: { port: 8080, mcp: false, queueDir: "./queue" },
+      server: { port: 0, mcp: false, queueDir: "./queue" },
       agents: [
         { name: "researcher", type: "dummy", tmux: "researcher-s" },
         { name: "loner", type: "dummy", tmux: "loner-s" }, // no edge to the operator
@@ -211,7 +211,7 @@ describe("channel wiring (T30, Checkpoint 8: §3.2, §10.8/§10.9, FR-37)", () =
     writeFileSync(
       configFile,
       JSON.stringify({
-        server: { port: 8080, mcp: false, queueDir: "./queue" },
+        server: { port: 0, mcp: false, queueDir: "./queue" },
         agents: [{ name: "researcher", type: "dummy", tmux: "researcher-s" }],
         topology: { researcher: ["operator"] },
         channels: [{ type: "carrier-pigeon", bindOperator: "operator" }],
