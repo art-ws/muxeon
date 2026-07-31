@@ -658,6 +658,24 @@ export async function bootstrap(options: BootstrapOptions = {}): Promise<TeamaiS
                 // get_history (T126, FR-87): the pair's dialogue out of the
                 // transport log (§8.2) — read-only, neighbor-scoped in the tool.
                 pairHistory: (me, peer, limit) => transportLog.pair(me, peer, limit),
+                // get_screen (T214, FR-147): a NEIGHBOUR's console as text — the
+                // same capture the panel's Screen Live shows (FR-102), through the
+                // same read-only path (no lane, no injection — §10.8). The edge is
+                // re-checked here as well as in the tool: the port must not be a
+                // wider capability than the tool that fronts it. The text is
+                // scrubbed of resolved $env secrets (§8.7/NFR-6) — a console can
+                // have echoed one, and this hands it to ANOTHER agent.
+                screen: async (name, historyLines) => {
+                  const runtime = agents.get(name);
+                  if (runtime === undefined || !topology.neighbors(caller).includes(name)) {
+                    throw new Error(`unknown agent "${name}"`);
+                  }
+                  const text = await capturePane(
+                    runtime.session,
+                    historyLines !== undefined && historyLines > 0 ? { historyLines } : {},
+                  );
+                  return redactText(text);
+                },
                 // Agent→agent commands (FR-94/FR-95): the ACL gates, the runner is
                 // the same control-lane path the operator uses (lifecycleAdmin).
                 commandGrants,

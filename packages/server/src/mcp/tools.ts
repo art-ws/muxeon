@@ -1,5 +1,7 @@
 // The agent-plane tool set (§8.1, §8.6) — least-privilege: whoami, list_peers,
-// send, get_status, get_history (T126, FR-87), plus two ACL-gated bridges into
+// send, get_status, get_history (T126, FR-87), get_screen (T214, FR-147 — read a
+// neighbour's console as text, so a peer's REAL state can be observed and not just
+// inferred from its status), plus two ACL-gated bridges into
 // operator capabilities: the command pair list_commands/send_command (FR-94/FR-95,
 // run a peer's slash commands) and the session pair list_controls/control_session
 // (FR-96/FR-97, start/stop/shutdown/restart/reload a peer's session). Both bridges
@@ -57,6 +59,16 @@ export interface AgentPlaneDeps {
    */
   pairHistory?(caller: string, peer: string, limit: number): Promise<readonly Signal[]>;
   /**
+   * A NEIGHBOUR's console as text (FR-147): the visible tmux pane, optionally with
+   * `historyLines` of scrollback above it. Read-only observation — no lane, no
+   * injection, no mutation (§10.8): the caller reads what a human would see over
+   * the agent's shoulder, so it can judge the peer's actual state instead of
+   * guessing from `get_status`. Throws when there is no live session (surfaced as
+   * SCREEN_FAILED). Absent ⇒ get_screen answers UNAVAILABLE — the tool never
+   * invents an empty screen.
+   */
+  screen?(name: string, historyLines?: number): Promise<string>;
+  /**
    * The directed agent→agent command ACL (FR-94/FR-95). Absent ⇒ no command is
    * granted (list_commands answers empty, send_command answers COMMAND_DENIED).
    */
@@ -105,6 +117,7 @@ export const AGENT_TOOL_NAMES = [
   "send",
   "get_status",
   "get_history",
+  "get_screen",
   "list_commands",
   "send_command",
   "list_controls",
@@ -114,6 +127,14 @@ export const AGENT_TOOL_NAMES = [
 /** get_history depth bounds (FR-87) — mirrors the §12.4 history paging caps. */
 export const HISTORY_DEFAULT_LIMIT = 50;
 export const HISTORY_MAX_LIMIT = 200;
+
+/**
+ * get_screen scrollback bound (FR-147): the default capture is the VISIBLE pane —
+ * exactly what the panel's Screen Live shows (FR-102) and what a human sees. A
+ * caller may ask for scrollback above it, capped so one tool call can never drag
+ * an agent's whole session into another agent's context.
+ */
+export const SCREEN_MAX_HISTORY_LINES = 500;
 
 const EMPTY_INPUT = { type: "object", properties: {}, additionalProperties: false } as const;
 
@@ -181,6 +202,27 @@ export const AGENT_TOOLS: Tool[] = [
         },
       },
       required: ["peer"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "get_screen",
+    description:
+      "Read a NEIGHBOR's console as text — the visible pane of its terminal, the " +
+      "same view a human gets. Use it to SEE what a peer is actually doing (which " +
+      "prompt it sits on, what it printed, whether it is stuck) instead of inferring " +
+      "it from get_status. Read-only: nothing is typed or sent. Restricted to the " +
+      "caller's neighbors; only agents have a console.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        name: { type: "string", description: "neighbor name (an agent)" },
+        historyLines: {
+          type: "number",
+          description: `scrollback lines ABOVE the visible pane (default 0 = the visible screen only, max ${SCREEN_MAX_HISTORY_LINES})`,
+        },
+      },
+      required: ["name"],
       additionalProperties: false,
     },
   },
@@ -348,6 +390,43 @@ async function dispatch(
       const depth = Math.min(limit ?? HISTORY_DEFAULT_LIMIT, HISTORY_MAX_LIMIT);
       const records = await deps.pairHistory(caller, peer, depth);
       return ok({ peer, records });
+    }
+
+    case "get_screen": {
+      const { name, historyLines } = args;
+      if (typeof name !== "string") return fail("INVALID_ARGS", "name must be a string");
+      if (
+        historyLines !== undefined &&
+        (typeof historyLines !== "number" || !Number.isInteger(historyLines) || historyLines < 0)
+      ) {
+        return fail("INVALID_ARGS", "historyLines must be a non-negative integer");
+      }
+      // Neighbor-scope (§8.7/§10.11): the same visibility gate as get_status — a
+      // console outside the caller's neighborhood is not revealed, and the edge is
+      // the ONLY gate (FR-147: observation is symmetric with being able to talk).
+      if (!deps.topology.hasEdge(caller, name)) {
+        return fail("UNKNOWN_PEER", `not a neighbor: ${name}`);
+      }
+      // Only an agent has a console: a user (§17.7), a group or a tag (§15.5) has
+      // none — say so plainly instead of returning an empty screen.
+      if (typeOf(name) !== "agent") {
+        return fail("NOT_CAPTURABLE", `"${name}" is a ${typeOf(name)} — it has no console`);
+      }
+      if (deps.screen === undefined) {
+        return fail("UNAVAILABLE", "the screen port is not wired");
+      }
+      // A down agent has no pane to capture — a mechanical, retryable fact, not a
+      // policy denial. Pause (§16) does NOT hide the screen: it gates delivery,
+      // never observation (§10.8 is read-only either way).
+      if ((deps.peerStatus(name) ?? "down") === "down") {
+        return fail("AGENT_DOWN", `"${name}" has no live session to capture`);
+      }
+      const lines = Math.min(historyLines ?? 0, SCREEN_MAX_HISTORY_LINES);
+      try {
+        return ok({ name, screen: await deps.screen(name, lines) });
+      } catch (error) {
+        return fail("SCREEN_FAILED", error instanceof Error ? error.message : String(error));
+      }
     }
 
     case "send": {

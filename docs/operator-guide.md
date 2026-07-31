@@ -199,9 +199,10 @@ back as `<name>.rejected.json` in the same folder with a logged reason.
 
 The MCP client is **no longer required** for replies (before §13 an agent
 without one was receive-only). It remains useful for mid-turn
-reactions/progress, `get_status`, and tool-style sends. Connecting it is the
-**owner's deliberate action** — TEAMAI never touches agent configuration
-(FR-11b). Step by step:
+reactions/progress, `get_status`, `get_screen` (read a neighbour's console as
+text — see below) and tool-style sends. Connecting it is the **owner's
+deliberate action** — TEAMAI never touches agent configuration (FR-11b). Step by
+step:
 
 1. **Prerequisites.** `server.mcp` must not be `false` in `teamai.config.json`
    (default `true`); know the agent's **topology name** (`agents[].name`) and
@@ -232,11 +233,25 @@ reactions/progress, `get_status`, and tool-style sends. Connecting it is the
    mid-turn restart re-sends the in-flight message after the agent is back
    (§10.9). (This is needed once, to load `.mcp.json` — NOT after every server
    restart; see the durability note below.)
-4. **Verify.** The agent now sees the five §8.6 tools
-   (`whoami`/`list_peers`/`send`/`get_status`/`get_history`): in its session run `/mcp` (the
-   client's server list) or ask it to call `whoami` — the echo must be the
-   topology name. On the server side a rebind under an existing name logs
-   `identity … taken over` (FR-44b).
+4. **Verify.** The agent now sees the §8.6 read/route tools
+   (`whoami`/`list_peers`/`send`/`get_status`/`get_history`/`get_screen`): in its
+   session run `/mcp` (the client's server list) or ask it to call `whoami` — the
+   echo must be the topology name. On the server side a rebind under an existing
+   name logs `identity … taken over` (FR-44b).
+
+**Watching a neighbour's console (`get_screen`, FR-147).** Every agent may read
+the **visible terminal pane** of any agent it has a topology edge with, as plain
+text — the same capture the panel's Screen Live shows. It answers "what is this
+peer actually doing" when `get_status` only says `busy`: which prompt it sits on,
+what it printed last, whether it is waiting for input. The edge is the whole
+gate — no grant to configure, symmetric with being allowed to talk to it. It is
+**read-only**: nothing is typed, sent or changed. `historyLines` (default 0, max
+500) adds scrollback above the visible screen. A peer with no console (a person,
+a group, a tag) answers `NOT_CAPTURABLE`, a peer with no live session
+`AGENT_DOWN`, a non-neighbour `UNKNOWN_PEER`. The text is scrubbed of resolved
+`$env` secrets before it leaves the server (§8.7) — but remember that whatever is
+on an agent's screen becomes readable by its neighbours: that is what the edge
+now means.
 
 **Durable across server restarts (FR-89).** The shim is a self-healing stdio
 interface: it connects to the agent-plane lazily and reconnects on any upstream

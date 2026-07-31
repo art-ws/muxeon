@@ -4,14 +4,17 @@ import { Router } from "@teamai/orchestrator";
 import { AGENT_TOOLS, AGENT_TOOL_NAMES, createAgentServer, startAgentPlane } from "../src/mcp";
 import { LOOPBACK_DIRECT, connectClient } from "./mcp-helpers";
 
-// The exact agent-plane set (§8.1/§8.6): the five read/route tools plus two
-// ACL-gated bridges — the command pair (FR-94/FR-95, a peer's slash commands) and
-// the session pair (FR-96/FR-97, a peer's session lifecycle). Both fire ONLY through
-// their ACL (commandGrants / sessionGrants) + a topology edge — not an UNGATED
-// operator capability.
-const NINE = [
+// The exact agent-plane set (§8.1/§8.6): the six read/route tools — whoami,
+// list_peers, send, get_status, get_history and get_screen (FR-147, a neighbour's
+// console as text: observation, not control) — plus two ACL-gated bridges: the
+// command pair (FR-94/FR-95, a peer's slash commands) and the session pair
+// (FR-96/FR-97, a peer's session lifecycle). Both bridges fire ONLY through their
+// ACL (commandGrants / sessionGrants) + a topology edge — not an UNGATED operator
+// capability.
+const TOOLS = [
   "control_session",
   "get_history",
+  "get_screen",
   "get_status",
   "list_commands",
   "list_controls",
@@ -42,11 +45,11 @@ const OPERATOR_CAPABILITIES = [
   "channel_status",
 ];
 
-describe("plane isolation — agent-plane is exactly the nine tools, no ungated operator tools (§10.10)", () => {
-  test("the static tool set is exactly the nine least-privilege tools (§8.1)", () => {
+describe("plane isolation — agent-plane is exactly the closed set, no ungated operator tools (§10.10)", () => {
+  test("the static tool set is exactly the closed least-privilege set (§8.1)", () => {
     const names: string[] = [...AGENT_TOOL_NAMES];
-    expect(names.sort()).toEqual(NINE);
-    expect(AGENT_TOOLS.map((t) => t.name).sort()).toEqual(NINE); // descriptors match the names
+    expect(names.sort()).toEqual(TOOLS);
+    expect(AGENT_TOOLS.map((t) => t.name).sort()).toEqual(TOOLS); // descriptors match the names
   });
 
   test("no operator capability is present in the agent surface (§10.10)", () => {
@@ -55,7 +58,7 @@ describe("plane isolation — agent-plane is exactly the nine tools, no ungated 
   });
 
   describe.skipIf(!LOOPBACK_DIRECT)("over the wire", () => {
-    test("a connected client's tools/list returns exactly the nine", async () => {
+    test("a connected client's tools/list returns exactly the closed set", async () => {
       const topology = new Topology({ a: ["b"], b: ["a"] });
       const router = new Router({ topology, root: "/tmp/teamai-unused", queueKeyOf: () => null });
       const plane = startAgentPlane({
@@ -66,7 +69,7 @@ describe("plane isolation — agent-plane is exactly the nine tools, no ungated 
       });
       try {
         const client = await connectClient(plane.url, "a");
-        expect((await client.listTools()).tools.map((t) => t.name).sort()).toEqual(NINE);
+        expect((await client.listTools()).tools.map((t) => t.name).sort()).toEqual(TOOLS);
         await client.close();
       } finally {
         await plane.stop();
