@@ -1,6 +1,6 @@
 {
   "name": "@art-ws/teamai",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "type": "module",
   "description": "TEAMAI — transport and coordinator for local CLI agents running in tmux sessions.",
   "keywords": [
@@ -28,7 +28,13 @@
   "bin": {
     "teamai": "bin/teamai.js"
   },
-  "files": ["bin", "dist", "teamai.config.example.json", "README.md", "LICENSE"],
+  "files": [
+    "bin",
+    "dist",
+    "teamai.config.example.json",
+    "README.md",
+    "LICENSE"
+  ],
   "engines": {
     "node": ">=20",
     "bun": ">=1.2"
@@ -36,7 +42,9 @@
   "publishConfig": {
     "access": "public"
   },
-  "workspaces": ["packages/*"],
+  "workspaces": [
+    "packages/*"
+  ],
   "scripts": {
     "typecheck": "tsc --noEmit",
     "build:ui": "bun run --cwd packages/webchat-ui build",
@@ -63,5 +71,7 @@
     "semantic-release": "^25.0.8",
     "typescript": "^5.7.0"
   },
-  "trustedDependencies": ["@biomejs/biome"]
+  "trustedDependencies": [
+    "@biomejs/biome"
+  ]
 }
