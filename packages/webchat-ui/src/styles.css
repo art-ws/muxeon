@@ -576,6 +576,15 @@ body,
 .status-dot.down {
   background: var(--down);
 }
+/* presence of a USER peer (§17.5, FR-133): the same dot, a person's states —
+   online reads like idle (they are around), offline like down (they are not) */
+.status-dot.online {
+  background: var(--idle);
+}
+.status-dot.offline {
+  background: var(--down);
+  opacity: 0.55;
+}
 
 @keyframes pulse {
   50% {
@@ -1827,6 +1836,11 @@ dialog.expand-dialog {
   margin: 0;
   padding: 6px 16px;
   border-top: 1px solid var(--border);
+}
+
+/* Self-chat (§17.7, FR-128): the pinned top row — notes to self + the inbox */
+.self-entry {
+  border-bottom: 1px solid var(--border);
 }
 
 /* Transport observability view (FR-48, §12.4) — read-only routed-message feed */

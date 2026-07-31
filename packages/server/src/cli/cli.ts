@@ -21,6 +21,7 @@ export const CLI_COMMANDS: ReadonlySet<string> = new Set([
   "signals",
   "queues",
   "routines",
+  "hash-password",
 ]);
 
 export interface CliIO {
@@ -30,6 +31,11 @@ export interface CliIO {
   readonly fetchImpl?: (req: Request) => Promise<Response>;
   /** Config discovery start dir (§7.4); default process.cwd(). */
   readonly cwd?: string;
+  /**
+   * Reads a password without echoing it (§17.4, FR-122) — injectable for tests.
+   * Default: raw-mode stdin when it is a TTY, otherwise the piped stdin.
+   */
+  readonly readPassword?: (prompt: string) => Promise<string>;
 }
 
 class CliError extends Error {}
@@ -88,10 +94,15 @@ const USAGE = `usage:
   teamai routines list [<owner>]
   teamai routines get|delete|enable|disable|run-once <owner> <id>
   teamai routines put <owner> <id> <file.md>
+  teamai hash-password [--stdin]              # argon2id hash for users[].auth.passwordHash (FR-122)
 options: --url <admin-url> | --config <path>`;
 
 export async function runCli(argv: readonly string[], io: CliIO): Promise<number> {
   try {
+    // hash-password (§17.4, FR-122) is an OFFLINE operator tool: it needs neither a
+    // running server nor a config, so it runs before argv parsing and the admin
+    // base resolution — its only option, `--stdin`, carries no value.
+    if (argv[0] === "hash-password") return await hashPassword(argv.slice(1), io);
     const args = parseArgs(argv);
     const base = resolveBase(args, io.cwd ?? process.cwd());
     const transport = io.fetchImpl ?? fetch;
@@ -197,9 +208,18 @@ async function dispatch(args: ParsedArgs, admin: Admin, io: CliIO): Promise<void
     }
     case "channels": {
       const json = await admin("GET", "/channels");
-      const channels = json.channels as { operator: string; type: string; status: string }[];
+      const channels = json.channels as {
+        name: string;
+        operator?: string;
+        type: string;
+        status: string;
+      }[];
       if (channels.length === 0) io.stdout("no channels configured");
-      for (const c of channels) io.stdout(`${c.operator} via ${c.type}: ${c.status}`);
+      // Legacy prints the bound operator; a users-mode channel (§17.2) prints its
+      // instance name and says so — it serves many people, not one.
+      for (const c of channels) {
+        io.stdout(`${c.operator ?? `${c.name} (users)`} via ${c.type}: ${c.status}`);
+      }
       return;
     }
     case "signals": {
@@ -364,4 +384,53 @@ async function blobPayload(path: string, text: string, admin: Admin): Promise<un
       },
     ],
   };
+}
+
+/**
+ * `teamai hash-password` (§17.4, FR-122): read a password without echoing it (or
+ * from stdin with `--stdin`) and print its argon2id hash for pasting into
+ * `users[].auth.passwordHash`. A hash is not a secret in the §10.7 sense, so it
+ * may live inline in the config; the plaintext never touches the disk here.
+ */
+async function hashPassword(args: readonly string[], io: CliIO): Promise<number> {
+  const fromStdin = args.includes("--stdin");
+  const read = io.readPassword ?? defaultReadPassword;
+  const password = fromStdin
+    ? (await Bun.stdin.text()).replace(/\r?\n$/, "")
+    : await read("password: ");
+  if (password.length === 0) {
+    io.stderr("teamai: empty password");
+    return 1;
+  }
+  io.stdout(await Bun.password.hash(password, { algorithm: "argon2id" }));
+  return 0;
+}
+
+/** Raw-mode terminal read with no echo; falls back to piped stdin when not a TTY. */
+async function defaultReadPassword(prompt: string): Promise<string> {
+  const stdin = process.stdin;
+  if (stdin.isTTY !== true) return (await Bun.stdin.text()).replace(/\r?\n$/, "");
+  process.stderr.write(prompt);
+  stdin.setRawMode(true);
+  stdin.resume();
+  let value = "";
+  try {
+    for await (const chunk of stdin) {
+      const text = Buffer.from(chunk as Uint8Array).toString("utf8");
+      for (const char of text) {
+        if (char === "\r" || char === "\n") return value;
+        if (char === "\u0003") throw new CliError("aborted"); // Ctrl-C
+        if (char === "\u007f") {
+          value = value.slice(0, -1); // backspace
+          continue;
+        }
+        value += char;
+      }
+    }
+    return value;
+  } finally {
+    stdin.setRawMode(false);
+    stdin.pause();
+    process.stderr.write("\n");
+  }
 }

@@ -16,17 +16,23 @@ import {
   renderAttribution,
   renderRaw,
 } from "@teamai/adapters";
+import type { ChannelIdentity } from "@teamai/channels";
 import {
   type AgentConfig,
+  DEFAULT_PRESENCE_SWEEP_MS,
+  DEFAULT_PRESENCE_TTL,
   DEFAULT_RENDEZVOUS_SWEEP_MS,
   type EnvSource,
   type TeamaiConfig,
   type TeardownConfig,
+  type UserConfig,
+  channelName,
   discoverConfig,
   loadConfigFile,
   resolveRendezvous,
   resolveWipLimit,
   secretValues,
+  userRole,
 } from "@teamai/config";
 import {
   type AgentStatus,
@@ -51,6 +57,7 @@ import {
   type Exchange,
   IdleTeardownSweeper,
   LivenessProbeSweeper,
+  PresenceTracker,
   RendezvousCoordinator,
   RendezvousStore,
   ReplyNudger,
@@ -106,6 +113,7 @@ import { routeRawReply } from "./raw-reply";
 import { createTextRedactor } from "./redact";
 import { type ServerSurface, startSurface } from "./surface";
 import { type ChannelRuntime, type ConnectorFactory, wireChannels } from "./wire-channels";
+import { type UserRuntime, wireUsers } from "./wire-users";
 
 export interface BootstrapOptions {
   /** Explicit config path; otherwise convention discovery from startDir (§7.4). */
@@ -156,8 +164,15 @@ export interface TeamaiServer {
   readonly config: TeamaiConfig;
   readonly router: Router;
   readonly agents: ReadonlyMap<string, AgentRuntime>;
-  /** Channel runtimes keyed by operator (one channel per operator, §7.5/FR-37). */
+  /**
+   * Channel runtimes keyed by their binding: the bound operator in legacy mode
+   * (§7.5/FR-37), the channel instance name in users mode (§17.2).
+   */
   readonly channels: ReadonlyMap<string, ChannelRuntime>;
+  /** User runtimes (§17.5, FR-124): pseudo-session egress + history, by name. */
+  readonly users: ReadonlyMap<string, UserRuntime>;
+  /** User presence (§17.5, FR-133) — derived from outgoing traffic. */
+  readonly presence: PresenceTracker;
   readonly warnings: readonly string[];
   /** The MCP agent-plane endpoint, when server.mcp is on (§8.1); else undefined. */
   readonly agentPlane?: AgentPlaneHandle;
@@ -217,12 +232,23 @@ export async function bootstrap(options: BootstrapOptions = {}): Promise<TeamaiS
     options.registry ??
     createDefaultRegistry({ stateDir: location.stateDir, blobsDir: join(root, "blobs") });
 
-  // 3. participants → queue keys (§7.5): agent→tmux, operator→name.
-  const operatorNames = [...new Set(config.channels.map((channel) => channel.bindOperator))];
+  // 3. participants → queue keys (§7.5): agent→tmux, operator→name, user→name
+  //    (§17.2 — one pseudo-session per user whatever the number of channels).
+  const operatorNames = [
+    ...new Set(
+      config.channels.flatMap((channel) =>
+        channel.bindOperator !== undefined ? [channel.bindOperator] : [],
+      ),
+    ),
+  ];
+  const userConfigs: readonly UserConfig[] = config.users ?? [];
+  const userByName = new Map(userConfigs.map((user) => [user.name, user]));
+  const isUser = (name: string): boolean => userByName.has(name);
   const agentTmuxByName = new Map(config.agents.map((agent) => [agent.name, agent.tmux]));
   const queueKeyOf = (name: string): string | null => {
     const tmux = agentTmuxByName.get(name);
     if (tmux !== undefined) return tmux;
+    if (userByName.has(name)) return name;
     return operatorNames.includes(name) ? name : null;
   };
   // WIP limits (§8.2 backpressure, FR-104): resolve each agent's effective cap
@@ -242,15 +268,17 @@ export async function bootstrap(options: BootstrapOptions = {}): Promise<TeamaiS
   // restart (§16.4). A name that is no longer a configured agent is dropped with a
   // warning; only agents can be paused (operators/groups/tags never are, §16.1), so
   // the predicate below answers false for every non-agent name by construction.
+  // A USER can be paused too (§17.8, FR-134 — DND), and the registry is shared:
+  // the namespace is disjoint (§10.17), so one file holds both kinds (§16.4).
   const pauseStore = createFsPauseStore(location.stateDir);
-  const isConfiguredAgent = (name: string): boolean => agentTmuxByName.has(name);
+  const isPausableNode = (name: string): boolean => agentTmuxByName.has(name) || isUser(name);
   const { registry: pauseRegistry, dropped: droppedPauses } = seedPauseRegistry(
     await pauseStore.read(),
-    isConfiguredAgent,
+    isPausableNode,
   );
   for (const name of droppedPauses) {
     process.stderr.write(
-      `teamai: warning: dropping the persisted pause of "${name}" — no such agent in the config (§16.4)\n`,
+      `teamai: warning: dropping the persisted pause of "${name}" — no such agent or user in the config (§16.4)\n`,
     );
   }
   const isPaused = (name: string): boolean => pauseRegistry.has(name);
@@ -264,6 +292,7 @@ export async function bootstrap(options: BootstrapOptions = {}): Promise<TeamaiS
   //    connected operator just accumulates, NFR-4).
   for (const agent of config.agents) await ensureSessionQueue(root, agent.tmux);
   for (const operator of operatorNames) await ensureSessionQueue(root, operator);
+  for (const user of userConfigs) await ensureSessionQueue(root, user.name); // §17.2
   // Shared blob store <root>/blobs/ (§5.3): exchange replies (FR-54), operator
   // uploads (FR-46) and channels all write through the same tmp+rename path.
   const blobs = await createBlobStore(root);
@@ -277,7 +306,16 @@ export async function bootstrap(options: BootstrapOptions = {}): Promise<TeamaiS
   // Broadcast resolver (§15.4, FR-110): classifies a `to` as a group/tag and resolves
   // its member agents (hierarchical for groups, carriers for tags). Fed to the router
   // so a broadcast fans out in the single delivery point. Membership is fixed at boot.
-  const resolveBroadcast = buildBroadcastResolver(config.groups ?? [], config.agents);
+  // Users are equal members of a group/tag (§17.5, FR-130) — they join the same
+  // resolver, so a broadcast reaches them as a copy into their pseudo-session.
+  const resolveBroadcast = buildBroadcastResolver(config.groups ?? [], [
+    ...config.agents,
+    ...userConfigs,
+  ]);
+  // Presence (§17.5, FR-133): derived from the router's outgoing traffic.
+  const presence = new PresenceTracker({
+    ttlMs: parseRetainAge(config.server.presenceTtl ?? DEFAULT_PRESENCE_TTL),
+  });
   const nudger = new ReplyNudger({
     isOperator: (name) => operatorSet.has(name),
     route: (message) => router.route(message),
@@ -330,8 +368,13 @@ export async function bootstrap(options: BootstrapOptions = {}): Promise<TeamaiS
     wipLimitOf,
     // Pause gate (§16.2, FR-117) — checked after the edge, before the WIP cap.
     isPaused,
+    // DND (§17.8, FR-134): a paused USER still receives their own notes.
+    isUser,
     resolveBroadcast,
     onRouted: (message) => {
+      // Presence (§17.5, FR-133): the single delivery point sees every producer,
+      // so one hook covers the panel, the channels and self-delivery alike.
+      if (isUser(message.from)) presence.note(message.from);
       nudger.recordSend(message.from, message.to);
       void transportLog.append(message);
       idleSweeper?.noteActivity(message.from);
@@ -525,6 +568,10 @@ export async function bootstrap(options: BootstrapOptions = {}): Promise<TeamaiS
       containRoots: [exchange.dir, ...(agent.cwd !== undefined ? [agent.cwd] : [])],
       filesBase: agent.cwd ?? exchange.dir,
       blobs,
+      // Agent initiative with no recipient (§17.11, FR-135): fan out to the users
+      // with `role:"admin"` — the humans who work the consoles directly.
+      admins: () =>
+        userConfigs.filter((user) => userRole(user) === "admin").map((user) => user.name),
       route: (message) => router.route(message),
       ...(cadence.outboxPollMs !== undefined ? { pollIntervalMs: cadence.outboxPollMs } : {}),
     });
@@ -533,9 +580,12 @@ export async function bootstrap(options: BootstrapOptions = {}): Promise<TeamaiS
 
   // 7. agent-plane (§8.1): MCP on server.port, identity-bound (§8.6). Gated by
   //    server.mcp; mcp:false → no external listener, only operator-plane/channels.
+  // A user has no session, so no status (§17.5) — presence answers "are they
+  // around" instead (FR-133); `list_peers` reports it separately.
   const peerStatus = (name: string): AgentStatus | undefined =>
     agents.get(name)?.state.status ?? (operatorSet.has(name) ? "idle" : undefined);
-  const isKnownIdentity = (name: string): boolean => agents.has(name) || operatorSet.has(name);
+  const isKnownIdentity = (name: string): boolean =>
+    agents.has(name) || operatorSet.has(name) || isUser(name);
 
   // Token sampler (§12.8, FR-103): drives tokenStore for the opted-in agents. Reads
   // the agents map each tick (picks up provisioning), skips down agents, persists
@@ -579,6 +629,7 @@ export async function bootstrap(options: BootstrapOptions = {}): Promise<TeamaiS
   let surface: ServerSurface | undefined;
   let adminHandler: ((req: Request) => Promise<Response>) | undefined;
   let channelsHandle: Awaited<ReturnType<typeof wireChannels>> | undefined;
+  let usersHandle: Awaited<ReturnType<typeof wireUsers>> | undefined;
   let scheduler: SchedulerHandle | undefined;
   let retention: RetentionHandle | undefined;
   try {
@@ -598,8 +649,12 @@ export async function bootstrap(options: BootstrapOptions = {}): Promise<TeamaiS
                 // neighbour is paused; setting it stays operator-only (§10.10).
                 peerPaused: isPaused,
                 // Peer kind (§15.5, FR-111): a group/tag is derived from the same
-                // resolver the router fans out with; anything else is an "agent".
-                peerType: (name) => resolveBroadcast(name)?.kind ?? "agent",
+                // resolver the router fans out with; a configured human is a "user"
+                // (§17.5) and anything else — the legacy operator included — an "agent".
+                peerType: (name) =>
+                  resolveBroadcast(name)?.kind ?? (isUser(name) ? "user" : "agent"),
+                // Presence of a user peer (§17.5, FR-133) — instead of a status.
+                peerPresence: (name) => (isUser(name) ? presence.presence(name) : undefined),
                 // get_history (T126, FR-87): the pair's dialogue out of the
                 // transport log (§8.2) — read-only, neighbor-scoped in the tool.
                 pairHistory: (me, peer, limit) => transportLog.pair(me, peer, limit),
@@ -645,15 +700,20 @@ export async function bootstrap(options: BootstrapOptions = {}): Promise<TeamaiS
     const groupByName = new Map((config.groups ?? []).map((g) => [g.name, g]));
     const allTagNames = [...new Set(config.agents.flatMap((a) => a.tags ?? []))];
     const makePorts = (operator: string): WebchatPorts => ({
-      listPeers: () => topology.neighbors(operator).filter((name) => agents.has(name)),
+      // Peers with a chat (§10.2): agents and — since §17.7 (FR-129) — user peers.
+      listPeers: () =>
+        topology.neighbors(operator).filter((name) => agents.has(name) || isUser(name)),
       peerStatus,
       // Pause marker (§16.6, FR-119/FR-120) — beside the status, not inside it.
       peerPaused: isPaused,
       // Broadcast surface (§15, FR-112): a peer's kind + an agent's group/tags for the
       // sidebar tree, and the operator's group/tag neighbors with resolved members.
-      peerType: (name) => resolveBroadcast(name)?.kind ?? "agent",
-      agentGroup: (name) => agents.get(name)?.agent.group,
-      agentTags: (name) => agents.get(name)?.agent.tags ?? [],
+      // A user peer reports "user" (§17.7): no console, no lifecycle, presence dot.
+      peerType: (name) => resolveBroadcast(name)?.kind ?? (isUser(name) ? "user" : "agent"),
+      peerPresence: (name) => (isUser(name) ? presence.presence(name) : undefined),
+      peerDisplayName: (name) => userByName.get(name)?.displayName,
+      agentGroup: (name) => agents.get(name)?.agent.group ?? userByName.get(name)?.group,
+      agentTags: (name) => agents.get(name)?.agent.tags ?? userByName.get(name)?.tags ?? [],
       broadcastPeers: () => {
         const neighbors = new Set(topology.neighbors(operator));
         const groups = (config.groups ?? [])
@@ -677,7 +737,7 @@ export async function bootstrap(options: BootstrapOptions = {}): Promise<TeamaiS
         return [...groups, ...tags];
       },
       // configured UI accent (FR-73, §7.1); absent ⇒ the panel picks from its palette
-      peerColor: (name) => agents.get(name)?.agent.color,
+      peerColor: (name) => agents.get(name)?.agent.color ?? userByName.get(name)?.color,
       queueDepth: async (name) => {
         const runtime = agents.get(name);
         if (runtime === undefined) return 0;
@@ -734,7 +794,9 @@ export async function bootstrap(options: BootstrapOptions = {}): Promise<TeamaiS
       configDir: location.configDir,
       ...(config.types !== undefined ? { types: config.types } : {}),
       // Pause (§16.5, FR-119): the operator's mutation surface over the same
-      // registry the router and the dispatchers read.
+      // registry the router and the dispatchers read. Users join it as DND
+      // (§17.8, FR-134) — same registry, same file, no session involved.
+      pausableUsers: new Set(userConfigs.map((user) => user.name)),
       pause: pausePort,
     });
     // Forward-wire the agent-plane command port (FR-94/FR-95) now that the runner
@@ -785,6 +847,15 @@ export async function bootstrap(options: BootstrapOptions = {}): Promise<TeamaiS
     const redactText = createTextRedactor(secretValues(config, loaded.secretPaths));
     const makeLifecycle = (operator: string): WebchatLifecycle => ({
       actions: (name) => {
+        // A user peer (§17.7): no session to shut down or reload — the only action
+        // is DND, and only for oneself or for an admin (§17.8, FR-134). The panel
+        // gates the admin case; here the capability is simply "pause is possible".
+        if (isUser(name)) {
+          const viewer = userByName.get(operator);
+          const mayPause =
+            name === operator || (viewer !== undefined && userRole(viewer) === "admin");
+          return { shutdown: false, reload: false, pause: mayPause };
+        }
         const runtime = agents.get(name);
         if (runtime === undefined || !topology.neighbors(operator).includes(name)) {
           return { shutdown: false, reload: false, pause: false };
@@ -806,8 +877,10 @@ export async function bootstrap(options: BootstrapOptions = {}): Promise<TeamaiS
       // slash commands: merged type ∪ agent config list (FR-66) + internal
       // commands (FR-67, e.g. /screenshot — every agent); the list IS the
       // allowlist — runCommand refuses anything outside it
+      // A user peer (§17.7) has no console at all, so it has no command catalog —
+      // asking the lifecycle admin for one would (rightly) raise UNKNOWN_AGENT.
       commands: (name) =>
-        topology.neighbors(operator).includes(name)
+        agents.has(name) && topology.neighbors(operator).includes(name)
           ? lifecycleAdmin.commands(name).map((command) => command.slash)
           : [],
       runCommand: (name, slash) => lifecycleAdmin.command(name, slash),
@@ -848,11 +921,80 @@ export async function bootstrap(options: BootstrapOptions = {}): Promise<TeamaiS
       },
     });
 
+    // 8a. users (§17.5, FR-124): one pseudo-session egress each, its sink writing
+    //     the user's history and fanning a best-effort push out over every bound
+    //     channel. Wired BEFORE the channels so a connector can register itself as
+    //     a push target the moment it starts (§8.2 start order).
+    const webchatChannel = config.channels.find((channel) => channel.type === "webchat");
+    const historyRetain = (
+      webchatChannel?.history as { retain?: { age?: string; count?: number } } | undefined
+    )?.retain;
+    usersHandle = await wireUsers({
+      users: userConfigs,
+      root,
+      configDir: location.configDir,
+      ...(historyRetain !== undefined ? { historyRetain } : {}),
+      signal: abort.signal,
+      start: autoStart,
+    });
+    runs.push(...usersHandle.runs);
+    const userRuntimes = usersHandle.users;
+    // Channel bindings (§17.2, FR-125): which users a channel serves, and the
+    // alias↔user maps that give an inbound event its sender (§17.6).
+    const bindingsOf = (channel: TeamaiConfig["channels"][number]): UserRuntime[] => {
+      const key = channelName(channel);
+      return userConfigs.flatMap((user) => {
+        const runtime = userRuntimes.get(user.name);
+        return runtime !== undefined && Object.hasOwn(user.channels ?? {}, key) ? [runtime] : [];
+      });
+    };
+    const identityOf = (channel: TeamaiConfig["channels"][number]): ChannelIdentity | undefined => {
+      const key = channelName(channel);
+      if (channel.type === "webchat") return undefined; // identity IS the login (§17.6)
+      const userByAlias = new Map<string, string>();
+      const aliasByUser = new Map<string, string>();
+      for (const user of userConfigs) {
+        const binding = user.channels?.[key];
+        if (binding === undefined || binding === true) continue;
+        userByAlias.set(binding.alias, user.name);
+        aliasByUser.set(user.name, binding.alias);
+      }
+      return {
+        userOf: (alias) => userByAlias.get(alias),
+        aliasOf: (user) => aliasByUser.get(user),
+        // What this user may address (§17.6-2): their topology neighbours — the
+        // router re-checks the edge, this only bounds the @token scan.
+        peersOf: (user) => topology.neighbors(user),
+      };
+    };
+
     channelsHandle = await wireChannels({
       channels: config.channels,
       router,
       root,
       configDir: location.configDir,
+      usersOf: (channel) =>
+        bindingsOf(channel).map((runtime) => ({
+          name: runtime.name,
+          ...(runtime.config.displayName !== undefined
+            ? { displayName: runtime.config.displayName }
+            : {}),
+          ...(runtime.config.color !== undefined ? { color: runtime.config.color } : {}),
+          role: userRole(runtime.config),
+          ...(runtime.config.auth?.password !== undefined
+            ? { password: runtime.config.auth.password }
+            : {}),
+          ...(runtime.config.auth?.passwordHash !== undefined
+            ? { passwordHash: runtime.config.auth.passwordHash }
+            : {}),
+          history: runtime.history,
+          ports: makePorts(runtime.name),
+          lifecycle: makeLifecycle(runtime.name),
+        })),
+      identityOf,
+      registerPush: (user, channel, push) => {
+        userRuntimes.get(user)?.targets.push({ channel, push });
+      },
       // Instance label for the panel (FR-90, §12.7): the configured `name`, or the
       // host's hostname() when omitted — resolved here because the default is
       // environment-derived, not a config value.
@@ -888,11 +1030,20 @@ export async function bootstrap(options: BootstrapOptions = {}): Promise<TeamaiS
         };
       }
       const channel = liveChannels.get(name);
-      if (channel !== undefined) {
+      if (channel?.egress !== undefined) {
         return {
           paths: sessionPaths(root, name),
           lane: channel.egress.control,
           doneIds: channel.egress.doneIds,
+        };
+      }
+      // A user's pseudo-session (§17.5) is edited exactly like an operator's.
+      const user = usersHandle?.users.get(name);
+      if (user !== undefined) {
+        return {
+          paths: sessionPaths(root, name),
+          lane: user.egress.control,
+          doneIds: user.egress.doneIds,
         };
       }
       return undefined;
@@ -949,20 +1100,38 @@ export async function bootstrap(options: BootstrapOptions = {}): Promise<TeamaiS
         policy: retentionPolicy(runtime.agent.retain ?? config.server.retain),
         forgetDone: (ids: Iterable<string>) => runtime.dispatcher.forgetDone(ids),
       })),
-      ...[...channelsHandle.channels.values()].map((channel) => ({
-        session: channel.operator,
+      ...[...channelsHandle.channels.values()].flatMap((channel) =>
+        channel.operator !== undefined && channel.egress !== undefined
+          ? [
+              {
+                session: channel.operator,
+                policy: retentionPolicy(config.server.retain),
+                forgetDone: (ids: Iterable<string>) => channel.egress?.forgetDone(ids),
+              },
+            ]
+          : [],
+      ),
+      // Every user's pseudo-session prunes on the same server-level policy (§17.5).
+      ...[...(usersHandle?.users.values() ?? [])].map((user) => ({
+        session: user.name,
         policy: retentionPolicy(config.server.retain),
-        forgetDone: (ids: Iterable<string>) => channel.egress.forgetDone(ids),
+        forgetDone: (ids: Iterable<string>) => user.egress.forgetDone(ids),
       })),
     ];
     // Webchat history (§12.3) joins the sweep: its own double cap prunes BEFORE
     // blob GC, and its live records keep their blobs referenced past the queue
     // window (FR-39).
-    const histories = [...channelsHandle.channels.values()].flatMap((channel) =>
-      channel.connector instanceof WebchatConnector && channel.connector.history !== undefined
-        ? [channel.connector.history]
-        : [],
-    );
+    // Every panel log joins the sweep: the legacy operator's one, and — in users
+    // mode — each user's own (§17.7). The user histories come from their runtimes,
+    // which own them (the connector only reads them).
+    const histories = [
+      ...[...channelsHandle.channels.values()].flatMap((channel) =>
+        channel.connector instanceof WebchatConnector && channel.connector.history !== undefined
+          ? [channel.connector.history]
+          : [],
+      ),
+      ...[...(usersHandle?.users.values() ?? [])].map((user) => user.history),
+    ];
     const sweepMs = options.retentionSweepMs ?? cadence.retentionSweepMs;
     // Exchange orphan sweeps (§13.3): inbox dirs left by a crash between turn end
     // and cleanup; the in-flight cur/ message (and anything fresh) is kept.
@@ -1114,6 +1283,18 @@ export async function bootstrap(options: BootstrapOptions = {}): Promise<TeamaiS
       }
     }
 
+    // 10.8. presence fade-out sweep (§17.5, FR-133): appearing is instant (the
+    //   router hook), fading out is this cadence. Only started when there are
+    //   users at all — presence is a users-mode concept.
+    if (userConfigs.length > 0 && autoStart) {
+      runs.push(
+        presence.run(
+          abort.signal,
+          config.server.cadence?.presenceSweepMs ?? DEFAULT_PRESENCE_SWEEP_MS,
+        ),
+      );
+    }
+
     // 11. routine scheduler (§6, §8.2 start order): discover central routines, prime
     //     skip-missed, then tick/re-scan. from = the owning agent; delivery goes through
     //     the same router (edge check §10.2). Off-loop sends accumulate in the recipient's
@@ -1166,6 +1347,8 @@ export async function bootstrap(options: BootstrapOptions = {}): Promise<TeamaiS
     router,
     agents,
     channels: channels.channels,
+    users: usersHandle?.users ?? new Map(),
+    presence,
     warnings: loaded.warnings,
     ...(agentPlane !== undefined ? { agentPlane } : {}),
     adminUrl: liveSurface.adminUrl,

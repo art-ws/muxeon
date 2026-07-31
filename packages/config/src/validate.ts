@@ -12,7 +12,12 @@
 import { COMMAND_WILDCARD, SESSION_WILDCARD, Topology, isSessionAction } from "@teamai/core";
 import { joinPointer } from "./env";
 import { ConfigError } from "./error";
-import { INTERNAL_COMMAND_SLASHES, type TeamaiConfig } from "./schema";
+import {
+  type ChannelConfig,
+  INTERNAL_COMMAND_SLASHES,
+  type TeamaiConfig,
+  channelName,
+} from "./schema";
 
 export interface ValidateContext {
   /** Registered adapter types (§8.3). When provided, enforces §7.5 "type known". */
@@ -24,8 +29,10 @@ export function validateRules(config: TeamaiConfig, context: ValidateContext = {
   const warnings: string[] = [];
   const agentNames = collectAgentNames(config); // rule 2: agent names unique
   const operatorNames = collectOperatorNames(config); // rule 5: one operator ≤ one channel
+  // Users (§17.3, FR-121): the fifth namespace set and a queue-key owner of its own.
+  const userNames = collectUserNames(config);
   assertNamesDisjoint(agentNames, operatorNames); // rule 2: agent/operator names disjoint
-  assertQueueKeysUnique(config, operatorNames); // rule 3: tmux ∪ operator names unique
+  assertQueueKeysUnique(config, operatorNames, userNames); // rule 3: tmux ∪ operators ∪ users
   assertKnownAdapterTypes(config, context.knownAdapterTypes); // rule 4 (if injected)
 
   // Groups & tags (§15, FR-106/FR-107): the broadcast namespace. Group names are
@@ -37,18 +44,31 @@ export function validateRules(config: TeamaiConfig, context: ValidateContext = {
   const tagNames = collectTagNames(config); // FR-107: implicit tag namespace
   assertGroupHierarchy(config, groupNames); // FR-106: parents exist, acyclic, no self-parent
   assertAgentGroups(config, groupNames); // FR-106: agents[].group names a declared group
-  assertBroadcastNamespaceDisjoint(agentNames, operatorNames, groupNames, tagNames); // §10.17
+  assertUserGroups(config, groupNames); // FR-130: users[].group names a declared group
+  assertBroadcastNamespaceDisjoint(agentNames, operatorNames, groupNames, tagNames, userNames);
 
-  // Topology nodes may now be groups/tags too (input-only broadcast targets, §15.2).
-  const participants = new Set([...agentNames, ...operatorNames, ...groupNames, ...tagNames]);
+  // Topology nodes may now be groups/tags (input-only broadcast targets, §15.2) and
+  // users (§17.1 — full nodes with a queue of their own).
+  const participants = new Set([
+    ...agentNames,
+    ...operatorNames,
+    ...groupNames,
+    ...tagNames,
+    ...userNames,
+  ]);
   assertTopologyClosed(config, participants); // rule 1: topology nodes are known
 
   const topology = new Topology(config.topology);
+  const channelNames = collectChannelNames(config); // §17.3/FR-125: instance names unique
   assertDefaultTargets(config, agentNames, topology); // rule 6: defaultTarget agent + neighbor
-  assertWebchatChannels(config); // rule 9 (§12.2): port/auth/bind, no defaultTarget
+  assertWebchatChannels(config); // rule 9 (§12.2/§17.3): port/auth/bind, no defaultTarget
+  assertUserChannelBindings(config, channelNames); // §17.3/FR-125: known channel, alias rules
+  assertUserAuthPresence(config); // §17.3/FR-122: a webchat-bound user needs a password
   assertCommandGrants(config, agentNames, topology); // rule 10 (§7.5/FR-94): agent→agent command ACL
   assertSessionGrants(config, agentNames, topology); // rule 11 (§7.5/FR-96): agent→agent session-control ACL
   warnOperatorsWithoutEdges(operatorNames, topology, warnings); // rule 5: warning
+  warnUsers(config, userNames, topology, warnings); // §17.3: no edges / a panel with no login
+  warnLegacyOperators(config, warnings); // FR-132: bindOperator is deprecated by users[]
 
   return warnings;
 }
@@ -66,18 +86,52 @@ function collectAgentNames(config: TeamaiConfig): Set<string> {
   return names;
 }
 
+// Legacy operators (§12.1): channels that still bind ONE operator node. A channel
+// in users mode (§17.2) has no bindOperator — its identities come from the users'
+// bindings (FR-125), so it contributes no operator name.
 function collectOperatorNames(config: TeamaiConfig): Set<string> {
   const names = new Set<string>();
   for (const [i, channel] of config.channels.entries()) {
-    if (names.has(channel.bindOperator)) {
+    const operator = channel.bindOperator;
+    if (operator === undefined) continue;
+    if (names.has(operator)) {
+      throw new ConfigError(`operator "${operator}" is bound by more than one channel`, {
+        path: joinPointer(joinPointer("/channels", String(i)), "bindOperator"),
+      });
+    }
+    names.add(operator);
+  }
+  return names;
+}
+
+// §17.3 / FR-121: user names are unique. They join the ONE shared namespace
+// (§10.17, asserted below) and own a queue key each (§5.3).
+function collectUserNames(config: TeamaiConfig): Set<string> {
+  const names = new Set<string>();
+  for (const [i, user] of (config.users ?? []).entries()) {
+    if (names.has(user.name)) {
+      throw new ConfigError(`duplicate user name "${user.name}"`, {
+        path: joinPointer(joinPointer("/users", String(i)), "name"),
+      });
+    }
+    names.add(user.name);
+  }
+  return names;
+}
+
+// §17.3 / FR-125: `channels[].name` (default: the type) is the key of every user
+// binding, so it must be unique — two channels of one type MUST name themselves.
+function collectChannelNames(config: TeamaiConfig): Set<string> {
+  const names = new Set<string>();
+  for (const [i, channel] of config.channels.entries()) {
+    const name = channelName(channel);
+    if (names.has(name)) {
       throw new ConfigError(
-        `operator "${channel.bindOperator}" is bound by more than one channel`,
-        {
-          path: joinPointer(joinPointer("/channels", String(i)), "bindOperator"),
-        },
+        `duplicate channel name "${name}" — name the channels explicitly (§17.2)`,
+        { path: joinPointer(joinPointer("/channels", String(i)), "name") },
       );
     }
-    names.add(channel.bindOperator);
+    names.add(name);
   }
   return names;
 }
@@ -92,7 +146,11 @@ function assertNamesDisjoint(agentNames: Set<string>, operatorNames: Set<string>
   }
 }
 
-function assertQueueKeysUnique(config: TeamaiConfig, operatorNames: Set<string>): void {
+function assertQueueKeysUnique(
+  config: TeamaiConfig,
+  operatorNames: Set<string>,
+  userNames: Set<string>,
+): void {
   const owner = new Map<string, string>();
   for (const [i, agent] of config.agents.entries()) {
     const existing = owner.get(agent.tmux);
@@ -115,6 +173,15 @@ function assertQueueKeysUnique(config: TeamaiConfig, operatorNames: Set<string>)
     }
     owner.set(operator, `operator "${operator}"`);
   }
+  // A user owns a pseudo-session queue exactly like an operator (§17.2/§5.3), so
+  // its name must not collide with an agent's tmux session either.
+  for (const user of userNames) {
+    const existing = owner.get(user);
+    if (existing !== undefined) {
+      throw new ConfigError(`queue key "${user}" is shared by ${existing} and user "${user}"`);
+    }
+    owner.set(user, `user "${user}"`);
+  }
 }
 
 // §7.5 / FR-106: group names are declared explicitly and must be unique.
@@ -131,11 +198,15 @@ function collectGroupNames(config: TeamaiConfig): Set<string> {
   return names;
 }
 
-// §7.5 / FR-107: the tag namespace is IMPLICIT — the union of every agent's `tags`.
+// §7.5 / FR-107: the tag namespace is IMPLICIT — the union of every agent's and
+// (§17.2/FR-130) every user's `tags`; users are equal members of a tag.
 function collectTagNames(config: TeamaiConfig): Set<string> {
   const tags = new Set<string>();
   for (const agent of config.agents) {
     for (const tag of agent.tags ?? []) tags.add(tag);
+  }
+  for (const user of config.users ?? []) {
+    for (const tag of user.tags ?? []) tags.add(tag);
   }
   return tags;
 }
@@ -187,14 +258,90 @@ function assertAgentGroups(config: TeamaiConfig, groupNames: Set<string>): void 
   }
 }
 
-// §7.5 / §10.17: agents ∪ operators ∪ groups ∪ tags is ONE namespace, pairwise
-// disjoint, so any `to`/topology node resolves to exactly one kind. (agent↔operator
-// disjointness is asserted separately by assertNamesDisjoint.)
+// §17.3 / FR-130: a user's `group` (when set) names a declared group — the same
+// rule agents live by (§15.3); membership feeds the broadcast fan-out (§15.4).
+function assertUserGroups(config: TeamaiConfig, groupNames: Set<string>): void {
+  for (const [i, user] of (config.users ?? []).entries()) {
+    if (user.group === undefined) continue;
+    if (!groupNames.has(user.group)) {
+      throw new ConfigError(`user "${user.name}" references unknown group "${user.group}"`, {
+        path: joinPointer(joinPointer("/users", String(i)), "group"),
+      });
+    }
+  }
+}
+
+// §17.3 / FR-125: every binding key names a DECLARED channel; the form must match
+// the channel kind — webchat takes `true` (the login is the identity), telegram/
+// slack take a non-empty `alias` that is UNIQUE within that channel (two users
+// behind one alias would make the sender unresolvable, §10.21).
+function assertUserChannelBindings(config: TeamaiConfig, channelNames: Set<string>): void {
+  const byChannel = new Map<string, ChannelConfig>();
+  for (const channel of config.channels) byChannel.set(channelName(channel), channel);
+  const aliasOwner = new Map<string, string>(); // "<channel> <alias>" → user
+  for (const [i, user] of (config.users ?? []).entries()) {
+    for (const [channel, binding] of Object.entries(user.channels ?? {})) {
+      const path = joinPointer(joinPointer(joinPointer("/users", String(i)), "channels"), channel);
+      if (!channelNames.has(channel)) {
+        throw new ConfigError(`user "${user.name}" binds unknown channel "${channel}"`, { path });
+      }
+      const declared = byChannel.get(channel);
+      const isWebchat = declared?.type === "webchat";
+      if (isWebchat && binding !== true) {
+        throw new ConfigError(
+          `webchat binding of "${user.name}" must be true — the login is the identity (§17.2)`,
+          { path },
+        );
+      }
+      if (!isWebchat && binding === true) {
+        throw new ConfigError(
+          `binding of "${user.name}" to "${channel}" requires an alias — the channel identity (§17.6)`,
+          { path },
+        );
+      }
+      if (binding === true) continue;
+      const key = `${channel} ${binding.alias}`;
+      const owner = aliasOwner.get(key);
+      if (owner !== undefined) {
+        throw new ConfigError(
+          `alias "${binding.alias}" in channel "${channel}" is claimed by both "${owner}" and "${user.name}" (§10.21)`,
+          { path: joinPointer(path, "alias") },
+        );
+      }
+      aliasOwner.set(key, user.name);
+    }
+  }
+}
+
+// §17.3 / FR-122: `auth` is MANDATORY for a user bound to a webchat channel —
+// that binding is a login, and a login without a password is not one.
+function assertUserAuthPresence(config: TeamaiConfig): void {
+  const webchatNames = new Set(
+    config.channels.filter((c) => c.type === "webchat").map((c) => channelName(c)),
+  );
+  for (const [i, user] of (config.users ?? []).entries()) {
+    if (user.auth !== undefined) continue;
+    const bound = Object.keys(user.channels ?? {}).find((name) => webchatNames.has(name));
+    if (bound !== undefined) {
+      throw new ConfigError(
+        `user "${user.name}" binds webchat channel "${bound}" and requires auth (§17.2)`,
+        { path: joinPointer(joinPointer("/users", String(i)), "auth") },
+      );
+    }
+  }
+}
+
+// §7.5 / §10.17: agents ∪ operators ∪ groups ∪ tags ∪ users is ONE namespace —
+// FIVE pairwise disjoint sets since §17.1 — so any `to`/topology node resolves to
+// exactly one kind. (agent↔operator disjointness is asserted separately by
+// assertNamesDisjoint; agent/operator↔user collisions are also queue-key
+// collisions and are caught by assertQueueKeysUnique.)
 function assertBroadcastNamespaceDisjoint(
   agentNames: Set<string>,
   operatorNames: Set<string>,
   groupNames: Set<string>,
   tagNames: Set<string>,
+  userNames: Set<string>,
 ): void {
   const collide = (name: string, a: string, b: string): never => {
     throw new ConfigError(
@@ -205,10 +352,12 @@ function assertBroadcastNamespaceDisjoint(
     if (agentNames.has(g)) collide(g, "group", "agent");
     if (operatorNames.has(g)) collide(g, "group", "operator");
     if (tagNames.has(g)) collide(g, "group", "tag");
+    if (userNames.has(g)) collide(g, "group", "user");
   }
   for (const t of tagNames) {
     if (agentNames.has(t)) collide(t, "tag", "agent");
     if (operatorNames.has(t)) collide(t, "tag", "operator");
+    if (userNames.has(t)) collide(t, "tag", "user");
   }
 }
 
@@ -392,6 +541,14 @@ function assertDefaultTargets(
     const target = channel.defaultTarget;
     if (target === undefined) continue;
     const path = joinPointer(joinPointer("/channels", String(i)), "defaultTarget");
+    // In users mode addressing is by mention or self-delivery (§17.6) — there is
+    // no single sender a default target could be authorized against.
+    if (channel.bindOperator === undefined) {
+      throw new ConfigError(
+        "defaultTarget does not apply in users mode — address by @mention or self (§17.6)",
+        { path },
+      );
+    }
     if (!agentNames.has(target)) {
       throw new ConfigError(`channel defaultTarget "${target}" is not an existing agent`, { path });
     }
@@ -404,13 +561,28 @@ function assertDefaultTargets(
   }
 }
 
+/** Channel types that can run WITHOUT a bound operator, i.e. in users mode (§17.2). */
+const USERS_MODE_TYPES = new Set(["webchat", "telegram", "slack"]);
+
 // §7.5 «Канал webchat» (§12.2): the panel runs on its OWN port (the §8.1 surface
 // is not extended), behind a mandatory password, and never uses @-addressing —
 // the recipient is always explicit in the UI, so defaultTarget is an error.
+// Since §17.2 the channel has TWO mutually exclusive identity modes: legacy
+// (`bindOperator` + `auth.password`) and users (`auth.mode:"users"`, identity per
+// login). A channel of any other type still needs its `bindOperator` unless it can
+// take identities from user bindings (USERS_MODE_TYPES).
 function assertWebchatChannels(config: TeamaiConfig): void {
   for (const [i, channel] of config.channels.entries()) {
-    if (channel.type !== "webchat") continue;
     const base = joinPointer("/channels", String(i));
+    if (channel.type !== "webchat") {
+      if (channel.bindOperator === undefined && !USERS_MODE_TYPES.has(channel.type)) {
+        throw new ConfigError(
+          `channel type "${channel.type}" requires bindOperator — it has no per-user identity (§17.2)`,
+          { path: joinPointer(base, "bindOperator") },
+        );
+      }
+      continue;
+    }
 
     const port = channel.port;
     if (typeof port !== "number" || !Number.isInteger(port) || port < 1 || port > 65535) {
@@ -444,15 +616,56 @@ function assertWebchatChannels(config: TeamaiConfig): void {
       }
     }
 
-    // auth.password arrives here already $env-resolved (§7.3); inline values were
-    // rejected pre-resolution (assertChannelSecretsAreEnvRefs).
+    // Identity mode (§17.3): users mode declares `auth.mode:"users"` and carries
+    // NEITHER bindOperator NOR a channel password — every login is a user's own.
     const auth = channel.auth;
-    if (!isRecord(auth) || typeof auth.password !== "string" || auth.password === "") {
-      throw new ConfigError("webchat requires auth.password (an $env reference, §7.3)", {
-        path: joinPointer(base, "auth"),
+    const authPath = joinPointer(base, "auth");
+    if (!isRecord(auth)) {
+      // No auth block at all: in the legacy shape that is the missing password
+      // (§12.2); with no bindOperator either, the channel declares no identity
+      // source at all (§17.2).
+      throw new ConfigError(
+        channel.bindOperator !== undefined
+          ? "webchat requires auth.password (an $env reference, §7.3)"
+          : 'webchat requires either bindOperator (legacy) or auth.mode:"users" (§17.2)',
+        { path: authPath },
+      );
+    }
+    const usersMode = auth.mode === "users";
+    if (auth.mode !== undefined && !usersMode) {
+      throw new ConfigError('webchat auth.mode must be "users" when set (§17.2)', {
+        path: joinPointer(authPath, "mode"),
       });
     }
-    validateWebchatAuthSession(auth, joinPointer(base, "auth"));
+    if (usersMode) {
+      if (channel.bindOperator !== undefined) {
+        throw new ConfigError(
+          'webchat auth.mode:"users" and bindOperator are mutually exclusive (§17.3)',
+          { path: joinPointer(base, "bindOperator") },
+        );
+      }
+      if (auth.password !== undefined) {
+        throw new ConfigError(
+          'webchat auth.mode:"users" takes no channel password — each user has their own (§17.2)',
+          { path: joinPointer(authPath, "password") },
+        );
+      }
+    } else {
+      if (channel.bindOperator === undefined) {
+        throw new ConfigError(
+          'webchat requires either bindOperator (legacy) or auth.mode:"users" (§17.2)',
+          { path: joinPointer(base, "bindOperator") },
+        );
+      }
+      // auth.password arrives here already $env-resolved (§7.3); inline values were
+      // rejected pre-resolution (assertChannelSecretsAreEnvRefs).
+      if (typeof auth.password !== "string" || auth.password === "") {
+        throw new ConfigError("webchat requires auth.password (an $env reference, §7.3)", {
+          path: authPath,
+        });
+      }
+    }
+    validateWebchatAuthSession(auth, authPath, usersMode);
 
     if (channel.defaultTarget !== undefined) {
       throw new ConfigError(
@@ -476,9 +689,15 @@ const WEBCHAT_BASE_PATH = /^(?:\/[A-Za-z0-9_~-][A-Za-z0-9._~-]*)+$/;
 // auth: { password (required, $env §7.3), session?: { ttl?, renew?: duration } }
 // — closed (§12.6). ttl and renew (FR-86) use the retain.age grammar (§7.1,
 // e.g. "1d"); the parse happens at wiring (boot, fail-fast) like history.retain.age.
-function validateWebchatAuthSession(auth: Record<string, unknown>, path: string): void {
+function validateWebchatAuthSession(
+  auth: Record<string, unknown>,
+  path: string,
+  usersMode: boolean,
+): void {
   for (const key of Object.keys(auth)) {
-    if (key !== "password" && key !== "session") {
+    // `mode` joins the closed set with users mode (§17.2); `password` stays a
+    // legacy-only field (rejected above when the channel runs in users mode).
+    if (key !== "password" && key !== "session" && !(usersMode && key === "mode")) {
       throw new ConfigError(`unknown auth field "${key}"`, { path: joinPointer(path, key) });
     }
   }
@@ -580,5 +799,49 @@ function warnOperatorsWithoutEdges(
         `operator "${operator}" has no topology edges and can neither send nor receive`,
       );
     }
+  }
+}
+
+// §17.3 advisories (never fatal): a user with no edges still has a working
+// self-chat (self-delivery needs no edge, §10.2) but reaches nobody else; a
+// users-mode panel with not a single bound user has no way in at all.
+function warnUsers(
+  config: TeamaiConfig,
+  userNames: Set<string>,
+  topology: Topology,
+  warnings: string[],
+): void {
+  for (const user of userNames) {
+    if (topology.neighbors(user).length === 0) {
+      warnings.push(
+        `user "${user}" has no topology edges — only their own self-chat works (§17.3)`,
+      );
+    }
+  }
+  for (const channel of config.channels) {
+    if (channel.bindOperator !== undefined) continue;
+    const name = channelName(channel);
+    const bound = (config.users ?? []).some((user) => Object.hasOwn(user.channels ?? {}, name));
+    if (!bound) {
+      warnings.push(
+        channel.type === "webchat"
+          ? `webchat channel "${name}" runs in users mode with no user bound to it — nobody can log in (§17.3)`
+          : `channel "${name}" runs in users mode with no user bound to it — inbound has no identity (§17.3)`,
+      );
+    }
+  }
+}
+
+// FR-132: `bindOperator` is the legacy single-login shape (§12.1). It keeps
+// working unchanged — the core represents such an operator as a user without
+// `auth` and with one binding (§17.9) — but a config that already declares
+// `users[]` should move the rest across.
+function warnLegacyOperators(config: TeamaiConfig, warnings: string[]): void {
+  if ((config.users ?? []).length === 0) return;
+  for (const channel of config.channels) {
+    if (channel.bindOperator === undefined) continue;
+    warnings.push(
+      `channel "${channelName(channel)}" still binds operator "${channel.bindOperator}" — bindOperator is deprecated by users[] (§17.9/FR-132)`,
+    );
   }
 }

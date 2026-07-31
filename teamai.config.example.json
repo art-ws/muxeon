@@ -35,6 +35,16 @@
 
   "groups": [{ "name": "workers" }],
 
+  "users": [
+    {
+      "name": "operator",
+      "displayName": "Operator",
+      "role": "admin",
+      "auth": { "password": { "$env": "TEAMAI_WEB_PASSWORD" } },
+      "channels": { "web": true }
+    }
+  ],
+
   "topology": {
     "researcher": ["writer", "operator"],
     "writer": ["operator"]
@@ -50,11 +60,11 @@
 
   "channels": [
     {
+      "name": "web",
       "type": "webchat",
       "port": 8091,
       "basePath": "/team",
-      "bindOperator": "operator",
-      "auth": { "password": { "$env": "TEAMAI_WEB_PASSWORD" } }
+      "auth": { "mode": "users" }
     }
   ]
 }

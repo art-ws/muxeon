@@ -319,8 +319,10 @@ describe("operator-plane: channels + plane separation (§8.5, §10.10)", () => {
   test("GET /admin/channels lists the operator binding and deliver status", async () => {
     await boot();
     const { json } = await get("/channels");
+    // Since §17.2 the summary names the channel INSTANCE (FR-125); `operator` is
+    // the legacy binding and stays for as long as bindOperator does.
     expect(json.channels).toEqual([
-      { operator: "operator", type: "telegram", status: "connected" },
+      { name: "telegram", operator: "operator", type: "telegram", status: "connected" },
     ]);
   });
 

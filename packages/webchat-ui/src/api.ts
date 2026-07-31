@@ -3,7 +3,14 @@
 // the client never sees the token, fetch just carries it.
 
 import type { ServerInfo } from "./server-info";
-import type { BlobMeta, HistoryPage, PanelEvent, PeerInfo, TokenSeries } from "./types";
+import type {
+  BlobMeta,
+  HistoryPage,
+  PanelEvent,
+  PeerInfo,
+  SelfChatInfo,
+  TokenSeries,
+} from "./types";
 
 /** Client-generated message id — the §10.9 idempotency key for send retries. */
 export const newMessageId = (): string => crypto.randomUUID();
@@ -23,12 +30,16 @@ export class ApiError extends Error {
   }
 }
 
-export async function login(password: string): Promise<void> {
+/**
+ * Login (§12.6, §17.4): `user` is required in users mode (FR-127) and ignored by
+ * a legacy single-operator panel, so it is simply omitted when empty.
+ */
+export async function login(password: string, user?: string): Promise<void> {
   await jsonOrThrow(
     await fetch("api/login", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ password }),
+      body: JSON.stringify({ password, ...(user !== undefined && user !== "" ? { user } : {}) }),
     }),
   );
 }
@@ -37,13 +48,40 @@ export async function fetchPeers(): Promise<{
   peers: readonly PeerInfo[];
   /** The bound operator's name (FR-68) — the sidebar account button. */
   operator?: string;
+  /** The logged-in user (§17.7, FR-127); equals `operator` in legacy mode. */
+  user?: string;
+  /** Panel role (§17.7, FR-131): only "admin" sees the transport journal. */
+  role?: "admin" | "user";
+  /** The pinned self-chat entry (§17.7, FR-128); absent for a legacy operator. */
+  self?: SelfChatInfo;
 }> {
-  return jsonOrThrow<{ peers: readonly PeerInfo[]; operator?: string }>(await fetch("api/peers"));
+  return jsonOrThrow<{
+    peers: readonly PeerInfo[];
+    operator?: string;
+    user?: string;
+    role?: "admin" | "user";
+    self?: SelfChatInfo;
+  }>(await fetch("api/peers"));
 }
 
-/** When the current session dies (FR-86) — feeds the auto-renewal schedule. */
-export async function sessionInfo(): Promise<{ expiresAt?: number }> {
-  return jsonOrThrow<{ expiresAt?: number }>(await fetch("api/session"));
+/**
+ * When the current session dies (FR-86) — feeds the auto-renewal schedule — plus
+ * WHO it belongs to and with which role (§17.7, FR-127/FR-131).
+ */
+export async function sessionInfo(): Promise<{
+  expiresAt?: number;
+  user?: string;
+  role?: "admin" | "user";
+  displayName?: string;
+  selfChat?: boolean;
+}> {
+  return jsonOrThrow<{
+    expiresAt?: number;
+    user?: string;
+    role?: "admin" | "user";
+    displayName?: string;
+    selfChat?: boolean;
+  }>(await fetch("api/session"));
 }
 
 /** The server's build info (FR-91) — version + commit + build time; Settings footer. */

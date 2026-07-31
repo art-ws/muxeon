@@ -15,6 +15,11 @@ export interface BroadcastGroup {
   readonly parent?: string;
 }
 
+/**
+ * A member candidate: an agent — or, since §17 (FR-130), a USER. Both carry the
+ * same `{name, group?, tags?}` shape, and both are equal members of a group/tag,
+ * so the composition root feeds this resolver `[...agents, ...users]`.
+ */
 export interface BroadcastAgent {
   readonly name: string;
   readonly group?: string;

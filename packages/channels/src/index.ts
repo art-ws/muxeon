@@ -3,6 +3,7 @@
 // sink, media→blob. (SPEC.md §8.4, §3.2) — T29.
 export * from "./contract";
 export * from "./address";
+export * from "./identity";
 export * from "./telegram";
 export * from "./telegram-api";
 export * from "./slack";

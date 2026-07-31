@@ -59,11 +59,14 @@ export function intersectSelectors(
     if (i === 0) firstOrder = members;
   });
 
-  // intersection in the first selector's order, deduped
+  // intersection in the first selector's order, deduped. Non-agent members —
+  // USERS in a group/tag since §17 (FR-130) — are dropped here: a human has no
+  // console for a slash command to run on, and that is NOT an error (§17.5).
   const seen = new Set<string>();
   const agents: string[] = [];
   for (const name of firstOrder) {
     if (seen.has(name)) continue;
+    if (!isAgent(name)) continue;
     if (memberSets.every((set) => set.has(name))) {
       agents.push(name);
       seen.add(name);

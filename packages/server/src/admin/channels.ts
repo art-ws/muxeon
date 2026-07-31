@@ -5,9 +5,16 @@
 import type { ChannelRuntime } from "../wire-channels";
 
 export interface ChannelSummary {
-  readonly operator: string;
+  /** Channel instance name (§17.2, FR-125) — `name`, or the type by default. */
+  readonly name: string;
+  /** The bound legacy operator (§12.1); absent in users mode (§17.2). */
+  readonly operator?: string;
   readonly type: string;
-  /** "connected" once the deliver port is registered; "pending" while it is not. */
+  /**
+   * "connected" once the deliver port is registered; "pending" while it is not.
+   * A users-mode channel owns no queue (§17.5) — it is "connected" as soon as its
+   * connector is up, which it is by the time this list can be asked for.
+   */
   readonly status: "connected" | "pending";
 }
 
@@ -19,9 +26,10 @@ export function createChannelsAdmin(channels: ReadonlyMap<string, ChannelRuntime
   return {
     list: () =>
       [...channels.values()].map((channel) => ({
-        operator: channel.operator,
+        name: channel.name,
+        ...(channel.operator !== undefined ? { operator: channel.operator } : {}),
         type: channel.type,
-        status: channel.egress.hasDeliver ? "connected" : "pending",
+        status: (channel.egress?.hasDeliver ?? true) ? "connected" : "pending",
       })),
   };
 }

@@ -8,7 +8,12 @@ import { dirname, resolve } from "node:path";
 import { type EnvSource, joinPointer, processEnv, resolveEnv } from "./env";
 import { ConfigError } from "./error";
 import { resolveRefs } from "./ref";
-import { type TeamaiConfig, assertChannelSecretsAreEnvRefs, validateStructure } from "./schema";
+import {
+  type TeamaiConfig,
+  assertChannelSecretsAreEnvRefs,
+  inlineUserPasswords,
+  validateStructure,
+} from "./schema";
 import { validateRules } from "./validate";
 
 export interface LoadOptions {
@@ -46,12 +51,22 @@ export function loadConfig(text: string, options: LoadOptions = {}): LoadResult 
   if (options.readFile !== undefined) refOptions.readFile = options.readFile;
   const assembled = resolveRefs(parseConfig(text), refOptions); // §7.2: assemble monolith
   assertChannelSecretsAreEnvRefs(assembled); // §7.3: secrets must be $env (pre-resolution)
+  // A literal `users[].auth.password` is legal (§17.2 point relaxation of §10.7,
+  // decision §17.10-1) — but it is read PRE-resolution, so the warning can only be
+  // collected here, before the reference and the literal become indistinguishable.
+  const inlinePasswords = inlineUserPasswords(assembled);
   const { value, secretPaths } = resolveEnv(assembled, env); // §7.3 / §10.7
   const config = validateStructure(value); // base schema (§7.1)
   const context: { knownAdapterTypes?: Iterable<string> } = {};
   if (options.knownAdapterTypes !== undefined)
     context.knownAdapterTypes = options.knownAdapterTypes;
-  const warnings = validateRules(config, context); // §7.5 semantic rules
+  const warnings = [
+    ...inlinePasswords.map(
+      (name) =>
+        `user "${name}" has an inline auth.password — prefer { "$env": ... } or passwordHash (§17.2)`,
+    ),
+    ...validateRules(config, context), // §7.5 semantic rules
+  ];
   // §7.1 path normalization (T121, FR-82): with a known config location, every
   // agent path leaves the loader ABSOLUTE — a relative cwd otherwise splinters
   // into three readings (server process cwd, the agent's own cwd resolving the

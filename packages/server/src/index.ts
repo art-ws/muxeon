@@ -7,11 +7,13 @@
 import { parseConfigArg } from "@teamai/config";
 import { bootstrap } from "./bootstrap";
 import { CLI_COMMANDS, runCli } from "./cli/cli";
+import { createShutdownHandler } from "./shutdown";
 
 export * from "./bootstrap";
 export * from "./wire-channels";
 export * from "./cli/cli";
 export * from "./redact";
+export * from "./shutdown";
 
 async function launch(argv: readonly string[]): Promise<void> {
   // Last-resort safety net (R2, §10): TEAMAI is a transport for many agents — a stray
@@ -44,11 +46,26 @@ async function launch(argv: readonly string[]): Promise<void> {
     }
     process.stdout.write(`teamai: operator-plane on ${server.adminUrl} (loopback)\n`);
     for (const channel of server.channels.values()) {
-      process.stdout.write(`teamai: channel ${channel.type} → operator "${channel.operator}"\n`);
+      // Legacy binds one operator; a users-mode channel (§17.2) serves the users
+      // bound to it, so the line names the channel instance instead.
+      const serves =
+        channel.operator !== undefined
+          ? `operator "${channel.operator}"`
+          : `users of "${channel.name}"`;
+      process.stdout.write(`teamai: channel ${channel.type} → ${serves}\n`);
     }
-    process.on("SIGINT", () => {
-      void server.stop().then(() => process.exit(0));
+    if (server.users.size > 0) {
+      process.stdout.write(
+        `teamai: ${server.users.size} user(s): ${[...server.users.keys()].join(", ")}\n`,
+      );
+    }
+    const onSignal = createShutdownHandler({
+      stop: () => server.stop(),
+      exit: (code) => process.exit(code),
+      warn: (message) => process.stderr.write(`teamai: warning: ${message}\n`),
     });
+    process.on("SIGINT", () => onSignal("SIGINT"));
+    process.on("SIGTERM", () => onSignal("SIGTERM"));
   } catch (error) {
     process.stderr.write(`teamai: ${error instanceof Error ? error.message : String(error)}\n`);
     process.exit(1);

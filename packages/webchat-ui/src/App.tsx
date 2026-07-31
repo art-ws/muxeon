@@ -20,7 +20,7 @@ import {
   translator,
 } from "./i18n";
 import { I18nContext, useT } from "./i18n-context";
-import { instanceName } from "./instance";
+import { authMode, instanceName } from "./instance";
 import { agentColor } from "./palette";
 import { loadPref, savePref } from "./prefs";
 import { type Route, parseRoute, routeHash } from "./route";
@@ -37,7 +37,7 @@ import {
   threadOf,
 } from "./store";
 import { type Theme, applyTheme, loadTheme } from "./theme";
-import { type ChatRecord, type PanelEvent, peerKind } from "./types";
+import { type ChatRecord, type PanelEvent, type SelfChatInfo, peerKind } from "./types";
 import { loadVisibility, saveVisibility, visiblePeers } from "./visibility";
 
 type Action =
@@ -206,8 +206,12 @@ function Login(props: {
 }): React.JSX.Element {
   const t = useT();
   const [password, setPassword] = useState("");
+  const [user, setUser] = useState("");
   const [error, setError] = useState<string | undefined>(undefined);
   const [busy, setBusy] = useState(false);
+  // Users mode (§17.2): the served shell says so, so the form asks WHO is
+  // signing in; a legacy single-operator panel keeps the password-only card.
+  const usersMode = authMode() === "users";
 
   useEffect(() => {
     if (!props.checking) return;
@@ -219,7 +223,7 @@ function Login(props: {
     setBusy(true);
     setError(undefined);
     try {
-      await api.login(password);
+      await api.login(password, usersMode ? user : undefined);
       props.onLoggedIn();
     } catch (failure) {
       setError(failure instanceof Error ? failure.message : "login failed");
@@ -233,13 +237,26 @@ function Login(props: {
     <div className="login-screen">
       <form className="login-card" onSubmit={(event) => void submit(event)}>
         <img className="login-logo" src="assets/logo.png" alt="TEAM AI" />
+        {usersMode && (
+          <input
+            type="text"
+            autoComplete="username"
+            placeholder={t("User")}
+            value={user}
+            onChange={(event) => setUser(event.target.value)}
+          />
+        )}
         <input
           type="password"
-          placeholder={t("Operator password")}
+          autoComplete="current-password"
+          placeholder={t(usersMode ? "Password" : "Operator password")}
           value={password}
           onChange={(event) => setPassword(event.target.value)}
         />
-        <button type="submit" disabled={busy || password.length === 0}>
+        <button
+          type="submit"
+          disabled={busy || password.length === 0 || (usersMode && user.length === 0)}
+        >
           {t("Sign in")}
         </button>
         {error !== undefined && <p className="error">{error}</p>}
@@ -290,8 +307,12 @@ function Panel(props: {
     return () => window.removeEventListener("hashchange", onHashChange);
   }, []);
 
-  // The operator's own name (FR-68) — the sidebar account button.
+  // The operator's own name (FR-68) — the sidebar account button. In users mode
+  // this is the logged-in user (§17.7), with their role (FR-131) and self-chat
+  // (FR-128) alongside.
   const [operator, setOperator] = useState<string | undefined>(undefined);
+  const [role, setRole] = useState<"admin" | "user" | undefined>(undefined);
+  const [self, setSelf] = useState<SelfChatInfo | undefined>(undefined);
 
   // Agent visibility (T110, FR-76): the settings checklist decides which agents
   // the sidebar shows — "all" (default) or only the picked set; persisted.
@@ -344,9 +365,12 @@ function Panel(props: {
 
   // initial peers + the live feed
   useEffect(() => {
-    void api.fetchPeers().then(({ peers, operator: me }) => {
+    void api.fetchPeers().then(({ peers, operator: me, role: myRole, self: mySelf }) => {
       for (const peer of peers) peerSet.current.add(peer.name);
       setOperator(me);
+      setRole(myRole);
+      setSelf(mySelf);
+      if (mySelf !== undefined) peerSet.current.add(mySelf.name);
       dispatch({ kind: "peers", peers });
     });
     return api.connectFeed({
@@ -455,7 +479,12 @@ function Panel(props: {
         selected={openChat}
         onSelect={(peer) => navigate({ view: "chat", peer })}
         transportSelected={route.view === "transport"}
-        {...(showTransport ? { onTransport: () => navigate({ view: "transport" }) } : {})}
+        /* The journal is an admin capability (§17.7, FR-131): a plain user gets no
+           entry at all — the endpoint answers 403 for them anyway. */
+        {...(showTransport && role !== "user"
+          ? { onTransport: () => navigate({ view: "transport" }) }
+          : {})}
+        {...(self !== undefined ? { self } : {})}
         flat={props.flat}
         collapsed={props.collapsed}
         operator={operator}

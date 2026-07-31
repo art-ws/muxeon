@@ -8,3 +8,14 @@ export function instanceName(): string {
   const meta = document.querySelector('meta[name="teamai-name"]');
   return meta?.getAttribute("content")?.trim() ?? "";
 }
+
+/**
+ * The panel's identity mode (§17.2, FR-127): the connector injects
+ * `<meta name="teamai-auth" content="users">` into the served shell when the
+ * channel runs in users mode. Absent ⇒ the legacy single-operator login.
+ */
+export function authMode(): "users" | "legacy" {
+  if (typeof document === "undefined") return "legacy";
+  const meta = document.querySelector('meta[name="teamai-auth"]');
+  return meta?.getAttribute("content")?.trim() === "users" ? "users" : "legacy";
+}
