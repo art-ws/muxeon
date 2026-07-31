@@ -24,7 +24,7 @@ import {
 } from "./draft";
 import { loadDraft, saveDraft } from "./draft-store";
 import { useT } from "./i18n-context";
-import { IconCamera, IconExpand, IconMonitor, IconPaperclip } from "./icons";
+import { IconCamera, IconCollapse, IconExpand, IconMonitor, IconPaperclip } from "./icons";
 
 /** Screen Live poll cadence (FR-102) — configurable here in code. */
 export const SCREEN_LIVE_INTERVAL_MS = 3000;
@@ -83,9 +83,10 @@ export function Composer(props: {
   const [running, setRunning] = useState<string | undefined>(undefined);
   const [menuOpen, setMenuOpen] = useState(false);
   const [commandsOpen, setCommandsOpen] = useState(false);
-  // Full-screen editor for long messages (FR-70): a popup opened from the "+"
-  // menu, bound to the SAME text state — so the draft-persistence useEffect
-  // covers it and closing simply reveals the text in the standard composer.
+  // Full-screen mode for long messages (FR-70, T222): the composer card itself
+  // GROWS to fill the pane (the Gemini idiom) — no separate editor window. The
+  // same textarea and the same text state, so drafts persist and Enter still
+  // sends; Esc or the corner button shrink it back.
   const [expanded, setExpanded] = useState(false);
   // Screen Live (FR-102): a popup that polls the peer's console snapshot; the
   // "+" menu opens it, closing the popup stops the polling.
@@ -111,14 +112,36 @@ export function Composer(props: {
 
   // A manual resize drag sets the textarea's INLINE style.height (the browser's
   // doing) — that is the signal to adopt and persist the height; auto-rows
-  // growth never touches the inline style, so it stays auto.
+  // growth never touches the inline style, so it stays auto. Full-screen mode
+  // owns the height itself (T222) — nothing to adopt there.
   const adoptManualHeight = (): void => {
+    if (expanded) return;
     const inline = textareaRef.current?.style.height ?? "";
     const parsed = Number.parseInt(inline, 10);
     if (inline !== "" && Number.isFinite(parsed) && parsed > 0 && parsed !== height) {
       setHeight(parsed);
     }
   };
+
+  // Esc shrinks the full-screen composer (T222) — window-level, like the old
+  // editor dialog, so it fires even when a click moved focus off the textarea.
+  useEffect(() => {
+    if (!expanded) return;
+    const onKey = (event: KeyboardEvent): void => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        setExpanded(false);
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [expanded]);
+
+  // Growing or shrinking keeps the caret where the writing happens.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: the refocus fires BECAUSE the mode flipped — `expanded` is the trigger, not a read
+  useEffect(() => {
+    textareaRef.current?.focus();
+  }, [expanded]);
 
   const closeMenu = (): void => {
     setMenuOpen(false);
@@ -178,9 +201,14 @@ export function Composer(props: {
   // (hidden in raw mode, §14.3) and slash commands — so it is always present.
   const hasMenuItems = true;
 
+  // The adaptive corner button (T222): appears once the draft is 4+ lines tall
+  // (there is something worth a bigger canvas) and stays while grown (it is the
+  // way back). Mirrors the Gemini corner control on the reference screenshot.
+  const showCorner = expanded || text.split("\n").length >= 4;
+
   return (
     <footer
-      className="composer"
+      className={`composer${expanded ? " expanded" : ""}`}
       onDragOver={(event) => event.preventDefault()}
       onDrop={(event) => {
         event.preventDefault();
@@ -188,6 +216,18 @@ export function Composer(props: {
         void attach(event.dataTransfer.files);
       }}
     >
+      {showCorner && (
+        <button
+          type="button"
+          className="composer-expand"
+          title={t(expanded ? "Collapse" : "Full screen")}
+          aria-label={t(expanded ? "Collapse" : "Full screen")}
+          aria-expanded={expanded}
+          onClick={() => setExpanded((current) => !current)}
+        >
+          {expanded ? <IconCollapse size={15} /> : <IconExpand size={15} />}
+        </button>
+      )}
       {commandOutput !== undefined && (
         <div className="command-output">
           <div className="command-output-head">
@@ -261,7 +301,7 @@ export function Composer(props: {
                 {/* biome-ignore lint/a11y/useKeyWithClickEvents: a transparent click-away backdrop, Esc/menu buttons carry the keyboard path */}
                 <span className="menu-backdrop" onClick={closeMenu} />
                 <span className="composer-menu" role="menu">
-                  {/* full-screen editor for long messages (FR-70) — always available */}
+                  {/* full-screen composer for long messages (FR-70, T222) — always available */}
                   <button
                     type="button"
                     role="menuitem"
@@ -274,7 +314,7 @@ export function Composer(props: {
                     <span className="menu-icon">
                       <IconExpand size={14} />
                     </span>{" "}
-                    {t("Expand editor")}
+                    {t("Full screen")}
                   </button>
                   {/* live console watch (FR-102) — present when the parent wires it */}
                   {props.onScreen !== undefined && (
@@ -397,8 +437,9 @@ export function Composer(props: {
         <textarea
           ref={textareaRef}
           rows={Math.min(6, text.split("\n").length)}
-          /* the persisted manual height (FR-69) wins over auto rows */
-          style={height !== undefined ? { height: `${height}px` } : undefined}
+          /* the persisted manual height (FR-69) wins over auto rows — except
+             full-screen (T222), where the grid owns the whole canvas */
+          style={!expanded && height !== undefined ? { height: `${height}px` } : undefined}
           placeholder={
             raw
               ? t("Terminal command or prompt… (Enter to send)")
@@ -481,90 +522,10 @@ export function Composer(props: {
           onClose={() => setCamera(false)}
         />
       )}
-      {expanded && (
-        <ExpandDialog
-          value={text}
-          onChange={setText}
-          placeholder={
-            raw
-              ? t("Terminal command or prompt… (Enter to send)")
-              : t("Message… (Enter to send, Shift+Enter for a new line)")
-          }
-          onClose={() => {
-            setExpanded(false);
-            textareaRef.current?.focus();
-          }}
-        />
-      )}
       {screenLive && props.onScreen !== undefined && (
         <ScreenLiveDialog fetchScreen={props.onScreen} onClose={() => setScreenLive(false)} />
       )}
     </footer>
-  );
-}
-
-// Full-screen composer editor (FR-70): a popup over the whole viewport for
-// comfortably editing a long message. It edits the SAME draft text the composer
-// holds — no local copy — so the parent's draft-persistence useEffect keeps
-// writing to localStorage as you type here, and closing simply drops focus back
-// to the standard composer with the text already in place. Esc / the ✕ / a click
-// on the backdrop all close; Enter inserts newlines (this is an editor, not a
-// send box), so nothing is sent from here.
-function ExpandDialog(props: {
-  value: string;
-  onChange: (value: string) => void;
-  placeholder: string;
-  onClose: () => void;
-}): React.JSX.Element {
-  const t = useT();
-  const textareaRef = useRef<HTMLTextAreaElement>(null);
-
-  // Focus the editor on open with the caret at the end of the existing text.
-  useEffect(() => {
-    const area = textareaRef.current;
-    if (area === null) return;
-    area.focus();
-    area.setSelectionRange(area.value.length, area.value.length);
-  }, []);
-
-  // Esc closes from anywhere in the dialog (window-level, so it fires even if a
-  // click moved focus off the textarea).
-  useEffect(() => {
-    const onKey = (event: KeyboardEvent): void => {
-      if (event.key === "Escape") {
-        event.preventDefault();
-        props.onClose();
-      }
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [props.onClose]);
-
-  return (
-    <div className="expand-overlay">
-      {/* biome-ignore lint/a11y/useKeyWithClickEvents: a click-away backdrop; Esc/the ✕ carry the keyboard path */}
-      <div className="expand-backdrop" onClick={props.onClose} />
-      <dialog open className="expand-dialog" aria-label={t("Expand editor")}>
-        <div className="expand-head">
-          <span className="expand-title">{t("Expand editor")}</span>
-          <button
-            type="button"
-            className="chip-remove"
-            aria-label={t("Close editor")}
-            onClick={props.onClose}
-          >
-            ×
-          </button>
-        </div>
-        <textarea
-          ref={textareaRef}
-          className="expand-textarea"
-          placeholder={props.placeholder}
-          value={props.value}
-          onChange={(event) => props.onChange(event.target.value)}
-        />
-      </dialog>
-    </div>
   );
 }
 
@@ -618,12 +579,12 @@ function ScreenLiveDialog(props: {
   const seconds = Math.round(SCREEN_LIVE_INTERVAL_MS / 1000);
 
   return (
-    <div className="expand-overlay">
+    <div className="popup-overlay">
       {/* biome-ignore lint/a11y/useKeyWithClickEvents: a click-away backdrop; Esc/the ✕ carry the keyboard path */}
-      <div className="expand-backdrop" onClick={props.onClose} />
-      <dialog open className="expand-dialog screen-live" aria-label={t("Screen Live")}>
-        <div className="expand-head">
-          <span className="expand-title">
+      <div className="popup-backdrop" onClick={props.onClose} />
+      <dialog open className="popup-dialog screen-live" aria-label={t("Screen Live")}>
+        <div className="popup-head">
+          <span className="popup-title">
             {t("Screen Live")}
             <span className="screen-live-note">
               {" "}
@@ -633,7 +594,7 @@ function ScreenLiveDialog(props: {
           <button
             type="button"
             className="chip-remove"
-            aria-label={t("Close editor")}
+            aria-label={t("Close")}
             onClick={props.onClose}
           >
             ×

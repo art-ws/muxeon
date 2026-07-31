@@ -936,10 +936,17 @@ body,
   );
 }
 
-/* the header and the composer sit on the wash with a matching tint */
-.chat-pane.tinted .chat-header,
-.chat-pane.tinted .composer {
+/* the header sits on the wash with a matching tint */
+.chat-pane.tinted .chat-header {
   background: color-mix(in srgb, var(--agent-color) 9%, var(--bg-raised));
+}
+/* the floating composer keeps its glass (T222) — the tint joins the translucency */
+.chat-pane.tinted .composer {
+  background: color-mix(
+    in srgb,
+    var(--agent-color) 7%,
+    color-mix(in srgb, var(--bg-raised) 72%, transparent)
+  );
 }
 
 /* thinking (busy): BREATHING (T101) — the moving-gradient loops had a visible
@@ -1010,6 +1017,7 @@ body,
   display: flex;
   flex-direction: column;
   min-width: 0;
+  position: relative; /* the floating composer (T222) anchors to the pane */
 }
 .chat-pane.empty {
   display: grid;
@@ -1436,14 +1444,103 @@ body,
 
 /* --- composer ----------------------------------------------------------- */
 
+/* The composer FLOATS over the feed (T222, the Gemini idiom): messages scroll
+   under and around it; a frosted-glass card — translucent raised background
+   behind a backdrop blur (text on top stays fully opaque and readable), a
+   hairline near-invisible border and a soft shadow. */
 .composer {
+  position: absolute;
+  left: 50%;
+  bottom: 14px;
+  transform: translateX(-50%);
+  z-index: 3;
+  width: min(880px, calc(100% - 28px));
   display: flex;
   gap: 10px;
   align-items: flex-end;
   flex-wrap: wrap;
-  padding: 12px 18px;
-  border-top: 1px solid var(--border);
-  background: var(--bg-raised);
+  padding: 10px 12px;
+  border: 1px solid color-mix(in srgb, var(--text) 13%, transparent);
+  border-radius: 22px;
+  background: color-mix(in srgb, var(--bg-raised) 74%, transparent);
+  -webkit-backdrop-filter: blur(14px) saturate(1.15);
+  backdrop-filter: blur(14px) saturate(1.15);
+  box-shadow: 0 8px 28px rgb(0 0 0 / 12%);
+}
+.composer:focus-within {
+  border-color: color-mix(in srgb, var(--accent) 55%, transparent);
+}
+/* no backdrop-filter (old engines): fall back to an opaque card — readability
+   beats the glass */
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .composer {
+    background: var(--bg-raised);
+  }
+}
+
+/* the feed keeps the last message clear of the resting card (T222): the scroll
+   area runs UNDER the glass, the pinned bottom stays readable above it */
+.chat-pane:has(> .composer) .feed {
+  padding-bottom: 104px;
+}
+
+/* Full-screen (FR-70, T222): the SAME card grows in place to fill the pane —
+   no second window. The shell turns into a grid: the textarea is the whole
+   canvas, the +/mic/send row settles at the bottom (the reference layout). */
+.composer.expanded {
+  top: 14px;
+  flex-direction: column;
+  align-items: stretch;
+  flex-wrap: nowrap;
+}
+.composer.expanded .composer-shell {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: auto 1fr auto auto;
+  grid-template-rows: minmax(0, 1fr) auto;
+  grid-template-areas:
+    "text text text text"
+    "plus . mic send";
+}
+.composer.expanded .composer-shell textarea {
+  grid-area: text;
+  height: 100%;
+  max-height: none;
+  resize: none;
+  padding: 10px 8px 10px 8px;
+}
+.composer.expanded .plus-anchor {
+  grid-area: plus;
+}
+.composer.expanded .composer-shell > .icon-button {
+  grid-area: mic;
+}
+.composer.expanded .composer-shell > .send-button {
+  grid-area: send;
+}
+
+/* the adaptive corner control (T222): grows/shrinks the card — appears once
+   the draft is 4+ lines (and stays while grown, as the way back) */
+.composer-expand {
+  position: absolute;
+  top: 8px;
+  right: 10px;
+  z-index: 2;
+  width: 30px;
+  height: 30px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--text-dim);
+  cursor: pointer;
+}
+.composer-expand:hover {
+  background: var(--bg-hover);
+  color: var(--text);
 }
 
 /* the "+" menu (T94, FR-70): one anchor, an upward panel, a slash SUBMENU */
@@ -1579,9 +1676,8 @@ body,
 }
 
 /* borderless inside the pill — the shell carries the visual frame (T94) */
-/* scope to the pill's own input: the expand/screen-live overlays are DOM
-   children of .composer too, and the leaky `.composer textarea` used to cap
-   the full-screen editor at 50vh + force a resize handle over .expand-textarea */
+/* scope to the pill's own input: the screen-live overlay is a DOM child of
+   .composer too — a leaky `.composer textarea` would style its <pre> siblings */
 .composer-shell textarea {
   flex: 1;
   min-width: 200px;
@@ -1599,20 +1695,16 @@ body,
 
 /* --- attachments + capture (T50, §12.5) -------------------------------- */
 
-/* the pill shell (T94, FR-70): one rounded container for + / text / mic / ↑ */
+/* the shell row for + / text / mic / ↑ (T94): frameless since T222 — the
+   floating glass card carries the visual pill, focus rings the card itself */
 .composer-shell {
   display: flex;
   gap: 6px;
   align-items: flex-end;
   width: 100%;
-  padding: 6px;
-  background: var(--bg);
-  border: 1px solid var(--border);
-  border-radius: 26px;
-}
-
-.composer-shell:focus-within {
-  border-color: var(--accent);
+  padding: 0;
+  background: transparent;
+  border: none;
 }
 
 .plus-button,
@@ -1748,6 +1840,55 @@ body,
   animation: pulse 1.2s infinite;
 }
 
+/* --- shared popup chrome (T222): Screen Live and friends ---------------- */
+
+.popup-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+  display: grid;
+  place-items: center;
+  padding: 3vh 3vw;
+}
+
+.popup-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgb(0 0 0 / 55%);
+}
+
+dialog.popup-dialog {
+  position: relative;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 0;
+  margin: 0;
+  overflow: hidden;
+  color: var(--text);
+  background: var(--bg-raised);
+  box-shadow: 0 12px 40px rgb(0 0 0 / 35%);
+  display: flex;
+  flex-direction: column;
+  width: min(1000px, 94vw);
+  height: min(88vh, 94vh);
+  max-width: 94vw;
+  max-height: 94vh;
+}
+
+.popup-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-shrink: 0;
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--border);
+}
+
+.popup-title {
+  font-weight: 600;
+  font-size: 14px;
+}
+
 .camera-overlay {
   position: fixed;
   inset: 0;
@@ -1789,76 +1930,6 @@ dialog.camera-dialog {
   background: var(--bg);
   color: var(--text);
   cursor: pointer;
-}
-
-/* Full-screen composer editor (FR-70): a popup for editing a long message —
-   the same draft text, more room to see it. */
-.expand-overlay {
-  position: fixed;
-  inset: 0;
-  z-index: 20;
-  display: grid;
-  place-items: center;
-  padding: 3vh 3vw;
-}
-
-.expand-backdrop {
-  position: absolute;
-  inset: 0;
-  background: rgb(0 0 0 / 55%);
-}
-
-dialog.expand-dialog {
-  position: relative;
-  border: 1px solid var(--border);
-  border-radius: 14px;
-  padding: 0;
-  margin: 0;
-  overflow: hidden;
-  color: var(--text);
-  background: var(--bg-raised);
-  box-shadow: 0 12px 40px rgb(0 0 0 / 35%);
-  display: flex;
-  flex-direction: column;
-  width: min(1000px, 94vw);
-  height: min(88vh, 94vh);
-  max-width: 94vw;
-  max-height: 94vh;
-}
-
-.expand-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  flex-shrink: 0;
-  padding: 12px 14px;
-  border-bottom: 1px solid var(--border);
-}
-
-.expand-title {
-  font-weight: 600;
-  font-size: 14px;
-}
-
-/* the input fills the whole panel below the header (no footer, no chrome) */
-.expand-textarea {
-  flex: 1;
-  min-height: 0;
-  width: 100%;
-  resize: none;
-  box-sizing: border-box;
-  padding: 14px 16px;
-  border: none;
-  border-radius: 0;
-  background: var(--bg);
-  color: var(--text);
-  font: inherit;
-  font-size: 15px;
-  line-height: 1.5;
-}
-
-.expand-textarea:focus {
-  outline: none;
 }
 
 /* Screen Live (FR-102): the polled console capture fills the panel as-is. */
