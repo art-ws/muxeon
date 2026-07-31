@@ -26,10 +26,7 @@ import {
 } from "./draft";
 import { loadDraft, saveDraft } from "./draft-store";
 import { useT } from "./i18n-context";
-import { IconCamera, IconCollapse, IconExpand, IconMonitor, IconPaperclip } from "./icons";
-
-/** Screen Live poll cadence (FR-102) — configurable here in code. */
-export const SCREEN_LIVE_INTERVAL_MS = 3000;
+import { IconCamera, IconCollapse, IconExpand, IconPaperclip } from "./icons";
 
 export interface Draft {
   readonly text: string;
@@ -44,8 +41,6 @@ export function Composer(props: {
   commands?: readonly string[];
   /** Runs a command; resolves to the console output as-is. */
   onCommand?: (slash: string) => Promise<string>;
-  /** Fetches the peer's live console snapshot (FR-102) — the Screen Live poll. */
-  onScreen?: () => Promise<string>;
   /**
    * Raw transport mode (FR-88, §14.3): the text is sent to the terminal as-is.
    * Media is disabled — the attach/camera/mic paths hide, file drop/paste is
@@ -90,9 +85,6 @@ export function Composer(props: {
   // same textarea and the same text state, so drafts persist; Esc or the corner
   // button shrink it back.
   const [expanded, setExpanded] = useState(false);
-  // Screen Live (FR-102): a popup that polls the peer's console snapshot; the
-  // "+" menu opens it, closing the popup stops the polling.
-  const [screenLive, setScreenLive] = useState(false);
   const [commandOutput, setCommandOutput] = useState<{ slash: string; output: string } | undefined>(
     undefined,
   );
@@ -347,23 +339,6 @@ export function Composer(props: {
                   </span>{" "}
                   {expandLabel}
                 </button>
-                {/* live console watch (FR-102) — present when the parent wires it */}
-                {props.onScreen !== undefined && (
-                  <button
-                    type="button"
-                    role="menuitem"
-                    className="menu-item"
-                    onClick={() => {
-                      closeMenu();
-                      setScreenLive(true);
-                    }}
-                  >
-                    <span className="menu-icon">
-                      <IconMonitor size={14} />
-                    </span>{" "}
-                    {t("Screen Live")}
-                  </button>
-                )}
                 {/* media items hide in raw mode (§14.3) */}
                 {!raw && <span className="menu-separator" />}
                 {!raw && (
@@ -560,94 +535,7 @@ export function Composer(props: {
           />,
           document.body,
         )}
-      {screenLive &&
-        props.onScreen !== undefined &&
-        createPortal(
-          <ScreenLiveDialog fetchScreen={props.onScreen} onClose={() => setScreenLive(false)} />,
-          document.body,
-        )}
     </footer>
-  );
-}
-
-// Screen Live (FR-102): a popup that polls the peer's console snapshot on a
-// fixed cadence and shows it as-is (monospace <pre>, no markdown — it is a raw
-// terminal capture). The polling lives entirely inside this component, so
-// closing the popup (Esc / the ✕ / a backdrop click) unmounts it and stops the
-// interval — the mode never runs in the background.
-function ScreenLiveDialog(props: {
-  fetchScreen: () => Promise<string>;
-  onClose: () => void;
-}): React.JSX.Element {
-  const t = useT();
-  const [output, setOutput] = useState<string | undefined>(undefined);
-  const [error, setError] = useState<string | undefined>(undefined);
-
-  useEffect(() => {
-    let cancelled = false;
-    const tick = async (): Promise<void> => {
-      try {
-        const next = await props.fetchScreen();
-        if (!cancelled) {
-          setOutput(next);
-          setError(undefined);
-        }
-      } catch (failure) {
-        // keep the last frame; surface the error but keep polling — a transient
-        // capture failure (agent restarting) should recover on the next tick.
-        if (!cancelled) setError(failure instanceof Error ? failure.message : "capture failed");
-      }
-    };
-    void tick(); // first frame immediately, then on the cadence
-    const timer = setInterval(() => void tick(), SCREEN_LIVE_INTERVAL_MS);
-    return () => {
-      cancelled = true;
-      clearInterval(timer);
-    };
-  }, [props.fetchScreen]);
-
-  useEffect(() => {
-    const onKey = (event: KeyboardEvent): void => {
-      if (event.key === "Escape") {
-        event.preventDefault();
-        props.onClose();
-      }
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [props.onClose]);
-
-  const seconds = Math.round(SCREEN_LIVE_INTERVAL_MS / 1000);
-
-  return (
-    <div className="popup-overlay">
-      {/* biome-ignore lint/a11y/useKeyWithClickEvents: a click-away backdrop; Esc/the ✕ carry the keyboard path */}
-      <div className="popup-backdrop" onClick={props.onClose} />
-      <dialog open className="popup-dialog screen-live" aria-label={t("Screen Live")}>
-        <div className="popup-head">
-          <span className="popup-title">
-            {t("Screen Live")}
-            <span className="screen-live-note">
-              {" "}
-              {t("live console — refreshes every {seconds}s").replace("{seconds}", String(seconds))}
-            </span>
-          </span>
-          <button
-            type="button"
-            className="chip-remove"
-            aria-label={t("Close")}
-            onClick={props.onClose}
-          >
-            ×
-          </button>
-        </div>
-        {/* as-is: monospace terminal capture, NO markdown */}
-        <pre className="screen-live-pane">
-          {output ?? (error === undefined ? `${t("Loading")}…` : "")}
-        </pre>
-        {error !== undefined && <p className="error screen-live-error">{error}</p>}
-      </dialog>
-    </div>
   );
 }
 

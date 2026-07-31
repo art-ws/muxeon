@@ -578,8 +578,6 @@ function Panel(props: {
             onSend={(draft) => send(openChat, draft)}
             commands={openHasConsole ? (openPeer?.commands ?? []) : []}
             onCommand={(slash) => api.runAgentCommand(openChat, slash)}
-            /* Screen Live watches a tmux pane — only an agent has one (FR-102) */
-            {...(openHasConsole ? { onScreen: () => api.fetchAgentScreen(openChat) } : {})}
             /* no terminal behind a group/tag (§15) or a person (§17.7) — raw mode
                is off there (the server rejects it anyway) */
             raw={openHasConsole ? raw : false}

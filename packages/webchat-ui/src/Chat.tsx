@@ -7,6 +7,7 @@ import { useEffect, useReducer, useRef, useState } from "react";
 import { FilterNote } from "./FilterNote";
 import { MessageText } from "./MessageText";
 import { RzArrows } from "./RzArrows";
+import { SCREEN_LIVE_INTERVAL_MS, ScreenLiveDialog } from "./ScreenLive";
 import { TokenMeter } from "./TokenMeter";
 import { agentAction, blobUrl, clearHistory, exportHistoryUrl, setAgentPaused } from "./api";
 import { usePinnedFeed } from "./feed-pin";
@@ -19,6 +20,7 @@ import {
   IconFile,
   IconGroup,
   IconKebab,
+  IconMonitor,
   IconPause,
   IconPlay,
   IconPower,
@@ -28,7 +30,7 @@ import {
   IconTrash,
   IconX,
 } from "./icons";
-import { chatSurface, dotClass, liveLabel } from "./peer-surface";
+import { chatSurface, dotClass, hasConsole, liveLabel } from "./peer-surface";
 import { routeHash } from "./route";
 import type { ChatThread } from "./store";
 import { TimeStamp } from "./timestamp";
@@ -302,7 +304,13 @@ function MessageFeed(props: {
 function ChatActionsMenu(props: { peer: PeerInfo }): React.JSX.Element {
   const t = useT();
   const [open, setOpen] = useState(false);
+  // Screen Live (FR-102) moved here from the composer's "+" menu in T228
+  // (operator's call): watching a console observes the AGENT, it does not help
+  // compose a message — it belongs with the other agent actions.
+  const [screen, setScreen] = useState(false);
   const peer = props.peer;
+  // only a local agent has a tmux pane to capture (§17.7, §15.5, §18.4)
+  const canWatch = hasConsole(peer);
   const canReload = peer.actions?.reload === true;
   // The server already answers whether there is a session to tear down (it is
   // false for a person, §17.7) — asking the flag keeps the menu honest instead
@@ -327,6 +335,23 @@ function ChatActionsMenu(props: { peer: PeerInfo }): React.JSX.Element {
           {/* biome-ignore lint/a11y/useKeyWithClickEvents: a transparent click-away backdrop, the menu buttons carry the keyboard path */}
           <span className="menu-backdrop" onClick={() => setOpen(false)} />
           <span className="filter-menu" role="menu">
+            {canWatch && (
+              <button
+                type="button"
+                role="menuitem"
+                className="filter-option"
+                title={t("live console — refreshes every {seconds}s").replace(
+                  "{seconds}",
+                  String(Math.round(SCREEN_LIVE_INTERVAL_MS / 1000)),
+                )}
+                onClick={() => {
+                  setOpen(false);
+                  setScreen(true);
+                }}
+              >
+                <IconMonitor size={14} /> {t("Screen Live")}
+              </button>
+            )}
             <a
               role="menuitem"
               className="filter-option"
@@ -372,6 +397,9 @@ function ChatActionsMenu(props: { peer: PeerInfo }): React.JSX.Element {
           </span>
         </>
       )}
+      {/* the popup outlives the menu it was opened from — closing the menu must
+          not stop the watch (the dialog portals itself out of here) */}
+      {screen && <ScreenLiveDialog peer={peer.name} onClose={() => setScreen(false)} />}
     </span>
   );
 }
