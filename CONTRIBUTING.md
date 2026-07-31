@@ -79,6 +79,14 @@ How commit subjects map to a version bump:
 | any type with `BREAKING CHANGE:` in the body | major |
 | `docs: …`, `chore: …` | no release |
 
+What lands in `CHANGELOG.md` (`.releaserc.cjs`): `T<nn>` commits form a
+**Changes** group with the task id as the bold prefix, `feat`/`fix`/`perf` keep
+their usual groups, and every entry carries **the first paragraph of the commit
+body** under the subject — so the changelog says what changed and why, not just
+a title. Housekeeping types (`chore`, `ci`, `test`, `style`, `build`) stay out
+unless the commit carries a `BREAKING CHANGE:` note, which is never hidden.
+Write the body accordingly: the opening paragraph is what your users read.
+
 The npm package is the **root** package: `bin/teamai.js` (a Node shim that
 re-execs `bun`) plus `dist/` (the bundled server and the panel under `dist/ui`).
 `files` in `package.json` is the allowlist — nothing under `packages/` ships.
