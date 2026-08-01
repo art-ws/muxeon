@@ -205,3 +205,58 @@ describe("blob GC sources + peer list (§12.3)", () => {
     expect((await history.peers())[0]).toBe("../../etc/passwd"); // logical name survives
   });
 });
+
+// The self-chat is not a pair (§17.7, FR-128): its thread is the PROJECTION of
+// every pair log — one chronological feed of everything the user said and heard
+// — while the pairs stay the only writers on disk.
+describe("self-chat projection (§17.7, FR-128)", () => {
+  test("every pair merges into one chronological thread, notes to self included", async () => {
+    const history = store();
+    await history.append(record("in-1", { from: "researcher", ts: BASE + 1 }));
+    await history.append(record("out-1", { from: "operator-web", to: "writer", ts: BASE + 2 }));
+    await history.append(record("in-2", { from: "writer", ts: BASE + 3 }));
+    await history.append(
+      record("note-1", { from: "operator-web", to: "operator-web", ts: BASE + 4 }),
+    );
+    const page = await history.projected();
+    expect(page.records.map((r) => r.id)).toEqual(["in-1", "out-1", "in-2", "note-1"]);
+    // the projection copies nothing: the pair logs are exactly what they were
+    expect((await history.page("researcher")).records.map((r) => r.id)).toEqual(["in-1"]);
+    expect((await history.page("writer")).records.map((r) => r.id)).toEqual(["out-1", "in-2"]);
+  });
+
+  test("records sharing a millisecond keep a stable total order", async () => {
+    const history = store();
+    await history.append(record("b", { from: "writer", ts: BASE }));
+    await history.append(record("a", { from: "researcher", ts: BASE }));
+    expect((await history.projected()).records.map((r) => r.id)).toEqual(["a", "b"]);
+  });
+
+  test("the cursor walks the merged feed to its start", async () => {
+    const history = store();
+    for (let i = 0; i < 6; i += 1) {
+      await history.append(
+        record(`m-${i}`, { from: i % 2 === 0 ? "researcher" : "writer", ts: BASE + i }),
+      );
+    }
+    const newest = await history.projected({ limit: 4 });
+    expect(newest.records.map((r) => r.id)).toEqual(["m-2", "m-3", "m-4", "m-5"]);
+    if (newest.nextBefore === undefined) throw new Error("expected a cursor");
+    const older = await history.projected({ before: newest.nextBefore, limit: 4 });
+    expect(older.records.map((r) => r.id)).toEqual(["m-0", "m-1"]);
+    expect(older.nextBefore).toBeUndefined();
+  });
+
+  test("newest() previews the aggregate, not the newest note to self", async () => {
+    const history = store();
+    await history.append(record("note", { from: "operator-web", to: "operator-web", ts: BASE }));
+    await history.append(record("reply", { from: "writer", ts: BASE + 5 }));
+    expect((await history.newest())?.id).toBe("reply");
+    expect((await history.last("operator-web"))?.id).toBe("note");
+  });
+
+  test("an empty history projects an empty page", async () => {
+    expect((await store().projected()).records).toEqual([]);
+    expect(await store().newest()).toBeUndefined();
+  });
+});

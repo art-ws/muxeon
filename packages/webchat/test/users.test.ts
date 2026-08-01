@@ -294,6 +294,58 @@ describe("self-chat (§17.7, FR-128)", () => {
     ).json()) as { records: Signal[] };
     expect(history.records).toEqual([]);
   });
+
+  test("the self thread is the PROJECTION of every pair — both directions", async () => {
+    const token = await login("kim");
+    const history = histories.get("kim");
+    const seed = async (id: string, from: string, to: string, ts: number): Promise<void> => {
+      await history?.append({ id, from, to, kind: "message", ts, payload: id });
+    };
+    await seed("out-1", "kim", "dev", 10); // what kim said to an agent
+    await seed("in-1", "dev", "kim", 20); // what the agent answered
+    await seed("from-alex", "alex", "kim", 30); // …and what a colleague sent
+    await seed("note-1", "kim", "kim", 40); // plus a note to self
+    const self = (await (await connector.handleRequest(get("/api/history/kim", token))).json()) as {
+      records: Signal[];
+    };
+    expect(self.records.map((record) => record.id)).toEqual([
+      "out-1",
+      "in-1",
+      "from-alex",
+      "note-1",
+    ]);
+    // the pair chat keeps showing exactly its own pair — the projection copies nothing
+    const pair = (await (await connector.handleRequest(get("/api/history/dev", token))).json()) as {
+      records: Signal[];
+    };
+    expect(pair.records.map((record) => record.id)).toEqual(["out-1", "in-1"]);
+    // …and the self row previews the aggregate's newest, not the newest note
+    const peers = (await (await connector.handleRequest(get("/api/peers", token))).json()) as {
+      peers: { name: string; lastMessage?: { preview: string } }[];
+    };
+    expect(peers.peers.find((peer) => peer.name === "kim")?.lastMessage?.preview).toBe("note-1");
+    await seed("in-2", "dev", "kim", 50);
+    const later = (await (await connector.handleRequest(get("/api/peers", token))).json()) as {
+      peers: { name: string; lastMessage?: { preview: string } }[];
+    };
+    expect(later.peers.find((peer) => peer.name === "kim")?.lastMessage?.preview).toBe("in-2");
+  });
+
+  test("the projection stays inside its own user (§10.22)", async () => {
+    const token = await login("kim");
+    await histories.get("alex")?.append({
+      id: "alex-secret",
+      from: "dev",
+      to: "alex",
+      kind: "message",
+      ts: 5,
+      payload: "for alex only",
+    });
+    const self = (await (await connector.handleRequest(get("/api/history/kim", token))).json()) as {
+      records: Signal[];
+    };
+    expect(self.records).toEqual([]);
+  });
 });
 
 describe("transport journal by role (§17.7, FR-131)", () => {

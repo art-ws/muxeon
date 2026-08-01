@@ -78,7 +78,7 @@ describe("message events (§12.4)", () => {
       state,
       { type: "status", peer: "researcher", status: "busy", queueDepth: 1 },
       isOperator,
-      1000,
+      { now: 1000 },
     );
     expect(state.peers[0]?.busySince).toBe(1000);
     // still busy later — the stamp must NOT move (the timer keeps counting)
@@ -86,7 +86,7 @@ describe("message events (§12.4)", () => {
       state,
       { type: "status", peer: "researcher", status: "busy", queueDepth: 2 },
       isOperator,
-      5000,
+      { now: 5000 },
     );
     expect(state.peers[0]?.busySince).toBe(1000);
     // leaving busy drops the stamp — the header timer disappears
@@ -94,7 +94,7 @@ describe("message events (§12.4)", () => {
       state,
       { type: "status", peer: "researcher", status: "idle", queueDepth: 0 },
       isOperator,
-      9000,
+      { now: 9000 },
     );
     expect(state.peers[0]?.busySince).toBeUndefined();
   });
@@ -199,7 +199,7 @@ describe("pause in the status push (§16.6, FR-120)", () => {
       state,
       { type: "status", peer: "researcher", status: "busy", queueDepth: 1, paused: true },
       isOperator,
-      1000,
+      { now: 1000 },
     );
     expect(state.peers[0]?.paused).toBe(true);
     expect(state.peers[0]?.status).toBe("busy"); // a paused agent can still be busy
@@ -238,5 +238,95 @@ describe("pause in the status push (§16.6, FR-120)", () => {
       ["researcher", false],
       ["writer", true],
     ]);
+  });
+});
+
+// The self-chat mirror (§17.7, FR-128, T236): with the logged-in name known,
+// every record belongs to its pair thread AND to the self thread — the panel's
+// live view of the same projection the server serves on reload.
+describe("self-chat aggregate (§17.7, FR-128)", () => {
+  const me = "operator-web";
+  const mirrored = (state: PanelState, id: string, pair: string) => ({
+    pair: threadOf(state, pair).records.map((r) => r.id),
+    self: threadOf(state, me).records.map((r) => r.id),
+    id,
+  });
+
+  test("an incoming reply lands in the pair chat AND in the self chat", () => {
+    const state = applyEvent(
+      withPeers("researcher", me),
+      { type: "message", record: record("in-1") },
+      isOperator,
+      { self: me },
+    );
+    expect(mirrored(state, "in-1", "researcher")).toEqual({
+      pair: ["in-1"],
+      self: ["in-1"],
+      id: "in-1",
+    });
+  });
+
+  test("an outgoing message files under the RECIPIENT, mirrored to self", () => {
+    // the pre-§17 heuristic would file it under the sender: our own name is a peer row
+    const state = applyEvent(
+      withPeers("researcher", me),
+      { type: "message", record: record("out-1", { from: me, to: "researcher" }) },
+      isOperator,
+      { self: me },
+    );
+    expect(threadOf(state, "researcher").records.map((r) => r.id)).toEqual(["out-1"]);
+    expect(threadOf(state, me).records.map((r) => r.id)).toEqual(["out-1"]);
+  });
+
+  test("the optimistic outgoing record mirrors too", () => {
+    const state = applyOutgoing(
+      withPeers("researcher", me),
+      record("opt-1", { from: me, to: "researcher" }),
+      me,
+    );
+    expect(threadOf(state, "researcher").records.map((r) => r.id)).toEqual(["opt-1"]);
+    expect(threadOf(state, me).records.map((r) => r.id)).toEqual(["opt-1"]);
+    expect(state.phases["opt-1"]).toBe("queued");
+  });
+
+  test("a note to self is stored once — no duplicate bubble", () => {
+    const state = applyEvent(
+      withPeers(me),
+      { type: "message", record: record("note-1", { from: me, to: me }) },
+      isOperator,
+      { self: me },
+    );
+    expect(threadOf(state, me).records.map((r) => r.id)).toEqual(["note-1"]);
+  });
+
+  test("unread counts on the pair row only — the self row must not double it", () => {
+    const state = applyEvent(
+      withPeers("researcher", me),
+      { type: "message", record: record("in-1") },
+      isOperator,
+      { self: me },
+    );
+    expect(state.peers.find((p) => p.name === "researcher")?.unread).toBe(1);
+    expect(state.peers.find((p) => p.name === me)?.unread).toBe(0);
+  });
+
+  test("a note to self raises no badge — we wrote it", () => {
+    const state = applyEvent(
+      withPeers(me),
+      { type: "message", record: record("note-1", { from: me, to: me }) },
+      isOperator,
+      { self: me },
+    );
+    expect(state.peers.find((p) => p.name === me)?.unread).toBe(0);
+  });
+
+  test("without a self name (legacy operator, §17.9) nothing is mirrored", () => {
+    const state = applyEvent(
+      withPeers("researcher"),
+      { type: "message", record: record("in-1") },
+      isOperator,
+    );
+    expect(threadOf(state, "researcher").records.map((r) => r.id)).toEqual(["in-1"]);
+    expect(Object.keys(state.threads)).toEqual(["researcher"]);
   });
 });

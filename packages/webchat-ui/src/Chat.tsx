@@ -32,7 +32,7 @@ import {
 } from "./icons";
 import { chatSurface, dotClass, hasConsole, liveLabel } from "./peer-surface";
 import { routeHash } from "./route";
-import type { ChatThread } from "./store";
+import { type ChatThread, peerOf } from "./store";
 import { TimeStamp } from "./timestamp";
 import {
   type BlobRef,
@@ -42,6 +42,18 @@ import {
   payloadParts,
   peerKind,
 } from "./types";
+
+/**
+ * Which side of the feed a bubble sits on. With the logged-in name known
+ * (users mode, §17.7) it is simply "did I write this" — the pre-§17 fallback
+ * "whoever is not a listed peer is us" cannot answer it there, because the
+ * viewer's own name IS a peer row (the self-chat).
+ */
+const isMine = (
+  from: string,
+  self: string | undefined,
+  isPeer: (name: string) => boolean,
+): boolean => (self !== undefined ? from === self : !isPeer(from));
 
 /* the queue-progress ticks (§12.4) in the shared stroke language (T112) */
 const PHASE_TICK: Record<MessagePhase, React.JSX.Element> = {
@@ -57,6 +69,12 @@ export function ChatView(props: {
   thread: ChatThread;
   phases: Readonly<Record<string, MessagePhase>>;
   isPeer: (name: string) => boolean;
+  /**
+   * The logged-in user (§17.7, FR-127). It decides which side a bubble sits on
+   * — in users mode the viewer is a peer row too, so "not a peer ⇒ mine" breaks
+   * — and marks the self-chat, whose feed is the aggregate of every pair.
+   */
+  self?: string | undefined;
   onLoadOlder: () => void;
   /** Global auto-scroll switch (FR-62): ON pins the feed to the newest message. */
   follow?: boolean;
@@ -81,6 +99,7 @@ export function ChatView(props: {
         thread={props.thread}
         phases={props.phases}
         isPeer={props.isPeer}
+        {...(props.self !== undefined ? { self: props.self } : {})}
         onLoadOlder={props.onLoadOlder}
         {...(props.follow !== undefined ? { follow: props.follow } : {})}
         {...(props.query !== undefined ? { query: props.query } : {})}
@@ -139,6 +158,7 @@ export function ChatView(props: {
         thread={props.thread}
         phases={props.phases}
         isPeer={props.isPeer}
+        {...(props.self !== undefined ? { self: props.self } : {})}
         onLoadOlder={props.onLoadOlder}
         {...(props.follow !== undefined ? { follow: props.follow } : {})}
         {...(props.query !== undefined ? { query: props.query } : {})}
@@ -160,6 +180,7 @@ function BroadcastChatView(props: {
   thread: ChatThread;
   phases: Readonly<Record<string, MessagePhase>>;
   isPeer: (name: string) => boolean;
+  self?: string | undefined;
   onLoadOlder: () => void;
   follow?: boolean;
   query?: string;
@@ -187,6 +208,7 @@ function BroadcastChatView(props: {
         thread={props.thread}
         phases={props.phases}
         isPeer={props.isPeer}
+        {...(props.self !== undefined ? { self: props.self } : {})}
         onLoadOlder={props.onLoadOlder}
         {...(props.follow !== undefined ? { follow: props.follow } : {})}
         {...(props.query !== undefined ? { query: props.query } : {})}
@@ -206,11 +228,16 @@ function MessageFeed(props: {
   thread: ChatThread;
   phases: Readonly<Record<string, MessagePhase>>;
   isPeer: (name: string) => boolean;
+  /** The logged-in user (§17.7) — the "mine" side and the self-chat marker. */
+  self?: string | undefined;
   onLoadOlder: () => void;
   follow?: boolean;
   query?: string;
   anchor?: string | undefined;
 }): React.JSX.Element {
+  // The self-chat (§17.7, FR-128): the open chat IS the viewer — its feed
+  // aggregates every pair, so each bubble points back at its own pair chat.
+  const selfView = props.self !== undefined && props.peerName === props.self;
   // The global filter (FR-71): hide non-matching bubbles, COUNT what is hidden
   // — the strip under the header keeps the filtered view honest.
   const query = props.query ?? "";
@@ -282,9 +309,16 @@ function MessageFeed(props: {
             <Bubble
               key={record.id}
               record={record}
-              mine={!props.isPeer(record.from)}
+              mine={isMine(record.from, props.self, props.isPeer)}
               phase={props.phases[record.id]}
-              chatPeer={props.peerName}
+              /* In the self-chat (§17.7) the feed is the aggregate of every pair,
+                 so a bubble's link opens the chat it actually belongs to (the
+                 jump-to-the-pair of FR-128); elsewhere it is this chat. */
+              chatPeer={
+                selfView
+                  ? peerOf(record, (name) => !props.isPeer(name), props.self)
+                  : props.peerName
+              }
             />
           ))}
         </div>

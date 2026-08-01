@@ -50,8 +50,12 @@ type Action =
   | { kind: "event"; event: PanelEvent };
 
 // The panel is one operator (§12.1): anything that is not a listed peer is "us".
+// In users mode (§17.7) that heuristic is not enough — the viewer's own name is
+// a peer row too (the self-chat) — so `self()` names us outright when known; it
+// is read late (a ref, not a value) because the identity arrives with the first
+// api/peers, after the reducer is built.
 const makeReducer =
-  (isPeer: (name: string) => boolean) =>
+  (isPeer: (name: string) => boolean, self: () => string | undefined) =>
   (state: PanelState, action: Action): PanelState => {
     switch (action.kind) {
       case "peers":
@@ -61,9 +65,9 @@ const makeReducer =
       case "page":
         return applyHistoryPage(state, action.peer, action.page);
       case "outgoing":
-        return applyOutgoing(state, action.record);
+        return applyOutgoing(state, action.record, self());
       case "event":
-        return applyEvent(state, action.event, (name) => !isPeer(name));
+        return applyEvent(state, action.event, (name) => !isPeer(name), { self: self() });
       default:
         return state;
     }
@@ -321,7 +325,17 @@ function Panel(props: {
 }): React.JSX.Element {
   const t = useT();
   const peerSet = useRef(new Set<string>());
-  const reducer = useRef(makeReducer((name) => peerSet.current.has(name))).current;
+  // The logged-in user (§17.7, FR-127): the self-chat's name, the "mine" side of
+  // every bubble and the mirror target of the reducer. A legacy panel (§17.9)
+  // leaves it undefined and keeps the pre-§17 behavior.
+  const selfName = useRef<string | undefined>(undefined);
+  const [self, setSelf] = useState<string | undefined>(undefined);
+  const reducer = useRef(
+    makeReducer(
+      (name) => peerSet.current.has(name),
+      () => selfName.current,
+    ),
+  ).current;
   const [state, dispatch] = useReducer(reducer, initialState);
   const stateRef = useRef(state);
   stateRef.current = state;
@@ -394,9 +408,13 @@ function Panel(props: {
   // initial peers + the live feed
   const onIdentity = props.onIdentity;
   useEffect(() => {
-    void api.fetchPeers().then(({ peers, operator: me, role: myRole }) => {
+    void api.fetchPeers().then(({ peers, operator: me, user, role: myRole }) => {
       for (const peer of peers) peerSet.current.add(peer.name);
       onIdentity(me ?? "operator");
+      // `user` exists only in users mode (§17.2) — that is exactly when there is
+      // a self-chat to mirror into; a legacy panel leaves it undefined.
+      selfName.current = user;
+      setSelf(user);
       setRole(myRole);
       dispatch({ kind: "peers", peers });
     });
@@ -459,7 +477,11 @@ function Panel(props: {
         kind: "outgoing",
         record: {
           id,
-          from: "(me)", // a non-peer name — the reducer treats it as our side
+          // Our own NAME (T236): the bubble prints its route (FR-148), and the
+          // placeholder used to surface there as a literal "(me) → agent". The
+          // server echoes the same record with the same name — the id dedup keeps
+          // one bubble. A legacy panel (§17.9) has no name and keeps the marker.
+          from: selfName.current ?? "(me)",
           to,
           kind: "message",
           ts: Date.now(),
@@ -573,6 +595,7 @@ function Panel(props: {
             thread={threadOf(state, openChat)}
             phases={state.phases}
             isPeer={(name) => peerSet.current.has(name)}
+            self={self}
             onLoadOlder={() => loadOlder(openChat)}
             follow={props.follow}
             showTokens={props.showTokens}

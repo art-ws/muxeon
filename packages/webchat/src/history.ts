@@ -91,27 +91,44 @@ export class HistoryStore {
 
   /** Page backwards from `before` (exclusive) or from the newest record. */
   page(peer: string, options: { before?: string; limit?: number } = {}): Promise<HistoryPage> {
-    return this.#serialize(async () => {
-      const limit = options.limit ?? 50;
-      const { records } = await this.#load(peer);
-      let end = records.length;
-      if (options.before !== undefined) {
-        const at = records.findIndex((record) => record.id === options.before);
-        end = at === -1 ? 0 : at;
-      }
-      const start = Math.max(0, end - limit);
-      const slice = records.slice(start, end);
-      const first = slice[0];
-      return {
-        records: slice,
-        ...(start > 0 && first !== undefined ? { nextBefore: first.id } : {}),
-      };
-    });
+    return this.#serialize(async () => sliceBackwards((await this.#load(peer)).records, options));
   }
 
   /** The newest record of a peer (peer-list previews, §12.7). */
   last(peer: string): Promise<Signal | undefined> {
     return this.#serialize(async () => (await this.#load(peer)).records.at(-1));
+  }
+
+  /**
+   * The self-chat projection (§17.7, FR-128): EVERY record of this user, both
+   * directions, merged across all pair logs into one chronological thread and
+   * paged backwards like an ordinary chat. A projection, not a copy — the pair
+   * logs stay the only writers, so nothing here can drift from them.
+   */
+  projected(options: { before?: string; limit?: number } = {}): Promise<HistoryPage> {
+    return this.#serialize(async () => {
+      const merged = await this.#merged();
+      return sliceBackwards(merged, options);
+    });
+  }
+
+  /** The newest record across ALL pairs — the self row's preview (§17.7). */
+  newest(): Promise<Signal | undefined> {
+    return this.#serialize(async () => (await this.#merged()).at(-1));
+  }
+
+  /**
+   * Every pair's records in one chronological array. Ties break on id so the
+   * order is total and stable: paging cursors must land on the same index no
+   * matter how the merge ran, and two records CAN share a millisecond.
+   */
+  async #merged(): Promise<Signal[]> {
+    const all: Signal[] = [];
+    for (const name of await this.#listFileNames()) {
+      const peer = decodePeer(name.slice(0, -".jsonl".length));
+      all.push(...(await this.#load(peer)).records);
+    }
+    return all.sort((a, b) => a.ts - b.ts || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
   }
 
   /** The peer's FULL chronological log — the §12.3 export source (FR-84). */
@@ -334,6 +351,31 @@ export class HistoryStore {
     await writeFile(tmp, `${body}\n`, "utf8");
     await rename(tmp, file);
   }
+}
+
+/**
+ * One page backwards from `before` (exclusive) — shared by the per-peer thread
+ * and the self-chat projection so both cursors behave identically. An unknown
+ * cursor yields an empty page rather than the newest one: a stale id must not
+ * silently restart the scroll from the bottom.
+ */
+function sliceBackwards(
+  records: readonly Signal[],
+  options: { before?: string; limit?: number },
+): HistoryPage {
+  const limit = options.limit ?? 50;
+  let end = records.length;
+  if (options.before !== undefined) {
+    const at = records.findIndex((record) => record.id === options.before);
+    end = at === -1 ? 0 : at;
+  }
+  const start = Math.max(0, end - limit);
+  const slice = records.slice(start, end);
+  const first = slice[0];
+  return {
+    records: slice,
+    ...(start > 0 && first !== undefined ? { nextBefore: first.id } : {}),
+  };
 }
 
 // Peer names are config-validated participants, but they become file names here —

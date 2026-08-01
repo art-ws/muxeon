@@ -27,9 +27,22 @@ const EMPTY_THREAD: ChatThread = { records: [], loaded: false };
 export const threadOf = (state: PanelState, peer: string): ChatThread =>
   state.threads[peer] ?? EMPTY_THREAD;
 
-/** The chat partner of a record from the operator's point of view. */
-export const peerOf = (record: ChatRecord, operatorish: (name: string) => boolean): string =>
-  operatorish(record.from) ? record.to : record.from;
+/**
+ * The chat partner of a record from the operator's point of view. `self` — the
+ * logged-in user's name (§17.7) — decides it outright when known: in users mode
+ * the viewer's OWN name is also a peer row (the self-chat), so the "whoever is
+ * not a peer is us" heuristic would file every outgoing message under the
+ * sender instead of the recipient. Without it (legacy operator, §17.9) the
+ * heuristic still holds.
+ */
+export const peerOf = (
+  record: ChatRecord,
+  operatorish: (name: string) => boolean,
+  self?: string,
+): string => {
+  if (self !== undefined) return record.from === self ? record.to : record.from;
+  return operatorish(record.from) ? record.to : record.from;
+};
 
 function withThread(state: PanelState, peer: string, thread: ChatThread): PanelState {
   return { ...state, threads: { ...state.threads, [peer]: thread } };
@@ -91,9 +104,27 @@ export function selectPeer(state: PanelState, peer: string | undefined): PanelSt
   };
 }
 
+/**
+ * The self-chat (§17.7, FR-128) is the AGGREGATE of everything this user says
+ * and hears: a record belongs to its pair thread AND to the self thread. The
+ * server projects the same view into the history page; live records mirror
+ * themselves here so an open panel matches a reloaded one. `self` absent (a
+ * legacy operator, §17.9 — no self row) ⇒ the pair thread alone.
+ */
+function withMirror(
+  state: PanelState,
+  peer: string,
+  record: ChatRecord,
+  self?: string,
+): PanelState {
+  const next = withThread(state, peer, appendRecord(threadOf(state, peer), record));
+  if (self === undefined || peer === self) return next;
+  return withThread(next, self, appendRecord(threadOf(next, self), record));
+}
+
 /** An optimistic outbound record (echoed by WS too — the dedup absorbs it). */
-export function applyOutgoing(state: PanelState, record: ChatRecord): PanelState {
-  const next = withThread(state, record.to, appendRecord(threadOf(state, record.to), record));
+export function applyOutgoing(state: PanelState, record: ChatRecord, self?: string): PanelState {
+  const next = withMirror(state, record.to, record, self);
   return { ...next, phases: { ...next.phases, [record.id]: "queued" } };
 }
 
@@ -102,14 +133,20 @@ export function applyEvent(
   state: PanelState,
   event: PanelEvent,
   isOperator: (name: string) => boolean,
-  now: number = Date.now(),
+  options: { now?: number; self?: string } = {},
 ): PanelState {
+  const now = options.now ?? Date.now();
   switch (event.type) {
     case "message": {
-      const peer = peerOf(event.record, isOperator);
-      const fromAgent = !isOperator(event.record.from);
-      const next = withThread(state, peer, appendRecord(threadOf(state, peer), event.record));
-      // a live inbound message bumps the unread badge unless the chat is open
+      const self = options.self;
+      const peer = peerOf(event.record, isOperator, self);
+      // "not written by us" — a note to self (§17.7) is ours, so it raises no badge
+      const fromAgent =
+        self !== undefined ? event.record.from !== self : !isOperator(event.record.from);
+      const next = withMirror(state, peer, event.record, self);
+      // a live inbound message bumps the unread badge unless the chat is open —
+      // on the PAIR row only: the self row mirrors every chat, and counting there
+      // too would double every badge in the sidebar.
       if (fromAgent && state.selected !== peer) {
         return {
           ...next,

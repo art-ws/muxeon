@@ -752,13 +752,17 @@ export class WebchatConnector implements ChannelConnector {
     const rz = ports?.rendezvousState?.() ?? { waiting: [], awaited: [] };
     const peers = await Promise.all(
       names.map(async (name) => {
-        const last = await history?.last(name);
+        // The self row previews the AGGREGATE (§17.7, FR-128): its thread is the
+        // projection of every pair, so the preview must be the newest record of
+        // all — not the newest note-to-self, which would look stale beside it.
+        const isSelf = me.isUser && name === me.name;
+        const last = isSelf ? await history?.newest() : await history?.last(name);
         const color = ports?.peerColor?.(name);
         // A user peer (§17.7, FR-129) has no session: no queue depth, no console,
         // no lifecycle — a presence dot instead of a status dot (FR-133). The
         // viewer's own row is a user row too (self-chat, FR-128).
         const kind = ports?.peerType?.(name) ?? "agent";
-        const isUserPeer = kind === "user" || (me.isUser && name === me.name);
+        const isUserPeer = kind === "user" || isSelf;
         const depth = isUserPeer ? 0 : ((await ports?.queueDepth(name).catch(() => 0)) ?? 0);
         const marks =
           ports === undefined || isUserPeer ? undefined : this.#peerMarks(name, depth, rz, ports);
@@ -979,6 +983,10 @@ export class WebchatConnector implements ChannelConnector {
   }
 
   // GET /api/history/:agent?before&limit (§12.4): cursor paging backwards.
+  // The user's OWN name is the self-chat (§17.7, FR-128) and answers with the
+  // PROJECTION instead of the `<user>/<user>.jsonl` pair: every record of this
+  // user, both directions, merged into one thread — the aggregate inbox. The
+  // same cursor contract, so the panel pages it like any other chat.
   async handleHistory(url: URL, me: Identity): Promise<Response> {
     const history = me.history;
     if (history === undefined) return json({ records: [] });
@@ -987,7 +995,11 @@ export class WebchatConnector implements ChannelConnector {
     const before = url.searchParams.get("before") ?? undefined;
     const rawLimit = Number(url.searchParams.get("limit") ?? "50");
     const limit = Number.isInteger(rawLimit) ? Math.min(Math.max(rawLimit, 1), 200) : 50;
-    const page = await history.page(peer, { ...(before !== undefined ? { before } : {}), limit });
+    const cursor = { ...(before !== undefined ? { before } : {}), limit };
+    const page =
+      me.isUser && peer === me.name
+        ? await history.projected(cursor)
+        : await history.page(peer, cursor);
     return json(page);
   }
 
