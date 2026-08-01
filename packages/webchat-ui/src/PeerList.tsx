@@ -14,22 +14,13 @@
 // an input-only broadcast target. Below the tree, a collapsible "Tags" section
 // lists the flat tag targets. The collapsed rail mirrors the SAME visible rows
 // 1:1 (one glyph per row, same order, respecting collapse).
-// The footer is the operator's account row — a menu trigger (T109): clicking
-// it opens the account menu where Sign out is a separate item.
+// The account button is NOT here (T234): it moved to the topbar's right corner
+// (AccountMenu.tsx), so the sidebar is a list of addressees and nothing else.
 
 import { useState } from "react";
 import { RzArrows } from "./RzArrows";
 import { useT } from "./i18n-context";
-import {
-  IconChevron,
-  IconGear,
-  IconGroup,
-  IconMonitor,
-  IconPower,
-  IconRadio,
-  IconTag,
-  IconUser,
-} from "./icons";
+import { IconChevron, IconGroup, IconMonitor, IconRadio, IconTag } from "./icons";
 import { agentColor } from "./palette";
 import { dotClass, liveLabel, statusLabel, unknownReason } from "./peer-surface";
 import { loadExpandedGroups, loadPref, saveExpandedGroups, savePref } from "./prefs";
@@ -53,11 +44,6 @@ export function PeerList(props: {
   flat?: boolean;
   /** Collapsed icon rail (FR-68) — toggled by the topbar logo. */
   collapsed?: boolean;
-  /** The bound operator's name (FR-68) — the footer account button. */
-  operator?: string | undefined;
-  onLogout?: () => void;
-  /** Opens the settings page (T110, FR-76) — an account-menu item. */
-  onSettings?: () => void;
 }): React.JSX.Element {
   const t = useT();
   const collapsed = props.collapsed === true;
@@ -119,8 +105,7 @@ export function PeerList(props: {
 
   return (
     <nav className={`peer-list${collapsed ? " collapsed" : ""}`}>
-      {/* the rows scroll on their own (T109) — the footer stays pinned and the
-          account menu is not clipped by the scroll container */}
+      {/* the rows scroll in their own container (T109) */}
       <div className="peer-scroll">
         {props.onTransport !== undefined && (
           <button
@@ -189,14 +174,6 @@ export function PeerList(props: {
           />
         )}
       </div>
-      {props.onLogout !== undefined && (
-        <OperatorButton
-          collapsed={collapsed}
-          operator={props.operator ?? "operator"}
-          onLogout={props.onLogout}
-          onSettings={props.onSettings}
-        />
-      )}
     </nav>
   );
 }
@@ -518,79 +495,5 @@ function RemoteRow(props: {
       </span>
       {peer.unread > 0 && <span className="unread-badge">{peer.unread}</span>}
     </button>
-  );
-}
-
-// The account row (FR-68, reshaped by T109): pinned to the sidebar bottom and
-// opens the account MENU — Sign out is a separate item inside it (opening the
-// menu is the deliberate first step, so no extra arm/confirm). The backdrop
-// click-away mirrors the toolbar filter menus (no blocking dialogs).
-function OperatorButton(props: {
-  collapsed: boolean;
-  operator: string;
-  onLogout: () => void;
-  onSettings?: (() => void) | undefined;
-}): React.JSX.Element {
-  const t = useT();
-  const [open, setOpen] = useState(false);
-  return (
-    <span className="operator-anchor">
-      {open && (
-        <>
-          {/* biome-ignore lint/a11y/useKeyWithClickEvents: a transparent click-away backdrop, the menu buttons carry the keyboard path */}
-          <span className="menu-backdrop" onClick={() => setOpen(false)} />
-          <span className="operator-menu" role="menu">
-            {props.onSettings !== undefined && (
-              <button
-                type="button"
-                role="menuitem"
-                className="filter-option"
-                onClick={() => {
-                  setOpen(false);
-                  props.onSettings?.();
-                }}
-              >
-                <IconGear size={14} /> {t("Settings")}
-              </button>
-            )}
-            <button
-              type="button"
-              role="menuitem"
-              className="filter-option danger"
-              onClick={() => {
-                setOpen(false);
-                props.onLogout();
-              }}
-            >
-              <IconPower size={14} /> {t("Sign out")}
-            </button>
-          </span>
-        </>
-      )}
-      <button
-        type="button"
-        className="peer-row operator-entry"
-        title={`${props.operator} — ${t("account menu")}`}
-        aria-haspopup="menu"
-        aria-expanded={open}
-        onClick={() => setOpen(!open)}
-      >
-        {props.collapsed ? (
-          <span className="peer-avatar">
-            <IconUser size={18} />
-          </span>
-        ) : (
-          <>
-            <span className="peer-avatar">
-              <IconUser size={18} />
-            </span>
-            <span className="peer-info">
-              <span className="peer-name">{props.operator}</span>
-              <span className="peer-preview">{t("Account")} ▾</span>
-            </span>
-          </>
-        )}
-      </button>
-    </span>
   );
 }

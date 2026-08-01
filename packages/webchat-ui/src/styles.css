@@ -493,8 +493,7 @@ body,
   flex-direction: column;
 }
 
-/* the rows scroll inside their own container (T109): the account footer stays
-   pinned and its popup menu is not clipped by the scrollbar's overflow */
+/* the rows scroll inside their own container (T109) */
 .peer-scroll {
   flex: 1;
   overflow-y: auto;
@@ -886,21 +885,35 @@ body,
   min-width: 0;
 }
 
-/* the operator's account row (FR-68, T109) — pinned to the sidebar bottom,
-   opens the account menu; Sign out lives inside as a separate item */
-.operator-anchor {
+/* the account circle (FR-68, T109 → T234) — the topbar's right corner: the bare
+   avatar, no name, opening the account menu downward; Sign out lives inside as a
+   separate item. Sized to the logo (32px) so the bar keeps its height. */
+.account-anchor {
   position: relative;
   display: flex;
-  flex-direction: column;
+  flex-shrink: 0;
 }
-.operator-anchor .operator-entry {
-  width: 100%;
-  border-top: 1px solid var(--border);
+.account-button {
+  display: flex;
+  padding: 0;
+  border: none;
+  background: none;
+  border-radius: 50%;
+  cursor: pointer;
 }
-.operator-menu {
+.account-button .peer-avatar {
+  width: 32px;
+  height: 32px;
+  color: var(--text-dim);
+}
+.account-button:hover .peer-avatar {
+  color: var(--text);
+  border-color: var(--accent);
+}
+.account-menu {
   position: absolute;
-  bottom: calc(100% + 6px);
-  left: 8px;
+  top: calc(100% + 8px);
+  right: 0;
   z-index: 5;
   display: flex;
   flex-direction: column;

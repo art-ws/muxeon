@@ -3,6 +3,7 @@
 // React's default escaping is the §12.6 XSS stance, no HTML/markdown injection.
 
 import { useCallback, useEffect, useReducer, useRef, useState } from "react";
+import { AccountMenu } from "./AccountMenu";
 import { ChatView } from "./Chat";
 import { CommandFanout } from "./CommandFanout";
 import { Composer, type Draft } from "./Composer";
@@ -70,6 +71,21 @@ const makeReducer =
 
 export function App(): React.JSX.Element {
   const [authed, setAuthed] = useState<boolean | undefined>(undefined);
+  // Who is signed in (FR-68, §17.7) — the topbar account button (T234). The
+  // panel learns the name from api/peers and reports it up; logging out clears
+  // it so the next session cannot inherit the previous name.
+  const [operator, setOperator] = useState<string | undefined>(undefined);
+  // Logout (FR-68): revoke server-side, then drop to the login screen; a failed
+  // call (expired session) still lands on login — that IS the logged-out state.
+  const logout = useCallback((): void => {
+    void api
+      .logout()
+      .catch(() => undefined)
+      .then(() => {
+        setOperator(undefined);
+        setAuthed(false);
+      });
+  }, []);
   // Theme (§12.7, FR-59): light by default, persisted choice wins; the switch
   // lives on the settings page (T110) and flips <html data-theme>.
   const [theme, setTheme] = useState<Theme>(() => loadTheme());
@@ -169,6 +185,16 @@ export function App(): React.JSX.Element {
               )}
             </span>
           )}
+          {/* the account circle (T234) — the topbar's right corner, no name */}
+          {authed === true && (
+            <AccountMenu
+              operator={operator}
+              onLogout={logout}
+              onSettings={() => {
+                location.hash = routeHash({ view: "settings" });
+              }}
+            />
+          )}
         </header>
         {authed === true ? (
           <Panel
@@ -186,6 +212,7 @@ export function App(): React.JSX.Element {
             onShowTokens={setShowTokens}
             collapsed={collapsed}
             query={query}
+            onIdentity={setOperator}
             onAuthLost={() => setAuthed(false)}
           />
         ) : (
@@ -288,6 +315,8 @@ function Panel(props: {
   collapsed: boolean;
   /** Global message filter (FR-71) — applied by the chat and transport views. */
   query: string;
+  /** Reports the logged-in name upward (T234) — the topbar account button. */
+  onIdentity: (operator: string | undefined) => void;
   onAuthLost: () => void;
 }): React.JSX.Element {
   const t = useT();
@@ -308,10 +337,9 @@ function Panel(props: {
     return () => window.removeEventListener("hashchange", onHashChange);
   }, []);
 
-  // The operator's own name (FR-68) — the sidebar account button. In users mode
-  // this is the logged-in user (§17.7), with their role (FR-131); their own row
-  // (self-chat, FR-128) arrives inside `peers` like any other.
-  const [operator, setOperator] = useState<string | undefined>(undefined);
+  // The operator's role (FR-131) — in users mode the logged-in user's (§17.7);
+  // their own row (self-chat, FR-128) arrives inside `peers` like any other.
+  // The NAME goes up to the topbar account button (T234), not into the sidebar.
   const [role, setRole] = useState<"admin" | "user" | undefined>(undefined);
 
   // Agent visibility (T110, FR-76): the settings checklist decides which agents
@@ -364,10 +392,11 @@ function Panel(props: {
   }, [props.onAuthLost]);
 
   // initial peers + the live feed
+  const onIdentity = props.onIdentity;
   useEffect(() => {
     void api.fetchPeers().then(({ peers, operator: me, role: myRole }) => {
       for (const peer of peers) peerSet.current.add(peer.name);
-      setOperator(me);
+      onIdentity(me ?? "operator");
       setRole(myRole);
       dispatch({ kind: "peers", peers });
     });
@@ -381,7 +410,7 @@ function Panel(props: {
       },
       onAuthLost: props.onAuthLost,
     });
-  }, [props.onAuthLost]);
+  }, [props.onAuthLost, onIdentity]);
 
   // The route drives the store: an open chat selects the peer (badge + server
   // watermark) and lazily loads its first history page; home/transport deselect.
@@ -453,15 +482,6 @@ function Panel(props: {
     [raw],
   );
 
-  // Logout (FR-68): revoke server-side, then drop to the login screen; a failed
-  // call (expired session) still lands on login — that IS the logged-out state.
-  const logout = useCallback((): void => {
-    void api
-      .logout()
-      .catch(() => undefined)
-      .then(props.onAuthLost);
-  }, [props.onAuthLost]);
-
   const openChat = route.view === "chat" ? route.peer : undefined;
   const openPeer =
     openChat !== undefined ? state.peers.find((info) => info.name === openChat) : undefined;
@@ -491,9 +511,6 @@ function Panel(props: {
           : {})}
         flat={props.flat}
         collapsed={props.collapsed}
-        operator={operator}
-        onLogout={logout}
-        onSettings={() => navigate({ view: "settings" })}
       />
       {route.view === "transport" ? (
         <main className="chat-pane">
