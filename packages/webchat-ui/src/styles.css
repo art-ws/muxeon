@@ -64,6 +64,12 @@ body,
   padding: 8px 16px;
   border-bottom: 1px solid var(--border);
   background: var(--bg-raised);
+  /* the bar is a LAYER above the panel (T234): the account menu hangs off its
+     right corner and drops over the chat pane, whose header is itself a layer
+     (.chat-header, z-index 6) — without this the menu sinks under it. Stays
+     BELOW the full-screen overlays (.camera-overlay 10, .popup-overlay 20). */
+  position: relative;
+  z-index: 8;
 }
 
 /* logo + configuration label (FR-90), grouped at the left of the topbar */
