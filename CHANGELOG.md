@@ -1,3 +1,15 @@
+## [0.1.5](https://github.com/art-ws/teamai/compare/v0.1.4...v0.1.5) (2026-08-01)
+
+
+### Changes
+
+* **T232:** relay mode joins two NAT-bound servers through a hub
+
+  Two servers that cannot reach each other directly now talk through a shared hub they both import: the satellite adds publish: true to its import and the hub consents with relay: true on that accept entry — a two-sided opt-in (invariant §10.28) with both flags defaulting to false, so every existing link behaves exactly… ([719134c](https://github.com/art-ws/teamai/commit/719134c83126d8da1fb73409444eab85a9c16845))
+* **T232:** the docs catch up with federation and relay (LLM.md, SECURITY, CONTRIBUTING, README)
+
+  The agent runbook (docs/LLM.md) gains a relay subsection in step 11 — the satellite/hub configs, the two-sided opt-in rules, the mailbox behaviour, the consent warning to state to the human — plus a security-posture bullet and two troubleshooting rows (the no-grant warning and the reachability formula). ([b2862db](https://github.com/art-ws/teamai/commit/b2862dbea8c094418c57f7e780561d175827f08f))
+
 ## [0.1.4](https://github.com/art-ws/teamai/compare/v0.1.3...v0.1.4) (2026-07-31)
 
 
