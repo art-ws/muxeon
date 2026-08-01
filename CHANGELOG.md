@@ -1,3 +1,18 @@
+## [0.1.6](https://github.com/art-ws/teamai/compare/v0.1.5...v0.1.6) (2026-08-01)
+
+
+### Changes
+
+* **T234:** the account circle moves to the topbar's right corner
+
+  The operator asked for the sidebar's bottom-left account menu to go away and for a bare user circle to sit in the header's right corner instead — no name, no "Account" label — opening the SAME menu on click. ([e79ba8a](https://github.com/art-ws/teamai/commit/e79ba8aa31905bbe2d7f666e0e13a9079322f319))
+* **T235:** the account menu sank under the chat header
+
+  The menu opened but its first item was painted over by the chat pane's header: .chat-header is a layer of its own (z-index 6, T116) and the popover — hanging off the topbar, which was unpositioned — competed with it directly from the root stacking context at z-index 5. ([ce575b9](https://github.com/art-ws/teamai/commit/ce575b94aaa4f72380ddd5d8457ad24caae2dc02))
+* **T236:** the self-chat becomes the full mirror of a user's traffic
+
+  FR-128 promised an aggregate inbox and the code never built one. What the operator did see there — their own outgoing messages — was a side effect of a bug: the panel calls "us" whoever is not a listed peer, but in users mode the viewer's own row IS in peers, so peerOf filed every outgoing record under the sender (the… ([b438912](https://github.com/art-ws/teamai/commit/b4389128d01330127e151f91432dd5555dcb271a))
+
 ## [0.1.5](https://github.com/art-ws/teamai/compare/v0.1.4...v0.1.5) (2026-08-01)
 
 
