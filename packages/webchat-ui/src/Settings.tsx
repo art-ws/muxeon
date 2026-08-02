@@ -7,6 +7,7 @@
 import { LANGS, type Lang, normalizeLang } from "./i18n";
 import { useT } from "./i18n-context";
 import { agentColor } from "./palette";
+import { nameTooltip, peerLabel } from "./peer-surface";
 import { type ServerInfo, formatServerInfo } from "./server-info";
 import type { Theme } from "./theme";
 import type { PeerInfo } from "./types";
@@ -126,15 +127,18 @@ export function SettingsView(props: {
                       { "--peer-color": agentColor(peer.name, peer.color) } as React.CSSProperties
                     }
                   >
-                    {(peer.name[0] ?? "?").toUpperCase()}
+                    {(peerLabel(peer)[0] ?? "?").toUpperCase()}
                   </span>
-                  <span className="agent-check-name">{peer.name}</span>
+                  {/* labelled by `title` when configured, name in the tooltip (FR-156) */}
+                  <span className="agent-check-name" title={nameTooltip(peer)}>
+                    {peerLabel(peer)}
+                  </span>
                   {/* the same iOS-style switch as every other settings row */}
                   <button
                     type="button"
                     role="switch"
                     aria-checked={props.visibility.selected.has(peer.name)}
-                    aria-label={`${t("Show in the sidebar")}: ${peer.name}`}
+                    aria-label={`${t("Show in the sidebar")}: ${peerLabel(peer)}`}
                     className="switch"
                     onClick={() => props.onVisibility(toggleAgent(props.visibility, peer.name))}
                   >

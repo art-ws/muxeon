@@ -122,7 +122,8 @@ export type WebchatEvent =
  */
 export interface WebchatUserOptions {
   readonly name: string;
-  readonly displayName?: string;
+  /** Display label in the panel (§7.1/§17.2, FR-156); absent ⇒ the name is shown. */
+  readonly title?: string;
   readonly color?: string;
   /** Panel role (§17.7, FR-131) — only `admin` sees the transport journal. */
   readonly role: WebchatRole;
@@ -233,7 +234,7 @@ interface WsClient {
  */
 interface Identity {
   readonly name: string;
-  readonly displayName: string | undefined;
+  readonly title: string | undefined;
   readonly color: string | undefined;
   readonly role: WebchatRole;
   readonly verifier: PasswordVerifier;
@@ -300,7 +301,7 @@ export class WebchatConnector implements ChannelConnector {
       for (const user of options.users ?? []) {
         this.#identities.set(user.name, {
           name: user.name,
-          displayName: user.displayName,
+          title: user.title,
           color: user.color,
           role: user.role,
           verifier: {
@@ -320,7 +321,7 @@ export class WebchatConnector implements ChannelConnector {
       // in (§17.7 replaces that rule with roles only for users mode).
       this.#identities.set(options.bindOperator, {
         name: options.bindOperator,
-        displayName: undefined,
+        title: undefined,
         color: undefined,
         role: "admin",
         verifier: options.password !== undefined ? { password: options.password } : {},
@@ -595,7 +596,7 @@ export class WebchatConnector implements ChannelConnector {
       expiresAt: me.sessions.expiresAt(sessionToken(req)),
       user: me.name,
       role: me.role,
-      ...(me.displayName !== undefined ? { displayName: me.displayName } : {}),
+      ...(me.title !== undefined ? { title: me.title } : {}),
       ...(me.isUser ? { selfChat: true } : {}),
     });
   }
@@ -780,9 +781,7 @@ export class WebchatConnector implements ChannelConnector {
           queueDepth: depth,
           unread: (await history?.unread(name)) ?? 0,
           ...(presence !== undefined ? { presence } : {}),
-          ...(ports?.peerDisplayName?.(name) !== undefined
-            ? { displayName: ports.peerDisplayName(name) }
-            : {}),
+          ...(ports?.peerTitle?.(name) !== undefined ? { title: ports.peerTitle(name) } : {}),
           ...(group !== undefined ? { group } : {}),
           ...(tags.length > 0 ? { tags } : {}),
           ...(marks !== undefined

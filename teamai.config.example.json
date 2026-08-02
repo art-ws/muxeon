@@ -10,6 +10,7 @@
   "agents": [
     {
       "name": "researcher",
+      "title": "Researcher",
       "type": "claude",
       "tmux": "researcher",
       "cwd": "/path/to/repo",
@@ -39,7 +40,7 @@
   "users": [
     {
       "name": "operator",
-      "displayName": "Operator",
+      "title": "Operator",
       "role": "admin",
       "auth": { "password": { "$env": "TEAMAI_WEB_PASSWORD" } },
       "channels": { "web": true }

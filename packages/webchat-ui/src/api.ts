@@ -66,14 +66,14 @@ export async function sessionInfo(): Promise<{
   expiresAt?: number;
   user?: string;
   role?: "admin" | "user";
-  displayName?: string;
+  title?: string;
   selfChat?: boolean;
 }> {
   return jsonOrThrow<{
     expiresAt?: number;
     user?: string;
     role?: "admin" | "user";
-    displayName?: string;
+    title?: string;
     selfChat?: boolean;
   }>(await fetch("api/session"));
 }

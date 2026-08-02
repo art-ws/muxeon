@@ -30,7 +30,14 @@ import {
   IconTrash,
   IconX,
 } from "./icons";
-import { chatSurface, dotClass, hasConsole, liveLabel } from "./peer-surface";
+import {
+  chatSurface,
+  dotClass,
+  hasConsole,
+  liveLabel,
+  nameTooltip,
+  peerLabel,
+} from "./peer-surface";
 import { routeHash } from "./route";
 import { type ChatThread, peerOf } from "./store";
 import { TimeStamp } from "./timestamp";
@@ -117,8 +124,13 @@ export function ChatView(props: {
         <span className={dotClass(peer)} />
         {/* rendezvous markers (FR-105): after the activity dot, before the name */}
         {peer !== undefined && <RzArrows peer={peer} />}
-        <strong className={peer?.atWipLimit === true ? "at-wip" : undefined}>
-          {peer?.name ?? ""}
+        {/* the configured title labels the chat, the name stays in the tooltip
+            (FR-156) — the header is a label surface, not an address */}
+        <strong
+          className={peer?.atWipLimit === true ? "at-wip" : undefined}
+          title={nameTooltip(peer)}
+        >
+          {peerLabel(peer)}
         </strong>
         {/* Pause chip (§16.6, FR-120): the operator-declared do-not-disturb, shown
             BESIDE the live status — the session may well be idle or busy. For a

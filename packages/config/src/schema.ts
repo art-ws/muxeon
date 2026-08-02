@@ -231,6 +231,12 @@ export interface AgentTypeConfig {
 
 export interface AgentConfig {
   readonly name: string;
+  /**
+   * Display label in the panel (§12.7, FR-156); absent ⇒ the `name` is shown.
+   * Purely presentational: `name` stays the identity, the queue key and the
+   * address — a title is never routable and needs no uniqueness.
+   */
+  readonly title?: string;
   readonly type: string;
   readonly tmux: string;
   readonly cwd?: string;
@@ -333,8 +339,8 @@ export type UserRole = (typeof USER_ROLES)[number];
  */
 export interface UserConfig {
   readonly name: string;
-  /** Display label in the panel; absent ⇒ `name`. */
-  readonly displayName?: string;
+  /** Display label in the panel (§12.7, FR-156) — the agent's field verbatim. */
+  readonly title?: string;
   /** UI accent color (FR-73), `#rgb`/`#rrggbb`; absent ⇒ the panel picks one. */
   readonly color?: string;
   /** The ONE group this user belongs to (§15.2, FR-130); must be declared. */
@@ -1039,6 +1045,7 @@ function validateFederation(value: unknown, path: string): FederationConfig {
 function validateAgent(value: unknown, path: string): AgentConfig {
   const obj = requireObject(value, path);
   const name = requireNonEmptyString(obj.name, joinPointer(path, "name"));
+  const title = optionalField(obj, "title", path, requireNonEmptyString);
   const type = requireNonEmptyString(obj.type, joinPointer(path, "type"));
   const tmux = requireNonEmptyString(obj.tmux, joinPointer(path, "tmux"));
   const cwd = optionalField(obj, "cwd", path, requireNonEmptyString);
@@ -1062,6 +1069,7 @@ function validateAgent(value: unknown, path: string): AgentConfig {
   const exported = optionalField(obj, "exported", path, validateExported);
   const agent: {
     name: string;
+    title?: string;
     type: string;
     tmux: string;
     cwd?: string;
@@ -1080,6 +1088,7 @@ function validateAgent(value: unknown, path: string): AgentConfig {
     type,
     tmux,
   };
+  if (title !== undefined) agent.title = title;
   if (cwd !== undefined) agent.cwd = cwd;
   if (exchangeDir !== undefined) agent.exchangeDir = exchangeDir;
   if (provision !== undefined) agent.provision = provision;
@@ -1222,12 +1231,12 @@ function validateChannel(value: unknown, path: string): ChannelConfig {
   return channel as ChannelConfig;
 }
 
-// users: [{ name, displayName?, color?, group?, tags?, role?, auth?, channels? }] —
+// users: [{ name, title?, color?, group?, tags?, role?, auth?, channels? }] —
 // closed per entry (§17.2, FR-121). Shape only; the namespace/queue-key/binding
 // rules are §7.5 (validate.ts).
 const USER_FIELDS = [
   "name",
-  "displayName",
+  "title",
   "color",
   "group",
   "tags",
@@ -1247,7 +1256,7 @@ function validateUsers(value: unknown, path: string): UserConfig[] {
       }
     }
     const name = requireNonEmptyString(obj.name, joinPointer(itemPath, "name"));
-    const displayName = optionalField(obj, "displayName", itemPath, requireNonEmptyString);
+    const title = optionalField(obj, "title", itemPath, requireNonEmptyString);
     const color = optionalField(obj, "color", itemPath, validateColor);
     const group = optionalField(obj, "group", itemPath, requireNonEmptyString);
     const tags =
@@ -1264,7 +1273,7 @@ function validateUsers(value: unknown, path: string): UserConfig[] {
     const exported = optionalField(obj, "exported", itemPath, validateExported);
     return {
       name,
-      ...(displayName !== undefined ? { displayName } : {}),
+      ...(title !== undefined ? { title } : {}),
       ...(color !== undefined ? { color } : {}),
       ...(group !== undefined ? { group } : {}),
       ...(tags !== undefined ? { tags } : {}),

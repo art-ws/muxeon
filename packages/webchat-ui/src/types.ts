@@ -66,8 +66,11 @@ export interface PeerInfo {
   readonly link?: "up" | "down";
   /** Federated peer only (§18.4): why the projection reads "unknown" — the tooltip. */
   readonly reason?: "link-down" | "not-published" | "hop-down";
-  /** A user peer's display label (§17.2); absent ⇒ the name is shown. */
-  readonly displayName?: string;
+  /**
+   * The configured display label of an agent or user (§7.1/§17.2, FR-156);
+   * absent ⇒ the name is shown. Label only — `name` stays the address.
+   */
+  readonly title?: string;
   readonly queueDepth: number;
   readonly unread: number;
   readonly lastMessage?: { readonly ts: number; readonly from: string; readonly preview: string };

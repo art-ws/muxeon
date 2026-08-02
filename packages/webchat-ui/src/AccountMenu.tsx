@@ -16,6 +16,12 @@ export function AccountMenu(props: {
    * topbar does not reflow when the name lands.
    */
   operator?: string | undefined;
+  /**
+   * Their configured label (FR-156). The circle still shows no text — the
+   * tooltip names the label AND the name, because the name is what the operator
+   * is addressed by everywhere else.
+   */
+  title?: string | undefined;
   onLogout: () => void;
   /** Opens the settings page (T110, FR-76) — an account-menu item. */
   onSettings?: (() => void) | undefined;
@@ -23,7 +29,13 @@ export function AccountMenu(props: {
   const t = useT();
   const [open, setOpen] = useState(false);
   const menu = t("account menu");
-  const label = props.operator === undefined ? menu : `${props.operator} — ${menu}`;
+  const who =
+    props.title !== undefined && props.operator !== undefined
+      ? `${props.title} (${props.operator})`
+      : props.title !== undefined
+        ? props.title
+        : props.operator;
+  const label = who === undefined ? menu : `${who} — ${menu}`;
   return (
     <span className="account-anchor">
       <button

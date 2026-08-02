@@ -393,6 +393,25 @@ describe("base schema validation (§7.1)", () => {
     expect(grab(() => validateStructure(withColor(7))).path).toBe("/agents/0/color");
   });
 
+  test("agent.title (FR-156): optional non-empty label, name untouched", () => {
+    const withTitle = (title: unknown) => ({
+      server: { port: 1 },
+      agents: [{ name: "a", type: "claude", tmux: "a", title }],
+      topology: {},
+    });
+    const titled = validateStructure(withTitle("Researcher")).agents[0];
+    expect(titled?.title).toBe("Researcher");
+    expect(titled?.name).toBe("a"); // the label never becomes the identity
+    const plain = validateStructure({
+      server: { port: 1 },
+      agents: [{ name: "a", type: "claude", tmux: "a" }],
+      topology: {},
+    });
+    expect(plain.agents[0]?.title).toBeUndefined();
+    expect(grab(() => validateStructure(withTitle(""))).path).toBe("/agents/0/title");
+    expect(grab(() => validateStructure(withTitle(7))).path).toBe("/agents/0/title");
+  });
+
   test("internal command names are reserved (FR-67): a config command cannot shadow them", () => {
     const withCommands = (commands: unknown) => ({
       server: { port: 1 },

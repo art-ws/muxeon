@@ -53,6 +53,10 @@ itself (bring-up stays `provision`/auto-revive/operator territory).
   "agents": [
     {
       "name": "researcher",       // topology identity
+      "title": "Researcher",      // optional label for the panel (FR-156); the panel
+                                  //   prints it instead of the name and keeps the
+                                  //   name in the tooltip. Labels only — you still
+                                  //   address, route and grep by `name`
       "type": "claude",           // adapter
       "tmux": "researcher-session", // the stable session name = queue key
       "cwd": "/path/to/repo",     // optional; enables cwd routines (§6.2)
@@ -447,7 +451,7 @@ or slack identity.
   "users": [
     {
       "name": "alex",                    // one namespace with agents/groups/tags
-      "displayName": "Alexander",        // optional label in the panel
+      "title": "Alexander",             // optional label in the panel (name in the tooltip)
       "color": "#4488ff",                // optional accent, like an agent's
       "role": "admin",                   // "admin" | "user" (default) — see below
       "group": "managers",               // optional; a broadcast to the group reaches them

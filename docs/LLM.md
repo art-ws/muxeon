@@ -208,6 +208,7 @@ Field by field:
 | `agents[].type` | Adapter: **`claude`**, **`codex`**, or **`auto`** (detects). |
 | `agents[].tmux` | The tmux session name. **Stable** — it keys the queue across restarts. |
 | `agents[].cwd` | Optional working directory; also where the file exchange lands. |
+| `agents[].title` / `users[].title` | Optional panel label — shown instead of the name, with the name in the tooltip. Presentational only: never an address, no uniqueness rule. |
 | `users[].name` | A person's topology identity — and their queue key. |
 | `users[].role` | `"admin"` or `"user"` (default). Panel capability only, never a transport ACL. |
 | `users[].auth` | Exactly one of `password` (literal or `$env`) or `passwordHash`. |
@@ -240,6 +241,7 @@ binds. A name that resolves to none of those aborts the boot.
 {
   "agents": [{
     "name": "researcher", "type": "claude", "tmux": "researcher",
+    "title": "Researcher",              // panel label only; `name` stays the address
     "cwd": "/path/to/project",
     "provision": {                      // how TEAMAI starts the agent itself
       "command": ["claude"],            // argv array — never a shell string

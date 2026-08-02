@@ -8,6 +8,7 @@ import type React from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { type CommandFanoutResult, runCommandFanout } from "./api";
 import { useT } from "./i18n-context";
+import { nameTooltip, peerLabel } from "./peer-surface";
 import { type PeerInfo, peerKind } from "./types";
 
 // Resolve a selector to its agent set from the CLIENT's peer view: a group/tag →
@@ -128,10 +129,16 @@ export function CommandFanout(props: {
           <span className="cmdfan-label">{t("Targets (intersection)")}</span>
           <div className="cmdfan-chips">
             {selectors.map((s) => {
-              const kind = byName.has(s) ? peerKind(byName.get(s) as PeerInfo) : "unknown";
+              const peer = byName.get(s);
+              const kind = peer !== undefined ? peerKind(peer) : "unknown";
               return (
-                <span key={s} className={`cmdfan-chip cmdfan-chip-${kind}`}>
-                  {s}
+                <span
+                  key={s}
+                  className={`cmdfan-chip cmdfan-chip-${kind}`}
+                  title={nameTooltip(peer)}
+                >
+                  {/* the chip shows the label, the SELECTOR stays the name (FR-156) */}
+                  {peer !== undefined ? peerLabel(peer) : s}
                   <button
                     type="button"
                     onClick={() => setSelectors(selectors.filter((x) => x !== s))}
@@ -153,7 +160,7 @@ export function CommandFanout(props: {
                 <option value="">{t("+ add…")}</option>
                 {addable.map((p) => (
                   <option key={p.name} value={p.name}>
-                    {p.name} · {peerKind(p)}
+                    {peerLabel(p)} · {peerKind(p)}
                   </option>
                 ))}
               </select>
@@ -190,8 +197,12 @@ export function CommandFanout(props: {
           </div>
           <ul>
             {agents.map((a) => (
-              <li key={a} className={commandable.has(a) ? "" : "cmdfan-denied"}>
-                {a}
+              <li
+                key={a}
+                className={commandable.has(a) ? "" : "cmdfan-denied"}
+                title={nameTooltip(byName.get(a))}
+              >
+                {peerLabel(byName.get(a)) || a}
                 {commandable.has(a) ? "" : ` — ${t("no access")}`}
               </li>
             ))}

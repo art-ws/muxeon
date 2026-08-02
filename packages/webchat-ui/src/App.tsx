@@ -79,6 +79,9 @@ export function App(): React.JSX.Element {
   // panel learns the name from api/peers and reports it up; logging out clears
   // it so the next session cannot inherit the previous name.
   const [operator, setOperator] = useState<string | undefined>(undefined);
+  // Their configured label (FR-156), when there is one — the account tooltip
+  // reads "<title> (<name>)" so the label never hides who is actually signed in.
+  const [operatorTitle, setOperatorTitle] = useState<string | undefined>(undefined);
   // Logout (FR-68): revoke server-side, then drop to the login screen; a failed
   // call (expired session) still lands on login — that IS the logged-out state.
   const logout = useCallback((): void => {
@@ -87,6 +90,7 @@ export function App(): React.JSX.Element {
       .catch(() => undefined)
       .then(() => {
         setOperator(undefined);
+        setOperatorTitle(undefined);
         setAuthed(false);
       });
   }, []);
@@ -193,6 +197,7 @@ export function App(): React.JSX.Element {
           {authed === true && (
             <AccountMenu
               operator={operator}
+              title={operatorTitle}
               onLogout={logout}
               onSettings={() => {
                 location.hash = routeHash({ view: "settings" });
@@ -216,7 +221,10 @@ export function App(): React.JSX.Element {
             onShowTokens={setShowTokens}
             collapsed={collapsed}
             query={query}
-            onIdentity={setOperator}
+            onIdentity={(name, title) => {
+              setOperator(name);
+              setOperatorTitle(title);
+            }}
             onAuthLost={() => setAuthed(false)}
           />
         ) : (
@@ -319,8 +327,11 @@ function Panel(props: {
   collapsed: boolean;
   /** Global message filter (FR-71) — applied by the chat and transport views. */
   query: string;
-  /** Reports the logged-in name upward (T234) — the topbar account button. */
-  onIdentity: (operator: string | undefined) => void;
+  /**
+   * Reports the logged-in name — and its configured label (FR-156) — upward
+   * (T234): the topbar account button lives outside this panel.
+   */
+  onIdentity: (operator: string | undefined, title?: string | undefined) => void;
   onAuthLost: () => void;
 }): React.JSX.Element {
   const t = useT();
@@ -410,7 +421,10 @@ function Panel(props: {
   useEffect(() => {
     void api.fetchPeers().then(({ peers, operator: me, user, role: myRole }) => {
       for (const peer of peers) peerSet.current.add(peer.name);
-      onIdentity(me ?? "operator");
+      // In users mode the operator's OWN row rides in `peers` (FR-128) — that is
+      // where their configured title comes from; a legacy panel has no user, so
+      // no title (FR-156).
+      onIdentity(me ?? "operator", peers.find((peer) => peer.name === user)?.title);
       // `user` exists only in users mode (§17.2) — that is exactly when there is
       // a self-chat to mirror into; a legacy panel leaves it undefined.
       selfName.current = user;

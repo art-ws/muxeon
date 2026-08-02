@@ -99,8 +99,12 @@ export interface WebchatPorts {
    * have a real session status) and when presence is not wired.
    */
   peerPresence?(name: string): "online" | "offline" | undefined;
-  /** A user peer's display label (§17.2); absent ⇒ the panel shows the name. */
-  peerDisplayName?(name: string): string | undefined;
+  /**
+   * A peer's configured display label (§7.1/§17.2, FR-156) — agent or user alike;
+   * absent ⇒ the panel shows the name. Presentational only: the name stays the
+   * address everywhere (routing, history keys, deep links).
+   */
+  peerTitle?(name: string): string | undefined;
   /** An agent peer's group membership (§15, FR-112) — drives the sidebar tree. */
   agentGroup?(name: string): string | undefined;
   /** An agent peer's tags (§15, FR-112) — the tag chips / Tags-section membership. */

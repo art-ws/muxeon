@@ -22,7 +22,14 @@ import { RzArrows } from "./RzArrows";
 import { useT } from "./i18n-context";
 import { IconChevron, IconGroup, IconMonitor, IconRadio, IconTag } from "./icons";
 import { agentColor } from "./palette";
-import { dotClass, liveLabel, statusLabel, unknownReason } from "./peer-surface";
+import {
+  dotClass,
+  liveLabel,
+  nameTooltip,
+  peerLabel,
+  statusLabel,
+  unknownReason,
+} from "./peer-surface";
 import { loadExpandedGroups, loadPref, saveExpandedGroups, savePref } from "./prefs";
 import { type TreeRow, buildTree, tagPeers } from "./tree";
 import { type PeerInfo, peerKind } from "./types";
@@ -231,6 +238,9 @@ function GroupRow(props: {
 
 // An agent leaf row (§12.7, FR-68) — unchanged behavior (status dot, rendezvous
 // markers, name, queue depth, preview, unread), only indented under its group.
+// The printed label is the configured `title` when there is one (FR-156); the
+// NAME stays in the tooltip, and the accent still hashes from the name so a
+// title never repaints the sidebar.
 function AgentRow(props: {
   row: TreeRow;
   collapsed: boolean;
@@ -239,6 +249,7 @@ function AgentRow(props: {
 }): React.JSX.Element {
   const t = useT();
   const peer = props.row.peer;
+  const label = peerLabel(peer);
   if (props.collapsed) {
     return (
       <button
@@ -254,7 +265,7 @@ function AgentRow(props: {
           className="peer-avatar tinted"
           style={{ "--peer-color": agentColor(peer.name, peer.color) } as React.CSSProperties}
         >
-          {initialOf(peer.name)}
+          {initialOf(label)}
           {/* the same live dot as the expanded row — pinned to the avatar; the
               `paused` modifier mutes it and adds the pause glyph (§16.6) */}
           <span className={dotClass(peer)} />
@@ -270,7 +281,10 @@ function AgentRow(props: {
         peer.paused === true ? " peer-paused" : ""
       }`}
       title={
-        peer.paused === true ? `${peer.name} — ${t("paused")} · ${t(liveLabel(peer))}` : undefined
+        peer.paused === true
+          ? `${peer.name} — ${t("paused")} · ${t(liveLabel(peer))}`
+          : // a titled row keeps its name one hover away (FR-156)
+            nameTooltip(peer)
       }
       /* expanded: the accent is a thin colored edge — unobtrusive (FR-73) */
       style={
@@ -286,7 +300,7 @@ function AgentRow(props: {
       <RzArrows peer={peer} />
       <span className="peer-info">
         <span className={`peer-name${peer.atWipLimit === true ? " at-wip" : ""}`}>
-          {peer.name}
+          {label}
           {peer.queueDepth > 0 && <span className="queue-depth"> ({peer.queueDepth})</span>}
         </span>
         <span className="peer-preview">

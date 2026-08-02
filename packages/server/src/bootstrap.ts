@@ -751,7 +751,9 @@ export async function bootstrap(options: BootstrapOptions = {}): Promise<TeamaiS
       // A user peer reports "user" (§17.7): no console, no lifecycle, presence dot.
       peerType: (name) => resolveBroadcast(name)?.kind ?? (isUser(name) ? "user" : "agent"),
       peerPresence: (name) => (isUser(name) ? presence.presence(name) : undefined),
-      peerDisplayName: (name) => userByName.get(name)?.displayName,
+      // Configured display label (§12.7, FR-156): agents and users alike — the
+      // panel shows it instead of the name, with the name in the tooltip.
+      peerTitle: (name) => agents.get(name)?.agent.title ?? userByName.get(name)?.title,
       agentGroup: (name) => agents.get(name)?.agent.group ?? userByName.get(name)?.group,
       agentTags: (name) => agents.get(name)?.agent.tags ?? userByName.get(name)?.tags ?? [],
       broadcastPeers: () => {
@@ -1022,9 +1024,7 @@ export async function bootstrap(options: BootstrapOptions = {}): Promise<TeamaiS
       usersOf: (channel) =>
         bindingsOf(channel).map((runtime) => ({
           name: runtime.name,
-          ...(runtime.config.displayName !== undefined
-            ? { displayName: runtime.config.displayName }
-            : {}),
+          ...(runtime.config.title !== undefined ? { title: runtime.config.title } : {}),
           ...(runtime.config.color !== undefined ? { color: runtime.config.color } : {}),
           role: userRole(runtime.config),
           ...(runtime.config.auth?.password !== undefined

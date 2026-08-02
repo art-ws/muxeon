@@ -36,12 +36,14 @@ const noopDriver = (): SessionDriver => ({
 
 const CONFIG = {
   server: { port: 0, mcp: false, queueDir: "./queue", presenceTtl: "1h" },
-  agents: [{ name: "dev", type: "claude", tmux: "dev-session", group: "engineering" }],
+  agents: [
+    { name: "dev", type: "claude", tmux: "dev-session", group: "engineering", title: "Разработчик" },
+  ],
   groups: [{ name: "engineering" }],
   users: [
     {
       name: "alex",
-      displayName: "Alexander",
+      title: "Alexander",
       role: "admin",
       group: "engineering",
       auth: { password: "alex-pw" },
@@ -304,6 +306,33 @@ describe("panel surface with a user peer (§17.7, FR-129)", () => {
     expect(me?.commands).toEqual([]);
     expect(me?.presence).toBe("offline");
     expect(me?.actions?.pause).toBe(true); // DND on oneself (§17.8, FR-134)
+    await server.stop();
+  });
+
+  // The display label (FR-156) rides the SAME projection for both kinds — the
+  // panel never has to know whether a label came from `agents[]` or `users[]`.
+  test("/api/peers carries the configured title of agents and users alike", async () => {
+    const server = await boot();
+    const panel = (server.config.channels[0] as unknown as { port: number }).port;
+    const base = `http://127.0.0.1:${panel}`;
+    const login = await fetch(`${base}/api/login`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ user: "alex", password: "alex-pw" }),
+    });
+    const cookie = /teamai_webchat=[^;]+/.exec(login.headers.get("set-cookie") ?? "")?.[0] ?? "";
+    const body = (await (await fetch(`${base}/api/peers`, { headers: { cookie } })).json()) as {
+      peers: { name: string; title?: string }[];
+    };
+    expect(body.peers.find((peer) => peer.name === "dev")?.title).toBe("Разработчик");
+    expect(body.peers.find((peer) => peer.name === "alex")?.title).toBe("Alexander");
+    // an untitled user stays untitled — the panel falls back to the name itself
+    expect(body.peers.find((peer) => peer.name === "kim")).not.toHaveProperty("title");
+    // and the session knows its own label (the page-reload path, §17.7)
+    const session = (await (
+      await fetch(`${base}/api/session`, { headers: { cookie } })
+    ).json()) as { user: string; title?: string };
+    expect(session).toMatchObject({ user: "alex", title: "Alexander" });
     await server.stop();
   });
 });

@@ -35,6 +35,22 @@ export function chatSurface(peer: PeerInfo | undefined): ChatSurface {
 }
 
 /**
+ * What the panel PRINTS for a peer (§12.7, FR-156): the configured `title` when
+ * there is one, the name otherwise. Wherever this label is shown the NAME must
+ * stay one hover away ({@link nameTooltip}) — it is the address the operator
+ * types, routes and greps by; identity surfaces (deep links, the transport
+ * journal, the bubble's route line, history exports) never use the title.
+ */
+export const peerLabel = (peer: PeerInfo | undefined): string => peer?.title ?? peer?.name ?? "";
+
+/**
+ * The tooltip that keeps the name reachable behind a title — undefined when the
+ * label already IS the name, so a plain peer grows no tooltip it never had.
+ */
+export const nameTooltip = (peer: PeerInfo | undefined): string | undefined =>
+  peer?.title !== undefined ? peer.name : undefined;
+
+/**
  * A federated peer (§18.4, FR-144/FR-150): imported over a link — its chrome is
  * the read-only projection: an agent surface WITHOUT the console (no slash/raw/
  * Screen Live), a person surface without DND; lifecycle/pause never render (the

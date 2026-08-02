@@ -33,7 +33,7 @@ describe("users[] — shape (§17.2, FR-121)", () => {
       users: [
         {
           name: "alex",
-          displayName: "Alexander",
+          title: "Alexander",
           color: "#4488ff",
           group: "managers",
           tags: ["leadership"],
@@ -47,6 +47,19 @@ describe("users[] — shape (§17.2, FR-121)", () => {
     });
     expect(config.users?.[0]?.role).toBe("admin");
     expect(config.users?.[0]?.channels?.["tg-main"]).toEqual({ alias: "alex_tg" });
+  });
+
+  test("the display label (FR-156) is `title` — the old `displayName` is now unknown", () => {
+    expect(validateStructure({ ...BASE, users: [{ name: "alex", title: "Alexander" }] }).users?.[0])
+      .toEqual({ name: "alex", title: "Alexander" });
+    // one field for agents and users (§7.1): the pre-FR-156 spelling fails fast
+    // rather than being silently ignored — a label that does not show is a bug.
+    expect(() =>
+      validateStructure({ ...BASE, users: [{ name: "alex", displayName: "Alexander" }] }),
+    ).toThrow(/unknown user field "displayName"/);
+    expect(() => validateStructure({ ...BASE, users: [{ name: "alex", title: "" }] })).toThrow(
+      ConfigError,
+    );
   });
 
   test("an unknown field is a fatal config error", () => {
