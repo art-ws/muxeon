@@ -37,7 +37,13 @@ const noopDriver = (): SessionDriver => ({
 const CONFIG = {
   server: { port: 0, mcp: false, queueDir: "./queue", presenceTtl: "1h" },
   agents: [
-    { name: "dev", type: "claude", tmux: "dev-session", group: "engineering", title: "Разработчик" },
+    {
+      name: "dev",
+      type: "claude",
+      tmux: "dev-session",
+      group: "engineering",
+      title: "Разработчик",
+    },
   ],
   groups: [{ name: "engineering" }],
   users: [

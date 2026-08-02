@@ -50,8 +50,9 @@ describe("users[] — shape (§17.2, FR-121)", () => {
   });
 
   test("the display label (FR-156) is `title` — the old `displayName` is now unknown", () => {
-    expect(validateStructure({ ...BASE, users: [{ name: "alex", title: "Alexander" }] }).users?.[0])
-      .toEqual({ name: "alex", title: "Alexander" });
+    expect(
+      validateStructure({ ...BASE, users: [{ name: "alex", title: "Alexander" }] }).users?.[0],
+    ).toEqual({ name: "alex", title: "Alexander" });
     // one field for agents and users (§7.1): the pre-FR-156 spelling fails fast
     // rather than being silently ignored — a label that does not show is a bug.
     expect(() =>
