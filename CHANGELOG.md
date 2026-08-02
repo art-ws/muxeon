@@ -1,3 +1,15 @@
+## [0.1.7](https://github.com/art-ws/teamai/compare/v0.1.6...v0.1.7) (2026-08-02)
+
+
+### Changes
+
+* **T237:** an optional `title` labels an agent or a user in the panel
+
+  The panel printed the topology name everywhere, so a stand's sidebar read `dev` / `ceo` / `operator-web` — precise, but not what a person wants on the screen. `agents[].title` and `users[].title` add ONE optional label: where the panel prints a name it now prints the title, and the name stays one hover away. ([31994d5](https://github.com/art-ws/teamai/commit/31994d51f891680a04fd1f7983721301c162a4b5))
+* **T238:** biome format for the T237 tests (CI lint was red)
+
+  The two test files gained their FR-156 cases after the last local lint run, so `biome check .` on CI printed two format diffs and failed the check job. Pure formatting — biome's own output applied verbatim, no assertion touched (43 pass in the two files, typecheck clean). ([376ce60](https://github.com/art-ws/teamai/commit/376ce6039328f609f0baa9134abcc28fd4310c0a))
+
 ## [0.1.6](https://github.com/art-ws/teamai/compare/v0.1.5...v0.1.6) (2026-08-01)
 
 

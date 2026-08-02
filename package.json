@@ -1,6 +1,6 @@
 {
   "name": "@art-ws/teamai",
-  "version": "0.1.6",
+  "version": "0.1.7",
   "type": "module",
   "description": "TEAMAI — transport and coordinator for local CLI agents running in tmux sessions.",
   "keywords": [
