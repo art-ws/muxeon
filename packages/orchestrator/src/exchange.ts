@@ -81,6 +81,21 @@ export interface ExchangeOptions {
   readonly harvestSettleMs?: number;
   /** File-detect poll cadence (FR-53, NFR-10) — same default as outputPollMs. */
   readonly pollIntervalMs?: number;
+  /**
+   * Hot-path settle guard (T239): how many consecutive identical (size, mtime)
+   * samples of the answer files `collect` requires before reading them, spaced
+   * `pollIntervalMs`. Default 2 — one extra sample, the same discipline the
+   * outbox uses for half-written files (FR-55). `1` disables the wait.
+   */
+  readonly replySettleTicks?: number;
+  /**
+   * Warning sink (T239) — receives the message BODY; the caller owns the prefix
+   * (it knows whose exchange this is). The orphan sweep deletes by age, and an
+   * orphan can still hold an ANSWER the agent wrote (an uncollected reply.md:
+   * the turn was never closed, or every delivery attempt was refused).
+   * Destroying that must be visible; ordinary empty orphans stay silent.
+   */
+  readonly warn?: (text: string) => void;
 }
 
 export interface Exchange {
@@ -112,6 +127,14 @@ export interface Exchange {
    * regular file (hidden files and subdirs ignored) is an artifact to attach.
    * null ⇒ nothing file-borne — the FR-47/FR-45 chain takes over. Pure FS:
    * blob ingestion and routing are the caller's (bootstrap wiring) concern.
+   *
+   * Settle guard (T239): file-detect is not the only way a turn ends — the
+   * output detector can win WHILE the agent is still writing reply.md, and the
+   * files were read (and the dir then removed) mid-write. The answer files must
+   * therefore hold still — the same (size, mtime) across `replySettleTicks`
+   * samples — before anything is read; a dir still changing at the cap yields
+   * null, leaving the whole collection to the late harvest (FR-74) rather than
+   * delivering a truncated answer.
    */
   collect(message: Signal): Promise<CollectedReply | null>;
   /**
@@ -146,6 +169,11 @@ const GITIGNORE = "*\n";
 const DEFAULT_ORPHAN_MIN_AGE_MS = 10 * 60_000;
 const DEFAULT_HARVEST_SETTLE_MS = 30_000;
 const REPLY_FILE = "reply.md";
+const DEFAULT_REPLY_SETTLE_TICKS = 2;
+// Upper bound on the settle wait (T239). An agent that keeps writing this long
+// is not "about to finish" — hand the dir to the late harvest (FR-74, which
+// waits out its own 30s) instead of blocking the dispatcher's turn loop.
+const SETTLE_MAX_TICKS = 30;
 // Hidden Signal sidecar (FR-74): written at materialization next to message.json,
 // survives the agent's delete (the contract names message.json only) — carries
 // the original sender/id the late-reply harvest needs after the turn ended.
@@ -160,6 +188,72 @@ const fileExists = async (path: string): Promise<boolean> => {
     return false;
   }
 };
+
+/**
+ * Fingerprint of the answer files of one turn dir (T239): every collectable
+ * regular file as `name:size:mtime`. message.json and dotfiles are excluded —
+ * they are not collected, and message.json vanishing mid-settle (the file-detect
+ * signal itself) must not read as "the answer changed". null ⇒ the dir is gone.
+ */
+async function answerFingerprint(msgDir: string): Promise<string | null> {
+  let entries: string[];
+  try {
+    entries = (await readdir(msgDir)).sort();
+  } catch {
+    return null;
+  }
+  const parts: string[] = [];
+  for (const entry of entries) {
+    if (entry.startsWith(".") || entry === "message.json") continue;
+    try {
+      const info = await stat(join(msgDir, entry));
+      if (info.isFile()) parts.push(`${entry}:${info.size}:${info.mtimeMs}`);
+    } catch {
+      // raced the agent's own cleanup — the next sample settles it
+    }
+  }
+  return parts.join("\n");
+}
+
+/**
+ * What an about-to-be-age-deleted orphan still holds (T239): a non-empty
+ * reply.md and/or artifact files are an answer that was produced and never
+ * delivered — the deletion must not be silent. undefined ⇒ nothing was lost
+ * (an ordinary empty orphan: a crash between turn end and cleanup).
+ */
+async function describeLostAnswer(path: string): Promise<string | undefined> {
+  let entries: string[];
+  try {
+    entries = (await readdir(path)).sort();
+  } catch {
+    return undefined;
+  }
+  let reply = false;
+  let artifacts = 0;
+  let open = false;
+  for (const entry of entries) {
+    if (entry === "message.json") {
+      open = true; // the turn was never closed — file-detect never fired
+      continue;
+    }
+    if (entry.startsWith(".")) continue;
+    if (entry === REPLY_FILE) {
+      reply = (await readFile(join(path, entry), "utf8").catch(() => "")).trim().length > 0;
+      continue;
+    }
+    artifacts += 1;
+  }
+  if (!reply && artifacts === 0) return undefined;
+  const held = [
+    ...(reply ? [REPLY_FILE] : []),
+    ...(artifacts > 0 ? [`${artifacts} artifact file(s)`] : []),
+  ].join(" + ");
+  return `${held}; ${
+    open
+      ? "message.json was never deleted — the agent did not close the turn (FR-53)"
+      : "the turn ended, but no delivery attempt succeeded (FR-54/FR-74)"
+  }`;
+}
 
 /** The sidecar's Signal, or undefined when absent/corrupt (pre-FR-74 dirs). */
 async function readSidecar(path: string): Promise<Signal | undefined> {
@@ -181,6 +275,9 @@ export function createExchange(options: ExchangeOptions): Exchange {
   const orphanMinAgeMs = options.orphanMinAgeMs ?? DEFAULT_ORPHAN_MIN_AGE_MS;
   const harvestSettleMs = options.harvestSettleMs ?? DEFAULT_HARVEST_SETTLE_MS;
   const pollIntervalMs = options.pollIntervalMs ?? 100;
+  const replySettleTicks = options.replySettleTicks ?? DEFAULT_REPLY_SETTLE_TICKS;
+  const warn =
+    options.warn ?? ((text: string) => void process.stderr.write(`teamai: warning: ${text}\n`));
   let ensured = false;
 
   // Lazy one-time setup: inbox/outbox dirs + the system-owned .gitignore (§13.1)
@@ -195,6 +292,32 @@ export function createExchange(options: ExchangeOptions): Exchange {
   };
 
   const messageDir = (message: Signal): string => join(inboxDir, sanitizeFileId(message.id));
+
+  /**
+   * Wait until the turn dir's answer files stop changing (T239, see `collect`).
+   * An EMPTY dir settles instantly: there is nothing to read half-done, and a
+   * file appearing later belongs to the late harvest anyway (FR-74) — so the
+   * common "no file-borne reply" turn pays nothing. false ⇒ still changing at
+   * the cap; the caller must leave the dir alone.
+   */
+  const settled = async (msgDir: string): Promise<boolean> => {
+    if (replySettleTicks <= 1) return true;
+    let prev = await answerFingerprint(msgDir);
+    if (prev === null || prev === "") return true;
+    let stable = 1;
+    for (let tick = 0; tick < SETTLE_MAX_TICKS; tick += 1) {
+      await sleep(pollIntervalMs);
+      const next = await answerFingerprint(msgDir);
+      if (next === prev) {
+        stable += 1;
+        if (stable >= replySettleTicks) return true;
+      } else {
+        stable = 1;
+        prev = next;
+      }
+    }
+    return false;
+  };
 
   return {
     dir,
@@ -236,6 +359,7 @@ export function createExchange(options: ExchangeOptions): Exchange {
 
     async collect(message: Signal): Promise<CollectedReply | null> {
       const msgDir = messageDir(message);
+      if (!(await settled(msgDir))) return null; // still being written (T239)
       let entries: string[];
       try {
         entries = (await readdir(msgDir)).sort();
@@ -295,6 +419,15 @@ export function createExchange(options: ExchangeOptions): Exchange {
             }
           }
           if (info.mtimeMs > cutoff) continue;
+          // The age path is the LAST stop (T239): whatever the agent left here
+          // dies with the dir. An answer dying silently is what made a live
+          // delivery gap unexplainable for hours — say it out loud.
+          const lost = await describeLostAnswer(path);
+          if (lost !== undefined) {
+            warn(
+              `exchange inbox dir "${entry}" removed after the orphan window — an UNDELIVERED answer went with it: ${lost}`,
+            );
+          }
           await rm(path, { recursive: true, force: true });
         } catch {
           // raced its own cleanup — fine

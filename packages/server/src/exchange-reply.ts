@@ -51,7 +51,8 @@ export interface ExchangeReplyDeps {
 /**
  * Collect and route the file-borne reply for one finished turn (FR-54). The id is
  * deterministic (`<id>:reply`) so a redelivered turn's duplicate collapses in the
- * dedup window (§10.9). Returns true when a reply was routed.
+ * dedup window (§10.9). Returns true when a reply was DELIVERED — the caller uses
+ * that to decide whether the turn dir may go (§13.3): a refused reply keeps it.
  */
 export async function routeExchangeReply(
   message: Signal,
@@ -101,13 +102,18 @@ export async function routeExchangeReply(
   if (!result.ok) {
     // A reply is gated like any send — under the WIP cap (FR-104, operator's choice)
     // and under the recipient's pause (§16.2, FR-117). It was produced but not
-    // delivered — never drop it silently; warn so the refusal is visible (the reply
-    // is not retried — the accepted trade-off).
+    // delivered — never drop it silently; warn so the refusal is visible.
     warn(
       `teamai: warning: reply from ${deps.agent} to "${message.from}" refused (${result.code}${
         result.code === "WIP_LIMIT" ? `, limit ${result.limit}, ${result.depth} in flight` : ""
       }) — not delivered (${result.code === "AGENT_PAUSED" ? "§16.2" : "FR-104"})`,
     );
+    // NOT delivered ⇒ not collected as far as cleanup is concerned (T239): the
+    // turn dir survives, so the late-reply harvest (FR-74) re-offers the very
+    // same answer on the next sweep, until the recipient drains or the orphan
+    // window closes (which warns — §13.3). A refusal happens BEFORE enqueue and
+    // never reaches done/ (§10.19), so the retry cannot deliver a duplicate.
+    return false;
   }
   return true;
 }

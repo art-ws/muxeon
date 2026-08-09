@@ -98,6 +98,35 @@ describe("routeExchangeReply (FR-54)", () => {
     expect(await routeExchangeReply(msg("m1"), kit.deps)).toBe(true);
     expect(kit.routed[0]?.payload).toBe("ок"); // no refs — text-only shape
   });
+
+  // T239: "collected" is not "delivered". A refused reply must NOT authorize the
+  // turn dir's removal — it is the only surviving copy of the answer, and the
+  // late-reply harvest (FR-74) re-offers it from there on the next sweep.
+  test("a refused reply warns AND reports false — the turn dir survives", async () => {
+    const kit = deps({ text: "готово", files: [] });
+    const warnings: string[] = [];
+    const refused = {
+      ...kit.deps,
+      route: async () => ({ ok: false, code: "WIP_LIMIT", limit: 3, depth: 5 }),
+      warn: (text: string) => warnings.push(text),
+    };
+    expect(await routeExchangeReply(msg("m1"), refused)).toBe(false);
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0]).toContain("refused (WIP_LIMIT, limit 3, 5 in flight)");
+    expect(warnings[0]).toContain("not delivered");
+  });
+
+  test("a paused recipient refuses the same way — still false, still warned", async () => {
+    const kit = deps({ text: "готово", files: [] });
+    const warnings: string[] = [];
+    const refused = {
+      ...kit.deps,
+      route: async () => ({ ok: false, code: "AGENT_PAUSED" }),
+      warn: (text: string) => warnings.push(text),
+    };
+    expect(await routeExchangeReply(msg("m1"), refused)).toBe(false);
+    expect(warnings[0]).toContain("§16.2");
+  });
 });
 
 describe("mimeByName (FR-46)", () => {

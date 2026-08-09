@@ -79,6 +79,12 @@ describe("exchange render (FR-52, §13.2)", () => {
     // T76: the reply mirrors the request language (the instruction itself is EN)
     expect(text).toContain("SAME LANGUAGE as the message");
     expect(text).toContain("mirror the request language");
+    // T239 live finding: the folder is the COORDINATOR's to remove — an agent
+    // that polls it after its own delete sees the collection window and thinks
+    // the exchange dropped the answer.
+    expect(text).toContain("REMOVES that folder itself");
+    expect(text).toContain("do NOT inspect it afterwards");
+    expect(text).toContain("do NOT duplicate your answer through another channel");
     expect(text).not.toContain("READ the message file first"); // it was inlined
     expect(text).not.toContain("send(to="); // file contract replaces the MCP hint
     // the action contract is the TAIL of the input (T57)

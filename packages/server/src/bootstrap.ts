@@ -451,6 +451,8 @@ export async function bootstrap(options: BootstrapOptions = {}): Promise<TeamaiS
       }),
       // file-detect (FR-53) polls on the same cadence as output detection (NFR-10)
       ...(cadence.outputPollMs !== undefined ? { pollIntervalMs: cadence.outputPollMs } : {}),
+      // T239: the sweep's "an undelivered answer just died" line, named by agent.
+      warn: (text) => void process.stderr.write(`teamai: warning: ${agent.name}: ${text}\n`),
     });
     exchanges.set(agent.name, exchange);
     // Cleanup discipline (T75, live finding): the turn dir is removed only after

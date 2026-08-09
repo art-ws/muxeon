@@ -15,6 +15,7 @@ import {
 import { mkdir, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { setTimeout as sleep } from "node:timers/promises";
 import type { Message } from "@teamai/core";
 import { createExchange, resolveExchangeDir, settleExchangeDir } from "../src/exchange";
 
@@ -240,6 +241,74 @@ describe("reply collection (FR-54, §13.3)", () => {
   });
 });
 
+// T239: file-detect is not the only way a turn ends. When the OUTPUT detector
+// wins mid-write, collection used to read whatever bytes were on disk and then
+// authorize the dir's removal — a silently truncated answer.
+describe("hot-path settle guard (T239, §13.3)", () => {
+  test("a reply.md still being written is read only after it holds still", async () => {
+    const exchange = createExchange({ dir: join(base, ".teamai"), pollIntervalMs: 50 });
+    await exchange.materialize(msg("m1"));
+    const reply = join(base, ".teamai", "inbox", "m1", "reply.md");
+    await writeFile(reply, "часть"); // what a mid-write collect would have grabbed
+
+    const collecting = exchange.collect(msg("m1"));
+    await sleep(10); // inside the first sampling interval
+    await writeFile(reply, "часть ответа, дописанная целиком");
+
+    expect((await collecting)?.text).toBe("часть ответа, дописанная целиком");
+  });
+
+  test("an artifact that is still growing holds the whole collection back", async () => {
+    const exchange = createExchange({ dir: join(base, ".teamai"), pollIntervalMs: 50 });
+    await exchange.materialize(msg("m1"));
+    const dir = join(base, ".teamai", "inbox", "m1");
+    await writeFile(join(dir, "reply.md"), "смотри вложение");
+    await writeFile(join(dir, "report.csv"), "a");
+
+    const collecting = exchange.collect(msg("m1"));
+    await sleep(10);
+    await writeFile(join(dir, "report.csv"), "a,b,c,d,e");
+
+    const collected = await collecting;
+    expect(collected?.files.map((f) => f.name)).toEqual(["report.csv"]);
+    expect(readFileSync(join(dir, "report.csv"), "utf8")).toBe("a,b,c,d,e");
+  });
+
+  // Ticks above the internal cap can never be reached — the deterministic way to
+  // exercise "still changing when the cap runs out": nothing is read, and the dir
+  // is left intact for the late harvest (FR-74) instead of a truncated delivery.
+  test("unsettled at the cap → null, and the files are left untouched", async () => {
+    const exchange = createExchange({
+      dir: join(base, ".teamai"),
+      pollIntervalMs: 1,
+      replySettleTicks: 1_000,
+    });
+    await exchange.materialize(msg("m1"));
+    const dir = join(base, ".teamai", "inbox", "m1");
+    await writeFile(join(dir, "reply.md"), "ответ");
+
+    expect(await exchange.collect(msg("m1"))).toBeNull();
+    expect(readFileSync(join(dir, "reply.md"), "utf8")).toBe("ответ");
+  });
+
+  test("replySettleTicks: 1 disables the wait entirely", async () => {
+    const exchange = createExchange({
+      dir: join(base, ".teamai"),
+      pollIntervalMs: 60_000, // any wait at all would hang this test
+      replySettleTicks: 1,
+    });
+    await exchange.materialize(msg("m1"));
+    await writeFile(join(base, ".teamai", "inbox", "m1", "reply.md"), "сразу");
+    expect((await exchange.collect(msg("m1")))?.text).toBe("сразу");
+  });
+
+  test("a turn with no answer files pays nothing — no sampling at all", async () => {
+    const exchange = createExchange({ dir: join(base, ".teamai"), pollIntervalMs: 60_000 });
+    await exchange.materialize(msg("m1")); // only message.json + the sidecar
+    expect(await exchange.collect(msg("m1"))).toBeNull();
+  });
+});
+
 describe("orphan sweep (§13.3, §5.4)", () => {
   test("removes old orphans; keeps the active id and fresh dirs", async () => {
     const exchange = createExchange({ dir: join(base, ".teamai"), orphanMinAgeMs: 60_000 });
@@ -356,5 +425,84 @@ describe("late-reply harvest (FR-74, §13.3)", () => {
 
     expect(offered).toEqual([]); // nothing to identify the sender — not offered
     expect(existsSync(dir)).toBe(false); // but the age path still cleans it
+  });
+});
+
+// T239: the age path is where an undelivered answer finally dies. It used to do
+// that in complete silence — a live delivery gap then had no trace at all.
+describe("age-deleted answers are never silent (T239, §13.3)", () => {
+  const age = (dir: string, agoMs: number): void => {
+    const then = (Date.now() - agoMs) / 1000;
+    utimesSync(dir, then, then);
+  };
+
+  const kit = (): { warnings: string[]; exchange: ReturnType<typeof createExchange> } => {
+    const warnings: string[] = [];
+    return {
+      warnings,
+      exchange: createExchange({
+        dir: join(base, ".teamai"),
+        orphanMinAgeMs: 60_000,
+        warn: (text) => warnings.push(text),
+      }),
+    };
+  };
+
+  test("a reply.md + artifacts dying with the dir is reported, with the reason", async () => {
+    const { warnings, exchange } = kit();
+    await exchange.materialize(msg("lost"));
+    const dir = join(base, ".teamai", "inbox", "lost");
+    rmSync(join(dir, "message.json")); // the turn DID end — delivery never worked
+    await writeFile(join(dir, "reply.md"), "ответ, который никто не забрал");
+    await writeFile(join(dir, "report.csv"), "a,b");
+    age(dir, 120_000);
+
+    await exchange.sweepOrphans(new Set());
+
+    expect(existsSync(dir)).toBe(false);
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0]).toContain('inbox dir "lost"');
+    expect(warnings[0]).toContain("UNDELIVERED");
+    expect(warnings[0]).toContain("reply.md + 1 artifact file(s)");
+    expect(warnings[0]).toContain("no delivery attempt succeeded");
+  });
+
+  test("a never-closed turn names THAT as the reason (FR-53), not a delivery failure", async () => {
+    const { warnings, exchange } = kit();
+    await exchange.materialize(msg("open"));
+    const dir = join(base, ".teamai", "inbox", "open");
+    await writeFile(join(dir, "reply.md"), "написал, но ход не закрыл");
+    age(dir, 120_000); // message.json still there — file-detect never fired
+
+    await exchange.sweepOrphans(new Set());
+
+    expect(existsSync(dir)).toBe(false);
+    expect(warnings[0]).toContain("message.json was never deleted");
+  });
+
+  test("an ordinary empty orphan stays silent — only lost ANSWERS warn", async () => {
+    const { warnings, exchange } = kit();
+    await exchange.materialize(msg("crashed"));
+    const dir = join(base, ".teamai", "inbox", "crashed");
+    rmSync(join(dir, "message.json"));
+    age(dir, 120_000);
+
+    await exchange.sweepOrphans(new Set());
+
+    expect(existsSync(dir)).toBe(false);
+    expect(warnings).toEqual([]);
+  });
+
+  test("an EMPTY reply.md is not an answer — no warning for it alone", async () => {
+    const { warnings, exchange } = kit();
+    await exchange.materialize(msg("blank"));
+    const dir = join(base, ".teamai", "inbox", "blank");
+    rmSync(join(dir, "message.json"));
+    await writeFile(join(dir, "reply.md"), "   \n");
+    age(dir, 120_000);
+
+    await exchange.sweepOrphans(new Set());
+
+    expect(warnings).toEqual([]);
   });
 });

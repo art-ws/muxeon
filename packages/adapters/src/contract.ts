@@ -110,12 +110,17 @@ export function renderExchangeHint(messageFile: string, payloadInlined: boolean)
   // request language. The deletion step is spelled out as the VERY LAST action
   // (live finding, T75): an agent that deletes message.json first ends the turn
   // early — everything it writes afterwards is collected by nobody.
+  // Step 3 names the OWNER of the folder (live finding, T239): the coordinator
+  // removes it only after collecting, so the dir necessarily outlives the
+  // agent's delete by the collection window. An agent that kept working past
+  // its own delete read that as "the exchange dropped my answer" and duplicated
+  // it through MCP — both answers had in fact been delivered.
   return [
     ...(payloadInlined
       ? []
       : ["[the payload is too long for the console — READ the message file first]"]),
     `[teamai exchange] full message: ${messageFile}`,
-    "[reply contract: 1) FIRST write your answer into reply.md NEXT TO message.json (plain text / markdown), in the SAME LANGUAGE as the message itself — mirror the request language; any other files you create in that folder are sent back to the sender as attachments; 2) THEN, as your VERY LAST action, DELETE message.json — deleting it ends your turn immediately, so anything written after that is lost]",
+    "[reply contract: 1) FIRST write your answer into reply.md NEXT TO message.json (plain text / markdown), in the SAME LANGUAGE as the message itself — mirror the request language; any other files you create in that folder are sent back to the sender as attachments; 2) THEN, as your VERY LAST action, DELETE message.json — deleting it ends your turn immediately, so anything written after that is lost; 3) the coordinator collects reply.md and REMOVES that folder itself once the answer is delivered — the folder outliving your delete is normal, so do NOT inspect it afterwards and do NOT duplicate your answer through another channel]",
   ].join("\n");
 }
 
