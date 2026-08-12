@@ -80,5 +80,14 @@ jobs:
       - name: semantic-release
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # BOTH names are required, and NODE_AUTH_TOKEN is the one npm actually
+          # reads here: setup-node's `registry-url` writes an .npmrc containing
+          # `_authToken=${NODE_AUTH_TOKEN}` and points NPM_CONFIG_USERCONFIG at
+          # it. Because that file already declares auth, @semantic-release/npm
+          # leaves it alone instead of injecting NPM_TOKEN — so with NPM_TOKEN
+          # set alone, npm authenticates with setup-node's literal placeholder
+          # (`XXXXX-XXXXX-XXXXX-XXXXX`) and the registry answers 401, which
+          # surfaces as the misleading `EINVALIDNPMTOKEN Invalid npm token`.
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }} # temporary — remove with the trusted publisher (C1a)
           NPM_TOKEN: ${{ secrets.NPM_TOKEN }} # temporary — remove with the trusted publisher (C1a)
         run: npx semantic-release ${{ inputs.dry_run && '--dry-run' || '' }}
