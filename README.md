@@ -31,15 +31,15 @@ curl -o muxeon.config.json \
 
 # run it straight from npm — no install. The config is found by convention
 # (./muxeon.config.json, then upward), or pass a path / --config
-npx muxeon
+npx @art-ws/muxeon
 ```
 
-`bunx muxeon` works too and skips the Node shim entirely. To install it
+`bunx @art-ws/muxeon` works too and skips the Node shim entirely. To install it
 once:
 
 ```bash
-npm i -g muxeon     # or: bun i -g muxeon
-muxeon agents               # the package is unscoped; so is the command
+npm i -g @art-ws/muxeon     # or: bun i -g @art-ws/muxeon
+muxeon agents               # the package is scoped, the command is not
 ```
 
 From a clone, run it from source instead:

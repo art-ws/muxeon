@@ -92,13 +92,13 @@ Pick **one** of these. Prefer the first unless told otherwise.
 **a) Run from npm, no install** — best for a first deployment:
 
 ```bash
-npx muxeon      # or: bunx muxeon
+npx @art-ws/muxeon      # or: bunx @art-ws/muxeon
 ```
 
 **b) Install globally** — best when it will be run repeatedly:
 
 ```bash
-npm i -g muxeon
+npm i -g @art-ws/muxeon
 muxeon                  # the command is `muxeon`, scope or not
 ```
 
@@ -369,7 +369,7 @@ bounded run so you never end up holding a foreground server:
 
 ```bash
 cd <ROOT>
-timeout 5 npx muxeon 2>&1 | head -20
+timeout 5 npx @art-ws/muxeon 2>&1 | head -20
 ```
 
 Two possible outcomes:
@@ -389,7 +389,7 @@ Run it inside a dedicated tmux session so it survives your shell:
 
 ```bash
 cd <ROOT>
-tmux new-session -d -s muxeon-serve -c <ROOT> 'npx muxeon'
+tmux new-session -d -s muxeon-serve -c <ROOT> 'npx @art-ws/muxeon'
 ```
 
 Watch it come up:
@@ -414,7 +414,7 @@ Run every check. Report the results as a group.
 curl -s -o /dev/null -w 'admin %{http_code}\n' http://localhost:8080/admin/agents
 
 # 2. agents and their state
-npx muxeon agents
+npx @art-ws/muxeon agents
 
 # 3. the queue root was created
 ls -d queue
@@ -455,7 +455,7 @@ indistinguishable, so check both. Do **not** put the password in your report.
 Prove a message actually reaches an agent. Pick an agent that is `idle`:
 
 ```bash
-npx muxeon signals send --from <user> --to <agent> "reply with the single word OK"
+npx @art-ws/muxeon signals send --from <user> --to <agent> "reply with the single word OK"
 ```
 
 `<user>` is a name from `users[]` (or the legacy operator) that has an edge to
@@ -673,7 +673,7 @@ actor shows up as `<name>@<their-accept>@<your-import>` (e.g. `bob@b@c`) in the
 panel/`list_peers`, and a send to it round-trips:
 
 ```bash
-npx muxeon signals send --from <user> --to bob@b@c "reply with the single word OK"
+npx @art-ws/muxeon signals send --from <user> --to bob@b@c "reply with the single word OK"
 ```
 
 On the far satellite the record arrives with the sender named
@@ -691,7 +691,7 @@ curl -s -H "authorization: Bearer <the accept token value>" \
 #    list_peers of an agent with an edge on the import shows dev@hq with a status)
 
 # 3. a message crosses (run on the importer; the sender needs an edge on "hq")
-npx muxeon signals send --from <user> --to dev@hq "reply with the single word OK"
+npx @art-ws/muxeon signals send --from <user> --to dev@hq "reply with the single word OK"
 ```
 
 **Expected:** check 1 lists only the exported actors; check 3 prints
@@ -722,7 +722,7 @@ Summarise what changed yesterday.
 The body is the message sent on schedule.
 
 ```bash
-npx muxeon routines list
+npx @art-ws/muxeon routines list
 ```
 
 **Check:** your routine appears with the expected owner and schedule.
@@ -761,7 +761,7 @@ once at boot — a config edit needs the server process restarted:
 
 ```bash
 tmux kill-session -t muxeon-serve
-tmux new-session -d -s muxeon-serve -c <ROOT> 'npx muxeon'
+tmux new-session -d -s muxeon-serve -c <ROOT> 'npx @art-ws/muxeon'
 ```
 
 Restarting the server does **not** kill agent sessions; it re-attaches and
