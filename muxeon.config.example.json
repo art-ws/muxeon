@@ -42,7 +42,7 @@
       "name": "operator",
       "title": "Operator",
       "role": "admin",
-      "auth": { "password": { "$env": "TEAMAI_WEB_PASSWORD" } },
+      "auth": { "password": { "$env": "MUXEON_WEB_PASSWORD" } },
       "channels": { "web": true }
     }
   ],
@@ -57,7 +57,7 @@
     {
       "name": "hq",
       "url": "https://hq.example.com:8092",
-      "token": { "$env": "TEAMAI_FED_HQ_TOKEN" },
+      "token": { "$env": "MUXEON_FED_HQ_TOKEN" },
       "transit": true,
       "publish": false
     }
@@ -68,7 +68,7 @@
     "bind": "127.0.0.1",
     "publishStatus": true,
     "statusDebounceMs": 1000,
-    "accept": [{ "name": "branch", "token": { "$env": "TEAMAI_FED_BRANCH_TOKEN" }, "relay": false }]
+    "accept": [{ "name": "branch", "token": { "$env": "MUXEON_FED_BRANCH_TOKEN" }, "relay": false }]
   },
 
   "commandGrants": {

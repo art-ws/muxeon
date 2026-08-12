@@ -20,7 +20,7 @@ interface DraftStorage {
   removeItem(key: string): void;
 }
 
-const keyOf = (peer: string): string => `teamai-draft:${peer}`;
+const keyOf = (peer: string): string => `muxeon-draft:${peer}`;
 
 /** Anything that is not a {text: string, height?: positive number} is empty. */
 export function normalizeDraft(value: unknown): ComposerDraft {

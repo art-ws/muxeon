@@ -6,8 +6,8 @@ import {
   SessionGrants,
   type SessionGrantsMap,
   Topology,
-} from "@teamai/core";
-import { Router } from "@teamai/orchestrator";
+} from "@muxeon/core";
+import { Router } from "@muxeon/orchestrator";
 import { type AgentPlaneHandle, createAgentServer, startAgentPlane } from "../src/mcp";
 import { LOOPBACK_DIRECT, connectClient } from "./mcp-helpers";
 
@@ -32,7 +32,7 @@ interface Harness {
 // / busy refusal that lifecycleAdmin throws, FR-7/FR-64).
 function makePlane(grants: SessionGrantsMap, busy?: SessionAction): Harness {
   const topology = new Topology(TOPOLOGY);
-  const router = new Router({ topology, root: "/tmp/teamai-unused", queueKeyOf: () => null });
+  const router = new Router({ topology, root: "/tmp/muxeon-unused", queueKeyOf: () => null });
   const calls: Array<{ name: string; action: SessionAction }> = [];
   const plane = startAgentPlane({
     port: 0,

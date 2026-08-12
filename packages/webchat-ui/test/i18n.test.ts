@@ -37,7 +37,7 @@ describe("UI languages (FR-78)", () => {
     "junk lang %p falls back to English",
     (raw) => {
       expect(normalizeLang(raw)).toBe("en");
-      expect(loadLang(memoryStorage({ "teamai-pref:lang": String(raw) }))).toBe(
+      expect(loadLang(memoryStorage({ "muxeon-pref:lang": String(raw) }))).toBe(
         raw === "ru" ? "ru" : "en",
       );
     },

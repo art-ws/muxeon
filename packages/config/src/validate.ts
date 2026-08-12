@@ -4,9 +4,9 @@
 // operator with no edges) is returned as a warning.
 //
 // Rule 4 ("agent type is a known adapter") needs the adapter registry, which lives
-// one layer up (@teamai/adapters, §8.3) — config must NOT depend on it. So the
+// one layer up (@muxeon/adapters, §8.3) — config must NOT depend on it. So the
 // known types are INJECTED via context; the composition root (server) supplies
-// them. Topology neighbor checks reuse @teamai/core's Topology (a legal config→core
+// them. Topology neighbor checks reuse @muxeon/core's Topology (a legal config→core
 // edge).
 
 import {
@@ -15,13 +15,13 @@ import {
   SESSION_WILDCARD,
   Topology,
   isSessionAction,
-} from "@teamai/core";
+} from "@muxeon/core";
 import { joinPointer } from "./env";
 import { ConfigError } from "./error";
 import {
   type ChannelConfig,
   INTERNAL_COMMAND_SLASHES,
-  type TeamaiConfig,
+  type MuxeonConfig,
   channelName,
 } from "./schema";
 
@@ -31,7 +31,7 @@ export interface ValidateContext {
 }
 
 /** Runs the §7.5 rules. Throws ConfigError on any fatal violation; returns warnings. */
-export function validateRules(config: TeamaiConfig, context: ValidateContext = {}): string[] {
+export function validateRules(config: MuxeonConfig, context: ValidateContext = {}): string[] {
   const warnings: string[] = [];
   const agentNames = collectAgentNames(config); // rule 2: agent names unique
   const operatorNames = collectOperatorNames(config); // rule 5: one operator ≤ one channel
@@ -106,7 +106,7 @@ export function validateRules(config: TeamaiConfig, context: ValidateContext = {
   return warnings;
 }
 
-function collectAgentNames(config: TeamaiConfig): Set<string> {
+function collectAgentNames(config: MuxeonConfig): Set<string> {
   const names = new Set<string>();
   for (const [i, agent] of config.agents.entries()) {
     if (names.has(agent.name)) {
@@ -122,7 +122,7 @@ function collectAgentNames(config: TeamaiConfig): Set<string> {
 // Legacy operators (§12.1): channels that still bind ONE operator node. A channel
 // in users mode (§17.2) has no bindOperator — its identities come from the users'
 // bindings (FR-125), so it contributes no operator name.
-function collectOperatorNames(config: TeamaiConfig): Set<string> {
+function collectOperatorNames(config: MuxeonConfig): Set<string> {
   const names = new Set<string>();
   for (const [i, channel] of config.channels.entries()) {
     const operator = channel.bindOperator;
@@ -139,7 +139,7 @@ function collectOperatorNames(config: TeamaiConfig): Set<string> {
 
 // §17.3 / FR-121: user names are unique. They join the ONE shared namespace
 // (§10.17, asserted below) and own a queue key each (§5.3).
-function collectUserNames(config: TeamaiConfig): Set<string> {
+function collectUserNames(config: MuxeonConfig): Set<string> {
   const names = new Set<string>();
   for (const [i, user] of (config.users ?? []).entries()) {
     if (names.has(user.name)) {
@@ -154,7 +154,7 @@ function collectUserNames(config: TeamaiConfig): Set<string> {
 
 // §17.3 / FR-125: `channels[].name` (default: the type) is the key of every user
 // binding, so it must be unique — two channels of one type MUST name themselves.
-function collectChannelNames(config: TeamaiConfig): Set<string> {
+function collectChannelNames(config: MuxeonConfig): Set<string> {
   const names = new Set<string>();
   for (const [i, channel] of config.channels.entries()) {
     const name = channelName(channel);
@@ -180,7 +180,7 @@ function assertNamesDisjoint(agentNames: Set<string>, operatorNames: Set<string>
 }
 
 function assertQueueKeysUnique(
-  config: TeamaiConfig,
+  config: MuxeonConfig,
   operatorNames: Set<string>,
   userNames: Set<string>,
 ): void {
@@ -218,7 +218,7 @@ function assertQueueKeysUnique(
 }
 
 // §7.5 / FR-106: group names are declared explicitly and must be unique.
-function collectGroupNames(config: TeamaiConfig): Set<string> {
+function collectGroupNames(config: MuxeonConfig): Set<string> {
   const names = new Set<string>();
   for (const [i, group] of (config.groups ?? []).entries()) {
     if (names.has(group.name)) {
@@ -233,7 +233,7 @@ function collectGroupNames(config: TeamaiConfig): Set<string> {
 
 // §7.5 / FR-107: the tag namespace is IMPLICIT — the union of every agent's and
 // (§17.2/FR-130) every user's `tags`; users are equal members of a tag.
-function collectTagNames(config: TeamaiConfig): Set<string> {
+function collectTagNames(config: MuxeonConfig): Set<string> {
   const tags = new Set<string>();
   for (const agent of config.agents) {
     for (const tag of agent.tags ?? []) tags.add(tag);
@@ -247,7 +247,7 @@ function collectTagNames(config: TeamaiConfig): Set<string> {
 // §7.5 / FR-106: every `parent` names a declared group, no group is its own parent,
 // and the `parent` chains form a forest (acyclic). A cycle would make hierarchical
 // member resolution (§15.4) non-terminating.
-function assertGroupHierarchy(config: TeamaiConfig, groupNames: Set<string>): void {
+function assertGroupHierarchy(config: MuxeonConfig, groupNames: Set<string>): void {
   const groups = config.groups ?? [];
   const parentOf = new Map<string, string>();
   const indexOf = new Map<string, number>();
@@ -280,7 +280,7 @@ function assertGroupHierarchy(config: TeamaiConfig, groupNames: Set<string>): vo
 }
 
 // §7.5 / FR-106: an agent's `group` (when set) names a declared group.
-function assertAgentGroups(config: TeamaiConfig, groupNames: Set<string>): void {
+function assertAgentGroups(config: MuxeonConfig, groupNames: Set<string>): void {
   for (const [i, agent] of config.agents.entries()) {
     if (agent.group === undefined) continue;
     if (!groupNames.has(agent.group)) {
@@ -293,7 +293,7 @@ function assertAgentGroups(config: TeamaiConfig, groupNames: Set<string>): void 
 
 // §17.3 / FR-130: a user's `group` (when set) names a declared group — the same
 // rule agents live by (§15.3); membership feeds the broadcast fan-out (§15.4).
-function assertUserGroups(config: TeamaiConfig, groupNames: Set<string>): void {
+function assertUserGroups(config: MuxeonConfig, groupNames: Set<string>): void {
   for (const [i, user] of (config.users ?? []).entries()) {
     if (user.group === undefined) continue;
     if (!groupNames.has(user.group)) {
@@ -308,7 +308,7 @@ function assertUserGroups(config: TeamaiConfig, groupNames: Set<string>): void {
 // the channel kind — webchat takes `true` (the login is the identity), telegram/
 // slack take a non-empty `alias` that is UNIQUE within that channel (two users
 // behind one alias would make the sender unresolvable, §10.21).
-function assertUserChannelBindings(config: TeamaiConfig, channelNames: Set<string>): void {
+function assertUserChannelBindings(config: MuxeonConfig, channelNames: Set<string>): void {
   const byChannel = new Map<string, ChannelConfig>();
   for (const channel of config.channels) byChannel.set(channelName(channel), channel);
   const aliasOwner = new Map<string, string>(); // "<channel> <alias>" → user
@@ -348,7 +348,7 @@ function assertUserChannelBindings(config: TeamaiConfig, channelNames: Set<strin
 
 // §17.3 / FR-122: `auth` is MANDATORY for a user bound to a webchat channel —
 // that binding is a login, and a login without a password is not one.
-function assertUserAuthPresence(config: TeamaiConfig): void {
+function assertUserAuthPresence(config: MuxeonConfig): void {
   const webchatNames = new Set(
     config.channels.filter((c) => c.type === "webchat").map((c) => channelName(c)),
   );
@@ -394,7 +394,7 @@ function assertBroadcastNamespaceDisjoint(
   }
 }
 
-function assertKnownAdapterTypes(config: TeamaiConfig, known: Iterable<string> | undefined): void {
+function assertKnownAdapterTypes(config: MuxeonConfig, known: Iterable<string> | undefined): void {
   if (known === undefined) return;
   const types = new Set(known);
   for (const [i, agent] of config.agents.entries()) {
@@ -409,7 +409,7 @@ function assertKnownAdapterTypes(config: TeamaiConfig, known: Iterable<string> |
   }
 }
 
-function assertTopologyClosed(config: TeamaiConfig, participants: Set<string>): void {
+function assertTopologyClosed(config: MuxeonConfig, participants: Set<string>): void {
   // §18.3/§18.10-6: federation grants per-SERVER — an FQN can never be a node,
   // the edge goes on the import name. Said explicitly, not as "unknown".
   const reject = (name: string, path: string): never => {
@@ -442,7 +442,7 @@ function assertTopologyClosed(config: TeamaiConfig, participants: Set<string>): 
 // fail-fast on a typo. Wildcard cells skip the per-pair / per-command checks (they
 // span recipients/commands that cannot be enumerated to one catalog).
 function assertCommandGrants(
-  config: TeamaiConfig,
+  config: MuxeonConfig,
   agentNames: Set<string>,
   topology: Topology,
 ): void {
@@ -513,7 +513,7 @@ function assertCommandGrants(
 // Wildcard cells skip the per-pair / per-action checks (they span recipients/actions
 // that cannot be bound to one agent).
 function assertSessionGrants(
-  config: TeamaiConfig,
+  config: MuxeonConfig,
   agentNames: Set<string>,
   topology: Topology,
 ): void {
@@ -571,7 +571,7 @@ function assertSessionGrants(
 }
 
 function assertDefaultTargets(
-  config: TeamaiConfig,
+  config: MuxeonConfig,
   agentNames: Set<string>,
   topology: Topology,
 ): void {
@@ -609,7 +609,7 @@ const USERS_MODE_TYPES = new Set(["webchat", "telegram", "slack"]);
 // (`bindOperator` + `auth.password`) and users (`auth.mode:"users"`, identity per
 // login). A channel of any other type still needs its `bindOperator` unless it can
 // take identities from user bindings (USERS_MODE_TYPES).
-function assertWebchatChannels(config: TeamaiConfig): void {
+function assertWebchatChannels(config: MuxeonConfig): void {
   for (const [i, channel] of config.channels.entries()) {
     const base = joinPointer("/channels", String(i));
     if (channel.type !== "webchat") {
@@ -844,7 +844,7 @@ function warnOperatorsWithoutEdges(
 // self-chat (self-delivery needs no edge, §10.2) but reaches nobody else; a
 // users-mode panel with not a single bound user has no way in at all.
 function warnUsers(
-  config: TeamaiConfig,
+  config: MuxeonConfig,
   userNames: Set<string>,
   topology: Topology,
   warnings: string[],
@@ -872,7 +872,7 @@ function warnUsers(
 
 // §18.3 / FR-137: import names are unique — each is a routing tail (§18.4) and
 // a topology node (§18.10-6), so two links under one name would be unresolvable.
-function collectImportNames(config: TeamaiConfig): Set<string> {
+function collectImportNames(config: MuxeonConfig): Set<string> {
   const names = new Set<string>();
   for (const [i, entry] of (config.imports ?? []).entries()) {
     const path = joinPointer(joinPointer("/imports", String(i)), "name");
@@ -895,7 +895,7 @@ function collectImportNames(config: TeamaiConfig): Set<string> {
 // topology node exactly like an import, so its name must not collide with any
 // import's — one tail must resolve to one link. Accepts without `relay` stay
 // out of the set (compatibility: they are reply tails only, never topology nodes).
-function collectRelayAcceptNames(config: TeamaiConfig, importNames: Set<string>): Set<string> {
+function collectRelayAcceptNames(config: MuxeonConfig, importNames: Set<string>): Set<string> {
   const names = new Set<string>();
   for (const [i, entry] of (config.federation?.accept ?? []).entries()) {
     if (entry.relay !== true) continue;
@@ -926,7 +926,7 @@ function assertLinkNameIsPathSafe(name: string, path: string): void {
 // §18.3: `@` is reserved as the FQN separator — no local entity may carry it:
 // actors (agents/operators/users), groups, tags, imports, accept names and
 // export aliases. A local name with `@` would be indistinguishable from an FQN.
-function assertNoFqnSeparatorInNames(config: TeamaiConfig, importNames: Set<string>): void {
+function assertNoFqnSeparatorInNames(config: MuxeonConfig, importNames: Set<string>): void {
   const offend = (kind: string, name: string, path?: string): never => {
     throw new ConfigError(
       `${kind} name "${name}" contains "${FQN_SEPARATOR}" — reserved as the FQN separator (§18.3)`,
@@ -1012,7 +1012,7 @@ function assertImportNamespaceDisjoint(
 // §18.3: export aliases are unique WITHIN the set of exported names (an actor
 // exporting `true` contributes its own name). The export namespace is separate
 // from the local one — an alias may legally match some other local name.
-function assertExportAliasesUnique(config: TeamaiConfig): void {
+function assertExportAliasesUnique(config: MuxeonConfig): void {
   const owner = new Map<string, string>();
   const claim = (exportName: string, who: string, path: string): void => {
     const existing = owner.get(exportName);
@@ -1046,7 +1046,7 @@ function assertExportAliasesUnique(config: TeamaiConfig): void {
 
 // §18.3: the link listener is its own surface (§18.7, decision §18.10-9) — its
 // port may not collide with server.port or any channel's port.
-function assertFederationPorts(config: TeamaiConfig): void {
+function assertFederationPorts(config: MuxeonConfig): void {
   const federation = config.federation;
   if (federation === undefined) return;
   if (federation.port !== 0 && federation.port === config.server.port) {
@@ -1077,7 +1077,7 @@ function assertFederationPorts(config: TeamaiConfig): void {
 // §18.5: link queues live under `<root>/fed/<link>/`, so the segment "fed" is
 // reserved as a queue key the moment federation is configured. Existing
 // non-federated configs keep it (FR-146 — no behavior change without the blocks).
-function assertFederationQueueKey(config: TeamaiConfig): void {
+function assertFederationQueueKey(config: MuxeonConfig): void {
   const federated = (config.imports ?? []).length > 0 || config.federation !== undefined;
   if (!federated) return;
   for (const [i, agent] of config.agents.entries()) {
@@ -1102,7 +1102,7 @@ function assertFederationQueueKey(config: TeamaiConfig): void {
 // §18.2/§18.8 advisories (never fatal): a plain-http link is fine on a loopback
 // test bench but not on a network; an unknown scheme IS fatal — the link client
 // could never speak it. An empty accept list means the listener admits nobody.
-function warnFederation(config: TeamaiConfig, warnings: string[]): void {
+function warnFederation(config: MuxeonConfig, warnings: string[]): void {
   for (const [i, entry] of (config.imports ?? []).entries()) {
     if (entry.url.startsWith("https://")) continue;
     if (entry.url.startsWith("http://")) {
@@ -1123,7 +1123,7 @@ function warnFederation(config: TeamaiConfig, warnings: string[]): void {
 // §18.11.1 / FR-152 (advisory): `publish: true` with nothing to publish — no own
 // exported actor and no OTHER transit import whose branch could ride along (the
 // published link's own branch would only bounce off the hub's cycle guard).
-function warnPublishWithoutContent(config: TeamaiConfig, warnings: string[]): void {
+function warnPublishWithoutContent(config: MuxeonConfig, warnings: string[]): void {
   const imports = config.imports ?? [];
   const hasExported =
     config.agents.some((agent) => agent.exported !== undefined) ||
@@ -1146,7 +1146,7 @@ function warnPublishWithoutContent(config: TeamaiConfig, warnings: string[]): vo
 // working unchanged — the core represents such an operator as a user without
 // `auth` and with one binding (§17.9) — but a config that already declares
 // `users[]` should move the rest across.
-function warnLegacyOperators(config: TeamaiConfig, warnings: string[]): void {
+function warnLegacyOperators(config: MuxeonConfig, warnings: string[]): void {
   if ((config.users ?? []).length === 0) return;
   for (const channel of config.channels) {
     if (channel.bindOperator === undefined) continue;

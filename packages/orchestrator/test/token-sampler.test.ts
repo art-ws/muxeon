@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { AgentStatus } from "@teamai/core";
+import type { AgentStatus } from "@muxeon/core";
 import { type SamplerAgentView, resolveTokenConfig, startTokenSampler } from "../src/token-sampler";
 import { TokenUsageStore } from "../src/token-usage";
 
@@ -45,7 +45,7 @@ describe("startTokenSampler (§12.8, FR-103)", () => {
   });
 
   beforeEach(() => {
-    dir = mkdtempSync(join(tmpdir(), "teamai-tokens-"));
+    dir = mkdtempSync(join(tmpdir(), "muxeon-tokens-"));
   });
   afterEach(() => {
     rmSync(dir, { recursive: true, force: true });

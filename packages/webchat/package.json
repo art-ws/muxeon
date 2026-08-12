@@ -1,9 +1,9 @@
 {
-  "name": "@teamai/webchat",
+  "name": "@muxeon/webchat",
   "version": "0.0.0",
   "private": true,
   "type": "module",
-  "description": "Operator web panel (SPEC.md §12): an authenticated HTTP surface on its OWN port (SPA statics, REST, WS) behind the ChannelConnector contract (§8.4). Inbound→router.route, outbound via the pseudo-session deliver sink; never touches @teamai/queue.",
+  "description": "Operator web panel (SPEC.md §12): an authenticated HTTP surface on its OWN port (SPA statics, REST, WS) behind the ChannelConnector contract (§8.4). Inbound→router.route, outbound via the pseudo-session deliver sink; never touches @muxeon/queue.",
   "main": "src/index.ts",
   "types": "src/index.ts",
   "exports": {
@@ -13,7 +13,7 @@
     }
   },
   "dependencies": {
-    "@teamai/channels": "workspace:*",
-    "@teamai/core": "workspace:*"
+    "@muxeon/channels": "workspace:*",
+    "@muxeon/core": "workspace:*"
   }
 }

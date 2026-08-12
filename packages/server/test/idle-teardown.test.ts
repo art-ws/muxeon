@@ -7,14 +7,14 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { SessionControl } from "@teamai/lifecycle";
-import type { SessionDriver } from "@teamai/orchestrator";
+import type { SessionControl } from "@muxeon/lifecycle";
+import type { SessionDriver } from "@muxeon/orchestrator";
 import { bootstrap } from "../src/bootstrap";
 
 let dir: string;
 
 beforeEach(() => {
-  dir = mkdtempSync(join(tmpdir(), "teamai-idle-"));
+  dir = mkdtempSync(join(tmpdir(), "muxeon-idle-"));
 });
 
 afterEach(() => {
@@ -22,7 +22,7 @@ afterEach(() => {
 });
 
 function writeConfig(config: unknown): string {
-  const file = join(dir, "teamai.config.json");
+  const file = join(dir, "muxeon.config.json");
   writeFileSync(file, JSON.stringify(config));
   return file;
 }

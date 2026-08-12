@@ -2,13 +2,13 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { Signal } from "@teamai/core";
+import type { Signal } from "@muxeon/core";
 import { TransportLog } from "../src/transport-log";
 
 let root: string;
 
 beforeEach(async () => {
-  root = await mkdtemp(join(tmpdir(), "teamai-transport-"));
+  root = await mkdtemp(join(tmpdir(), "muxeon-transport-"));
 });
 
 afterEach(async () => {
@@ -18,7 +18,7 @@ afterEach(async () => {
 function record(id: string, overrides: Partial<Signal> = {}): Signal {
   return {
     id,
-    from: "teamai",
+    from: "muxeon",
     to: "qwen",
     kind: "message",
     ts: 1000,
@@ -36,19 +36,19 @@ describe("TransportLog.pair (FR-87)", () => {
     const log = new TransportLog({ root });
     const now = Date.now();
     await log.append(record("p-1", { ts: now }));
-    await log.append(record("x-1", { from: "teamai", to: "sherlock", ts: now + 1 }));
-    await log.append(record("p-2", { from: "qwen", to: "teamai", ts: now + 2 }));
+    await log.append(record("x-1", { from: "muxeon", to: "sherlock", ts: now + 1 }));
+    await log.append(record("p-2", { from: "qwen", to: "muxeon", ts: now + 2 }));
     await log.append(record("x-2", { from: "sherlock", to: "qwen", ts: now + 3 }));
     await log.append(record("p-3", { ts: now + 4 }));
-    expect((await log.pair("teamai", "qwen", 50)).map((r) => r.id)).toEqual(["p-1", "p-2", "p-3"]);
-    expect((await log.pair("qwen", "teamai", 50)).map((r) => r.id)).toEqual(["p-1", "p-2", "p-3"]); // symmetric
+    expect((await log.pair("muxeon", "qwen", 50)).map((r) => r.id)).toEqual(["p-1", "p-2", "p-3"]);
+    expect((await log.pair("qwen", "muxeon", 50)).map((r) => r.id)).toEqual(["p-1", "p-2", "p-3"]); // symmetric
   });
 
   test("the depth limit keeps the NEWEST records", async () => {
     const log = new TransportLog({ root });
     const now = Date.now();
     for (let i = 0; i < 5; i += 1) await log.append(record(`d-${i}`, { ts: now + i }));
-    expect((await log.pair("teamai", "qwen", 2)).map((r) => r.id)).toEqual(["d-3", "d-4"]);
+    expect((await log.pair("muxeon", "qwen", 2)).map((r) => r.id)).toEqual(["d-3", "d-4"]);
   });
 
   test("an unknown pair is an empty list, not a throw", async () => {
@@ -61,7 +61,7 @@ describe("TransportLog (§8.2, FR-48)", () => {
   test("appends every routed record durably and pages them back in order", async () => {
     const log = new TransportLog({ root });
     expect(await log.append(record("a"))).toBe(true);
-    expect(await log.append(record("b", { from: "qwen", to: "teamai" }))).toBe(true);
+    expect(await log.append(record("b", { from: "qwen", to: "muxeon" }))).toBe(true);
     const raw = await readFile(logFile(), "utf8");
     expect(raw.split("\n").filter((line) => line !== "")).toHaveLength(2);
     const page = await log.page();

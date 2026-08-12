@@ -11,7 +11,7 @@ import {
   type StatusProjection,
   type UnknownReason,
   appendServer,
-} from "@teamai/core";
+} from "@muxeon/core";
 import type { FedActorEntry } from "./protocol";
 
 /** One remote actor as the surfaces see it (FR-140/FR-150). */

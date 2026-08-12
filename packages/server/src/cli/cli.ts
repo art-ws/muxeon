@@ -1,4 +1,4 @@
-// teamai operator CLI (T33, §7.4, §8.5, FR-32): the SAME binary as the launcher —
+// muxeon operator CLI (T33, §7.4, §8.5, FR-32): the SAME binary as the launcher —
 // argv starting with a known subcommand runs this thin client against the
 // operator-plane HTTP-admin; anything else boots the server (index.ts). The admin
 // base URL comes from --url, else from the discovered config's server.port
@@ -6,7 +6,7 @@
 
 import { readFileSync } from "node:fs";
 import { basename } from "node:path";
-import { discoverConfig } from "@teamai/config";
+import { discoverConfig } from "@muxeon/config";
 import { mimeByName } from "../exchange-reply";
 
 export const CLI_COMMANDS: ReadonlySet<string> = new Set([
@@ -84,17 +84,17 @@ function resolveBase(args: ParsedArgs, cwd: string): string {
 }
 
 const USAGE = `usage:
-  teamai agents
-  teamai provision|kill|restart <agent>
-  teamai pause|resume <agent>                 # block/unblock message delivery to the agent (FR-119)
-  teamai command <slash> <selector…>          # slash-command to group/tag/agent INTERSECTION (FR-115)
-  teamai channels
-  teamai signals send --from <node> --to <node> [--blob <path>] <text…>
-  teamai queues peek|cancel|requeue <participant> [<id>]
-  teamai routines list [<owner>]
-  teamai routines get|delete|enable|disable|run-once <owner> <id>
-  teamai routines put <owner> <id> <file.md>
-  teamai hash-password [--stdin]              # argon2id hash for users[].auth.passwordHash (FR-122)
+  muxeon agents
+  muxeon provision|kill|restart <agent>
+  muxeon pause|resume <agent>                 # block/unblock message delivery to the agent (FR-119)
+  muxeon command <slash> <selector…>          # slash-command to group/tag/agent INTERSECTION (FR-115)
+  muxeon channels
+  muxeon signals send --from <node> --to <node> [--blob <path>] <text…>
+  muxeon queues peek|cancel|requeue <participant> [<id>]
+  muxeon routines list [<owner>]
+  muxeon routines get|delete|enable|disable|run-once <owner> <id>
+  muxeon routines put <owner> <id> <file.md>
+  muxeon hash-password [--stdin]              # argon2id hash for users[].auth.passwordHash (FR-122)
 options: --url <admin-url> | --config <path>`;
 
 export async function runCli(argv: readonly string[], io: CliIO): Promise<number> {
@@ -125,7 +125,7 @@ export async function runCli(argv: readonly string[], io: CliIO): Promise<number
           }),
         );
       } catch {
-        throw new CliError(`cannot reach the teamai server at ${base} — is it running?`);
+        throw new CliError(`cannot reach the muxeon server at ${base} — is it running?`);
       }
       const json = (await response.json().catch(() => ({}))) as Record<string, unknown>;
       if (!response.ok) {
@@ -137,7 +137,7 @@ export async function runCli(argv: readonly string[], io: CliIO): Promise<number
     await dispatch(args, admin, io);
     return 0;
   } catch (error) {
-    io.stderr(`teamai: ${error instanceof Error ? error.message : String(error)}`);
+    io.stderr(`muxeon: ${error instanceof Error ? error.message : String(error)}`);
     if (error instanceof CliError && error.message.startsWith("usage")) return 2;
     return 1;
   }
@@ -188,7 +188,7 @@ async function dispatch(args: ParsedArgs, admin: Admin, io: CliIO): Promise<void
       return;
     }
     case "command": {
-      // teamai command <slash> <selector…> → slash to the INTERSECTION of the
+      // muxeon command <slash> <selector…> → slash to the INTERSECTION of the
       // selectors (§15.8, FR-115). <slash> without a leading "/".
       const slash = need(rest[0], "<slash>");
       const selectors = rest.slice(1);
@@ -387,7 +387,7 @@ async function blobPayload(path: string, text: string, admin: Admin): Promise<un
 }
 
 /**
- * `teamai hash-password` (§17.4, FR-122): read a password without echoing it (or
+ * `muxeon hash-password` (§17.4, FR-122): read a password without echoing it (or
  * from stdin with `--stdin`) and print its argon2id hash for pasting into
  * `users[].auth.passwordHash`. A hash is not a secret in the §10.7 sense, so it
  * may live inline in the config; the plaintext never touches the disk here.
@@ -399,7 +399,7 @@ async function hashPassword(args: readonly string[], io: CliIO): Promise<number>
     ? (await Bun.stdin.text()).replace(/\r?\n$/, "")
     : await read("password: ");
   if (password.length === 0) {
-    io.stderr("teamai: empty password");
+    io.stderr("muxeon: empty password");
     return 1;
   }
   io.stdout(await Bun.password.hash(password, { algorithm: "argon2id" }));

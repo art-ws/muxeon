@@ -10,11 +10,11 @@ import { randomUUID } from "node:crypto";
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { capturePane, killSession, newSession, sendKeys, sendLiteral } from "@teamai/tmux";
+import { capturePane, killSession, newSession, sendKeys, sendLiteral } from "@muxeon/tmux";
 
 const READY = /DUMMY_READY>\s*$/;
-const session = `teamai-spike-${randomUUID()}`;
-const workDir = mkdtempSync(join(tmpdir(), "teamai-spike-"));
+const session = `muxeon-spike-${randomUUID()}`;
+const workDir = mkdtempSync(join(tmpdir(), "muxeon-spike-"));
 const statusFile = join(workDir, "status.json");
 const dummy = join(import.meta.dir, "dummy-agent.ts");
 
@@ -48,7 +48,7 @@ try {
   await newSession(session, {
     command: ["bun", dummy],
     cwd: workDir,
-    env: { TEAMAI_STATUS_FILE: statusFile },
+    env: { MUXEON_STATUS_FILE: statusFile },
   });
 
   await waitUntil("initial output prompt", async () => READY.test(await capturePane(session)));

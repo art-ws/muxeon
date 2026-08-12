@@ -52,7 +52,7 @@ class FakePorts implements WebchatPorts {
 let ports: FakePorts;
 
 beforeEach(() => {
-  dir = mkdtempSync(join(tmpdir(), "teamai-fed-panel-"));
+  dir = mkdtempSync(join(tmpdir(), "muxeon-fed-panel-"));
   history = new HistoryStore({ dir: join(dir, "operator-web"), operator: "operator-web" });
   ports = new FakePorts();
 });
@@ -88,7 +88,7 @@ function get(path: string, headers: Record<string, string> = {}): Request {
 
 async function login(connector: WebchatConnector): Promise<string> {
   const response = await connector.handleRequest(post("/api/login", { password: "hunter2" }));
-  const token = /teamai_webchat=([^;]+)/.exec(response.headers.get("set-cookie") ?? "")?.[1];
+  const token = /muxeon_webchat=([^;]+)/.exec(response.headers.get("set-cookie") ?? "")?.[1];
   if (token === undefined) throw new Error("no session cookie issued");
   return `${SESSION_COOKIE}=${token}`;
 }

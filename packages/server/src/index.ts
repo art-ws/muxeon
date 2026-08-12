@@ -1,10 +1,10 @@
-// @teamai/server — composition root + network surface. Boot order: config →
+// @muxeon/server — composition root + network surface. Boot order: config →
 // attach → dispatchers → channel connectors → routines; MCP agent-plane /
-// operator-plane. ONE binary (§7.4): `teamai [config]` launches the server;
-// `teamai <subcommand> …` runs the operator CLI against the HTTP-admin (§8.5).
+// operator-plane. ONE binary (§7.4): `muxeon [config]` launches the server;
+// `muxeon <subcommand> …` runs the operator CLI against the HTTP-admin (§8.5).
 // — T18, T21–T23, T30–T33.
 
-import { parseConfigArg } from "@teamai/config";
+import { parseConfigArg } from "@muxeon/config";
 import { bootstrap } from "./bootstrap";
 import { CLI_COMMANDS, runCli } from "./cli/cli";
 import { createShutdownHandler } from "./shutdown";
@@ -16,7 +16,7 @@ export * from "./redact";
 export * from "./shutdown";
 
 async function launch(argv: readonly string[]): Promise<void> {
-  // Last-resort safety net (R2, §10): TEAMAI is a transport for many agents — a stray
+  // Last-resort safety net (R2, §10): MUXEON is a transport for many agents — a stray
   // async fault touching ONE agent (e.g. a background dispatcher loop capturing a
   // vanished tmux session) must never terminate the whole coordinator and drop every
   // agent's transport with it. Under Bun an unhandled rejection is fatal by default;
@@ -26,25 +26,25 @@ async function launch(argv: readonly string[]): Promise<void> {
   // below — those handlers are for the RUNNING server only.
   process.on("unhandledRejection", (reason) => {
     const detail = reason instanceof Error ? (reason.stack ?? reason.message) : String(reason);
-    process.stderr.write(`teamai: warning: unhandled rejection (survived): ${detail}\n`);
+    process.stderr.write(`muxeon: warning: unhandled rejection (survived): ${detail}\n`);
   });
   process.on("uncaughtException", (error) => {
     process.stderr.write(
-      `teamai: warning: uncaught exception (survived): ${error.stack ?? error.message}\n`,
+      `muxeon: warning: uncaught exception (survived): ${error.stack ?? error.message}\n`,
     );
   });
   try {
     const configFile = parseConfigArg(argv);
     const server = await bootstrap(configFile !== undefined ? { configFile } : {});
-    for (const warning of server.warnings) process.stderr.write(`teamai: warning: ${warning}\n`);
-    process.stdout.write(`teamai: booted; ${server.agents.size} agent(s)\n`);
+    for (const warning of server.warnings) process.stderr.write(`muxeon: warning: ${warning}\n`);
+    process.stdout.write(`muxeon: booted; ${server.agents.size} agent(s)\n`);
     for (const agent of server.agents.values()) {
       process.stdout.write(`  - ${agent.name} (${agent.session}): ${agent.state.status}\n`);
     }
     if (server.agentPlane !== undefined) {
-      process.stdout.write(`teamai: agent-plane (MCP) on ${server.agentPlane.url}\n`);
+      process.stdout.write(`muxeon: agent-plane (MCP) on ${server.agentPlane.url}\n`);
     }
-    process.stdout.write(`teamai: operator-plane on ${server.adminUrl} (loopback)\n`);
+    process.stdout.write(`muxeon: operator-plane on ${server.adminUrl} (loopback)\n`);
     for (const channel of server.channels.values()) {
       // Legacy binds one operator; a users-mode channel (§17.2) serves the users
       // bound to it, so the line names the channel instance instead.
@@ -52,22 +52,22 @@ async function launch(argv: readonly string[]): Promise<void> {
         channel.operator !== undefined
           ? `operator "${channel.operator}"`
           : `users of "${channel.name}"`;
-      process.stdout.write(`teamai: channel ${channel.type} → ${serves}\n`);
+      process.stdout.write(`muxeon: channel ${channel.type} → ${serves}\n`);
     }
     if (server.users.size > 0) {
       process.stdout.write(
-        `teamai: ${server.users.size} user(s): ${[...server.users.keys()].join(", ")}\n`,
+        `muxeon: ${server.users.size} user(s): ${[...server.users.keys()].join(", ")}\n`,
       );
     }
     const onSignal = createShutdownHandler({
       stop: () => server.stop(),
       exit: (code) => process.exit(code),
-      warn: (message) => process.stderr.write(`teamai: warning: ${message}\n`),
+      warn: (message) => process.stderr.write(`muxeon: warning: ${message}\n`),
     });
     process.on("SIGINT", () => onSignal("SIGINT"));
     process.on("SIGTERM", () => onSignal("SIGTERM"));
   } catch (error) {
-    process.stderr.write(`teamai: ${error instanceof Error ? error.message : String(error)}\n`);
+    process.stderr.write(`muxeon: ${error instanceof Error ? error.message : String(error)}\n`);
     process.exit(1);
   }
 }

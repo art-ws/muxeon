@@ -47,7 +47,7 @@ describe("junk tolerance (FR-69)", () => {
     ["an array", JSON.stringify(["text"])],
     ["null", JSON.stringify(null)],
   ])("%s in storage → the empty draft", (_label, raw) => {
-    const storage = fakeStorage({ "teamai-draft:dev": raw });
+    const storage = fakeStorage({ "muxeon-draft:dev": raw });
     expect(loadDraft("dev", storage)).toEqual(EMPTY_DRAFT);
   });
 

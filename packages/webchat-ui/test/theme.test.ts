@@ -41,7 +41,7 @@ describe("theme (FR-59)", () => {
   });
 
   test("a stored choice wins over the default", () => {
-    expect(loadTheme(memoryStorage({ "teamai-theme": "dark" }))).toBe("dark");
+    expect(loadTheme(memoryStorage({ "muxeon-theme": "dark" }))).toBe("dark");
   });
 
   test("a blocked storage degrades to the default, not a crash", () => {

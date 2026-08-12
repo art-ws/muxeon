@@ -1,4 +1,4 @@
-// instanceName() (FR-90): reads the connector-injected <meta name="teamai-name">.
+// instanceName() (FR-90): reads the connector-injected <meta name="muxeon-name">.
 // bun test has no DOM, so we stub a minimal document.querySelector.
 
 import { afterEach, describe, expect, test } from "bun:test";

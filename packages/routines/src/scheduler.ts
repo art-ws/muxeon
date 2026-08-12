@@ -8,7 +8,7 @@
 // default). A denied delivery (misconfigured cross-agent target) advances the state
 // anyway and logs — it will not be fixed by retrying, and we avoid spamming.
 
-import { type SignalRouter, sendSignal } from "@teamai/signals";
+import { type SignalRouter, sendSignal } from "@muxeon/signals";
 import type { Routine } from "./discover";
 import type { StateStore } from "./state";
 import { cronFor, wallTimeToInstant } from "./time";

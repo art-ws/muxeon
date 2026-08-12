@@ -253,13 +253,13 @@ describe("passwords and deprecation warnings (§17.2, FR-122/FR-132)", () => {
         users: [
           {
             name: "alex",
-            auth: { password: { $env: "TEAMAI_ALEX" } },
+            auth: { password: { $env: "MUXEON_ALEX" } },
             channels: { web: true },
           },
         ],
         channels: [webchatUsers()],
       }),
-      { env: (name) => (name === "TEAMAI_ALEX" ? "from-env" : undefined) },
+      { env: (name) => (name === "MUXEON_ALEX" ? "from-env" : undefined) },
     );
     expect(config.users?.[0]?.auth?.password).toBe("from-env");
     expect(warnings.some((w) => w.includes("inline auth.password"))).toBe(false);

@@ -3,7 +3,7 @@
 // next come-up (at-least-once, §10.9). Idempotent: killing an already-gone session
 // is not an error — it just confirms down.
 
-import type { AgentStatus } from "@teamai/core";
+import type { AgentStatus } from "@muxeon/core";
 import type { AgentTarget, SessionControl } from "./context";
 
 export async function kill(target: AgentTarget, control: SessionControl): Promise<AgentStatus> {

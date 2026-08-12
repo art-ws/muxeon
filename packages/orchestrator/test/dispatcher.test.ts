@@ -2,8 +2,8 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdtempSync, readdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { defaultRender } from "@teamai/adapters";
-import type { Message } from "@teamai/core";
+import { defaultRender } from "@muxeon/adapters";
+import type { Message } from "@muxeon/core";
 import {
   type QueuePaths,
   dequeue,
@@ -11,7 +11,7 @@ import {
   ensureQueueDirs,
   queuePaths,
   sanitizeFileId,
-} from "@teamai/queue";
+} from "@muxeon/queue";
 import { Dispatcher, type SessionDriver } from "../src/dispatcher";
 import { AgentState } from "../src/status";
 
@@ -20,7 +20,7 @@ let paths: QueuePaths;
 let seq: number;
 
 beforeEach(async () => {
-  root = mkdtempSync(join(tmpdir(), "teamai-dispatcher-"));
+  root = mkdtempSync(join(tmpdir(), "muxeon-dispatcher-"));
   paths = queuePaths(root, "s");
   await ensureQueueDirs(paths);
   seq = 0;

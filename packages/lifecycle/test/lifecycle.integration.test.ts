@@ -9,10 +9,10 @@ import { randomUUID } from "node:crypto";
 import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createClaudeAdapter } from "@teamai/adapters";
-import type { AgentConfig } from "@teamai/config";
-import { AgentState } from "@teamai/orchestrator";
-import { capturePane, hasSession, hasTmux, killSession } from "@teamai/tmux";
+import { createClaudeAdapter } from "@muxeon/adapters";
+import type { AgentConfig } from "@muxeon/config";
+import { AgentState } from "@muxeon/orchestrator";
+import { capturePane, hasSession, hasTmux, killSession } from "@muxeon/tmux";
 import type { AgentTarget } from "../src";
 import { attach, kill, provision, restart, sendSlash, tmuxSessionControl } from "../src";
 
@@ -38,9 +38,9 @@ describe.skipIf(!HAS_TMUX)("lifecycle against real tmux (Checkpoint 5) [requires
   let target: AgentTarget;
 
   beforeEach(() => {
-    stateDir = mkdtempSync(join(tmpdir(), "teamai-lc-state-"));
-    configDir = mkdtempSync(join(tmpdir(), "teamai-lc-cfg-"));
-    session = `teamai-lc-${randomUUID()}`;
+    stateDir = mkdtempSync(join(tmpdir(), "muxeon-lc-state-"));
+    configDir = mkdtempSync(join(tmpdir(), "muxeon-lc-cfg-"));
+    session = `muxeon-lc-${randomUUID()}`;
     const agent: AgentConfig = {
       name: "dummy",
       type: "claude",

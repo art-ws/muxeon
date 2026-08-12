@@ -7,8 +7,8 @@ import { beforeEach, describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { RouteRefusedError } from "@teamai/channels";
-import type { Message, Signal } from "@teamai/core";
+import { RouteRefusedError } from "@muxeon/channels";
+import type { Message, Signal } from "@muxeon/core";
 import { SESSION_COOKIE, WebchatConnector } from "../src/connector";
 import { HistoryStore } from "../src/history";
 
@@ -50,7 +50,7 @@ async function login(connector: WebchatConnector, password = "hunter2"): Promise
   const response = await connector.handleRequest(post("/api/login", { password }));
   expect(response.status).toBe(200);
   const cookie = response.headers.get("set-cookie") ?? "";
-  const token = /teamai_webchat=([^;]+)/.exec(cookie)?.[1];
+  const token = /muxeon_webchat=([^;]+)/.exec(cookie)?.[1];
   if (token === undefined) throw new Error("no session cookie issued");
   return token;
 }
@@ -300,7 +300,7 @@ describe("POST /api/send (§12.4, FR-38)", () => {
       post("/api/send", { to: "researcher", text: "hi", id: "m-1" }, asCookie(token)),
     );
     expect(response.status).toBe(422);
-    expect(((await response.json()) as { error: string }).error).toBe("teamai: delivery failed");
+    expect(((await response.json()) as { error: string }).error).toBe("muxeon: delivery failed");
   });
 });
 
@@ -320,7 +320,7 @@ describe("deliver → history (§12.3, §10.9, FR-39)", () => {
   });
 
   test("the history append IS the delivery — no browser required; dup id = no-op success", async () => {
-    const dir = mkdtempSync(join(tmpdir(), "teamai-webchat-hist-"));
+    const dir = mkdtempSync(join(tmpdir(), "muxeon-webchat-hist-"));
     try {
       const history = new HistoryStore({ dir, operator: "operator-web" });
       const delivered: Signal[] = [];
@@ -335,7 +335,7 @@ describe("deliver → history (§12.3, §10.9, FR-39)", () => {
   });
 
   test("an authenticated send is mirrored into the history (outbound side, §12.3)", async () => {
-    const dir = mkdtempSync(join(tmpdir(), "teamai-webchat-hist-"));
+    const dir = mkdtempSync(join(tmpdir(), "muxeon-webchat-hist-"));
     try {
       const history = new HistoryStore({ dir, operator: "operator-web" });
       const connector = await startedConnector({ history, now: () => 7 });
@@ -385,14 +385,14 @@ describe("listener lifecycle", () => {
 describe("instance label injection (FR-90)", () => {
   const SHELL =
     '<!doctype html>\n<html lang="en">\n  <head>\n    <meta charset="utf-8" />\n' +
-    '    <title>TeamAI</title>\n  </head>\n  <body><div id="root"></div>' +
+    '    <title>Muxeon</title>\n  </head>\n  <body><div id="root"></div>' +
     '<script type="module" src="./assets/main.js"></script></body>\n</html>\n';
 
   async function withShell(
     instanceName: string | undefined,
     run: (connector: WebchatConnector) => Promise<void>,
   ): Promise<void> {
-    const staticDir = mkdtempSync(join(tmpdir(), "teamai-webchat-ui-"));
+    const staticDir = mkdtempSync(join(tmpdir(), "muxeon-webchat-ui-"));
     try {
       await Bun.write(join(staticDir, "index.html"), SHELL);
       await Bun.write(join(staticDir, "assets", "main.js"), "console.log(1)");
@@ -418,24 +418,24 @@ describe("instance label injection (FR-90)", () => {
       expect(response.status).toBe(200);
       expect(response.headers.get("content-type")).toContain("text/html");
       const html = await response.text();
-      expect(html).toContain("<title>prod-cluster - TeamAI</title>");
-      expect(html).toContain('<meta name="teamai-name" content="prod-cluster" />');
-      expect(html).not.toContain("<title>TeamAI</title>");
+      expect(html).toContain("<title>prod-cluster - Muxeon</title>");
+      expect(html).toContain('<meta name="muxeon-name" content="prod-cluster" />');
+      expect(html).not.toContain("<title>Muxeon</title>");
     });
   });
 
-  test("no instanceName ⇒ the shell is served verbatim (title stays TeamAI)", async () => {
+  test("no instanceName ⇒ the shell is served verbatim (title stays Muxeon)", async () => {
     await withShell(undefined, async (connector) => {
       const html = await (await connector.handleRequest(get("/"))).text();
-      expect(html).toContain("<title>TeamAI</title>");
-      expect(html).not.toContain("teamai-name");
+      expect(html).toContain("<title>Muxeon</title>");
+      expect(html).not.toContain("muxeon-name");
     });
   });
 
   test("the label is HTML-escaped — it cannot break out of the title/meta (§12.6)", async () => {
     await withShell('<b>&"x', async (connector) => {
       const html = await (await connector.handleRequest(get("/"))).text();
-      expect(html).toContain("<title>&lt;b&gt;&amp;&quot;x - TeamAI</title>");
+      expect(html).toContain("<title>&lt;b&gt;&amp;&quot;x - Muxeon</title>");
       expect(html).toContain('content="&lt;b&gt;&amp;&quot;x"');
       expect(html).not.toContain("<b>"); // the raw tag never reaches the document
     });
@@ -444,7 +444,7 @@ describe("instance label injection (FR-90)", () => {
   test("the SPA fallback (extension-less route) is branded too", async () => {
     await withShell("prod-cluster", async (connector) => {
       const html = await (await connector.handleRequest(get("/transport"))).text();
-      expect(html).toContain("<title>prod-cluster - TeamAI</title>");
+      expect(html).toContain("<title>prod-cluster - Muxeon</title>");
     });
   });
 
@@ -497,7 +497,7 @@ describe("session endpoints (FR-86)", () => {
     const body = (await loginResponse.json()) as { expiresAt?: number };
     expect(body.expiresAt).toBe(11_000);
     const token =
-      /teamai_webchat=([^;]+)/.exec(loginResponse.headers.get("set-cookie") ?? "")?.[1] ?? "";
+      /muxeon_webchat=([^;]+)/.exec(loginResponse.headers.get("set-cookie") ?? "")?.[1] ?? "";
     const info = await connector.handleRequest(
       new Request("http://panel.test/api/session", {
         headers: { host: "panel.test", ...asCookie(token) },
@@ -548,7 +548,7 @@ describe("session endpoints (FR-86)", () => {
 
 describe("history export + clear (FR-84)", () => {
   function withHistory() {
-    const dir = mkdtempSync(join(tmpdir(), "teamai-webchat-hist-"));
+    const dir = mkdtempSync(join(tmpdir(), "muxeon-webchat-hist-"));
     const history = new HistoryStore({ dir, operator: "operator-web" });
     return { dir, history };
   }
@@ -576,7 +576,7 @@ describe("history export + clear (FR-84)", () => {
         'attachment; filename="chat-researcher-1970-01-01.json"',
       );
       const body = (await response.json()) as Record<string, unknown>;
-      expect(body.format).toBe("teamai-chat-history");
+      expect(body.format).toBe("muxeon-chat-history");
       expect(body.operator).toBe("operator-web");
       expect(body.peer).toBe("researcher");
       expect((body.records as { id: string }[]).map((r) => r.id)).toEqual(["e-1"]);
@@ -670,7 +670,7 @@ describe("basePath mount (T120, §12.2)", () => {
   });
 
   test("under the prefix the full surface works; the session cookie is scoped to it", async () => {
-    const staticDir = mkdtempSync(join(tmpdir(), "teamai-webchat-ui-"));
+    const staticDir = mkdtempSync(join(tmpdir(), "muxeon-webchat-ui-"));
     try {
       await Bun.write(join(staticDir, "index.html"), "<html>shell</html>");
       await Bun.write(join(staticDir, "assets", "main.js"), "console.log(1)");
@@ -682,7 +682,7 @@ describe("basePath mount (T120, §12.2)", () => {
       expect(loginResponse.status).toBe(200);
       const cookie = loginResponse.headers.get("set-cookie") ?? "";
       expect(cookie).toContain("Path=/team"); // panels under one host don't share sessions
-      const token = /teamai_webchat=([^;]+)/.exec(cookie)?.[1] ?? "";
+      const token = /muxeon_webchat=([^;]+)/.exec(cookie)?.[1] ?? "";
 
       const sent = await connector.handleRequest(
         post("/team/api/send", { to: "researcher", text: "hi", id: "m-1" }, asCookie(token)),
@@ -716,7 +716,7 @@ describe("basePath mount (T120, §12.2)", () => {
       const loginResponse = await connector.handleRequest(
         post("/team/api/login", { password: "hunter2" }),
       );
-      const token = /teamai_webchat=([^;]+)/.exec(
+      const token = /muxeon_webchat=([^;]+)/.exec(
         loginResponse.headers.get("set-cookie") ?? "",
       )?.[1];
       const rootWs = await fetch(`http://127.0.0.1:${connector.port}/api/ws`);

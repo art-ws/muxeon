@@ -9,15 +9,15 @@ import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { Session } from "@teamai/core";
-import type { SessionDriver } from "@teamai/orchestrator";
-import { type TeamaiServer, bootstrap } from "../src/bootstrap";
+import type { Session } from "@muxeon/core";
+import type { SessionDriver } from "@muxeon/orchestrator";
+import { type MuxeonServer, bootstrap } from "../src/bootstrap";
 
 let dir: string;
-let server: TeamaiServer;
+let server: MuxeonServer;
 
 beforeEach(() => {
-  dir = mkdtempSync(join(tmpdir(), "teamai-xe2e-"));
+  dir = mkdtempSync(join(tmpdir(), "muxeon-xe2e-"));
 });
 
 afterEach(async () => {
@@ -34,7 +34,7 @@ async function waitFor(cond: () => boolean | Promise<boolean>, ms = 3000): Promi
 }
 
 test("full no-MCP cycle: instruction → file reply + artifact → file-detect → routed back; then outbox initiative (FR-52..56)", async () => {
-  const configFile = join(dir, "teamai.config.json");
+  const configFile = join(dir, "muxeon.config.json");
   writeFileSync(
     configFile,
     JSON.stringify({
@@ -138,7 +138,7 @@ test("full no-MCP cycle: instruction → file reply + artifact → file-detect �
 }, 10000);
 
 test("contract-order violation (T75): early deletion ends the turn but does NOT destroy the dir", async () => {
-  const configFile = join(dir, "teamai.config.json");
+  const configFile = join(dir, "muxeon.config.json");
   writeFileSync(
     configFile,
     JSON.stringify({

@@ -8,7 +8,7 @@ import { recRouter } from "./helpers";
 let root: string;
 
 beforeEach(() => {
-  root = mkdtempSync(join(tmpdir(), "teamai-runtime-"));
+  root = mkdtempSync(join(tmpdir(), "muxeon-runtime-"));
 });
 
 afterEach(() => {

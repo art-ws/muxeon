@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { join } from "node:path";
-import type { Message, Session } from "@teamai/core";
+import type { Message, Session } from "@muxeon/core";
 import { CLAUDE_READY, createClaudeAdapter, extractClaudeReply } from "../src/claude";
 
 const session: Session = { name: "researcher-session" };
@@ -12,22 +12,22 @@ function msg(): Message {
 // Pane fixtures captured from a LIVE claude session (2026-06-04, T53). The input
 // box (`❯`) is visible in BOTH states — only the spinner line distinguishes them.
 const PANE_IDLE = [
-  "⏺ Got it. I can see the TEAMAI smoke check message.",
+  "⏺ Got it. I can see the MUXEON smoke check message.",
   "──────────────",
   "❯ ",
   "──────────────",
-  "  dev@workstation:/srv/teamai     36480 tokens",
+  "  dev@workstation:/srv/muxeon     36480 tokens",
   "  ⏵⏵ bypass permissions on (shift+tab to cycle)",
 ].join("\n");
 
 const PANE_BUSY = [
-  "⏺ Bash(tmux capture-pane -t teamai -p)",
+  "⏺ Bash(tmux capture-pane -t muxeon -p)",
   "  ⎿  Waiting…",
   "✢ Symbioting… (2m 22s · ↓ 6.6k tokens · thought for 32s)",
   "──────────────",
   "❯ ",
   "──────────────",
-  "  dev@workstation:/srv/teamai     129017 tokens",
+  "  dev@workstation:/srv/muxeon     129017 tokens",
   "  ⏵⏵ bypass permissions on (shift+tab to cycle)",
 ].join("\n");
 
@@ -44,14 +44,14 @@ const PANE_IDLE_QUOTING_SPINNER = [
 // spinner label is the multi-word task name; tmux capture racing the redraw can
 // drop characters, including the `(` of the stats tail. Both are BUSY.
 const PANE_BUSY_TASK_SPINNER = [
-  "✳ Playing Bulls and Cows via TEAMAI… (10s · ↓ 148 tokens)",
+  "✳ Playing Bulls and Cows via MUXEON… (10s · ↓ 148 tokens)",
   "──────────────",
   "❯ ",
   "  ⏵⏵ bypass permissions on (shift+tab to cycle)",
 ].join("\n");
 
 const PANE_BUSY_TORN_CAPTURE = [
-  "· Playin  Bulls and Cows iia TEAMAI… 34s)", // redraw race ate chars and the "("
+  "· Playin  Bulls and Cows iia MUXEON… 34s)", // redraw race ate chars and the "("
   "❯ ",
 ].join("\n");
 
@@ -59,7 +59,7 @@ const PANE_BUSY_TORN_CAPTURE = [
 const PANE_IDLE_TASK_WIDGET = [
   "⏺ Ход принят, жду следующий.",
   "  1 tasks (0 done, 1 in progress, 0 open)",
-  "  ◼ Play Bulls and Cows via TEAMAI",
+  "  ◼ Play Bulls and Cows via MUXEON",
   "❯ ",
   "  ⏵⏵ bypass permissions on (shift+tab to cycle)",
 ].join("\n");
@@ -95,7 +95,7 @@ const PANE_IDLE_NUMBERED_PROSE = [
 describe("claude adapter (§5.2, §8.3, FR-11/FR-11b)", () => {
   test("render produces attribution + payload", () => {
     expect(createClaudeAdapter({ stateDir: "/state" }).render(msg())).toContain(
-      "[teamai] from=a id=id1",
+      "[muxeon] from=a id=id1",
     );
   });
 
@@ -155,14 +155,14 @@ describe("claude adapter (§5.2, §8.3, FR-11/FR-11b)", () => {
 });
 
 describe("extractClaudeReply — console-fallback (§8.2, FR-47)", () => {
-  const ATTR = "[teamai] from=operator-web id=ABC-1";
+  const ATTR = "[muxeon] from=operator-web id=ABC-1";
 
   test("extracts the ⏺ blocks after the attribution, skipping chrome and tool gutters", () => {
     const pane = [
       "⏺ старый ответ на прошлое сообщение",
       `❯ ${ATTR}`,
       "сколько будет 5+5?",
-      '[reply via the teamai MCP tool: send(to="operator-web",',
+      '[reply via the muxeon MCP tool: send(to="operator-web",',
       'replyTo="ABC-1") — your answer as plain-text payload]',
       "⏺ Bash(date)",
       "  ⎿  Thu Jun  5 00:00:00 2026",
@@ -170,7 +170,7 @@ describe("extractClaudeReply — console-fallback (§8.2, FR-47)", () => {
       "──────────────",
       "❯ ",
       "──────────────",
-      "  dev@workstation:/srv/teamai     29488 tokens",
+      "  dev@workstation:/srv/muxeon     29488 tokens",
       "  ⏵⏵ bypass permissions on (shift+tab to cycle)",
     ].join("\n");
     expect(extractClaudeReply(pane, ATTR)).toBe("5+5=10"); // the Bash(date) tool call is filtered

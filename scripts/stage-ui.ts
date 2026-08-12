@@ -1,6 +1,6 @@
 // Stages the built panel next to the server bundle for packaging.
 //
-// In the workspace the server finds the SPA by resolving @teamai/webchat-ui. An
+// In the workspace the server finds the SPA by resolving @muxeon/webchat-ui. An
 // npm tarball has no workspace to resolve, so the panel has to ship INSIDE the
 // package — resolveUiDist() (server/src/wire-channels.ts) looks for `ui/` beside
 // the running bundle first, which is exactly what this produces:

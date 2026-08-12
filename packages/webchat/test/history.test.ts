@@ -6,13 +6,13 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { Signal } from "@teamai/core";
+import type { Signal } from "@muxeon/core";
 import { HistoryStore } from "../src/history";
 
 let dir: string;
 
 beforeEach(() => {
-  dir = join(mkdtempSync(join(tmpdir(), "teamai-history-")), "operator-web");
+  dir = join(mkdtempSync(join(tmpdir(), "muxeon-history-")), "operator-web");
 });
 
 afterEach(() => {

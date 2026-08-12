@@ -14,7 +14,7 @@ import {
 let root: string;
 
 beforeEach(async () => {
-  root = mkdtempSync(join(tmpdir(), "teamai-blobs-"));
+  root = mkdtempSync(join(tmpdir(), "muxeon-blobs-"));
   await ensureBlobDirs(root);
 });
 

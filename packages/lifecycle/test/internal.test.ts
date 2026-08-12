@@ -1,10 +1,10 @@
 // Internal slash commands (T90, FR-67): system-side, read-only — /screenshot
 // captures the visible console as-is at ANY live status (busy included — that
 // is its purpose: inspecting a possibly-stuck turn) and never injects input.
-// The registry is pinned to the reserved-name list in @teamai/config (§7.5).
+// The registry is pinned to the reserved-name list in @muxeon/config (§7.5).
 
 import { describe, expect, test } from "bun:test";
-import { INTERNAL_COMMAND_SLASHES } from "@teamai/config";
+import { INTERNAL_COMMAND_SLASHES } from "@muxeon/config";
 import { internalCommands } from "../src/internal";
 import { fakeControl, makeTarget } from "./helpers";
 

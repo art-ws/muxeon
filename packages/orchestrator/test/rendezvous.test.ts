@@ -125,7 +125,7 @@ describe("RendezvousStore (§8.2, FR-105)", () => {
 describe("createFsRendezvousStore (§8.2, FR-105)", () => {
   let dir: string;
   beforeEach(() => {
-    dir = mkdtempSync(join(tmpdir(), "teamai-rz-"));
+    dir = mkdtempSync(join(tmpdir(), "muxeon-rz-"));
   });
   afterEach(() => {
     rmSync(dir, { recursive: true, force: true });

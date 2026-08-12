@@ -11,7 +11,7 @@
 // (`<id>:raw`) so a redelivered raw turn's duplicate collapses in the dedup
 // window (§10.9).
 
-import type { Signal } from "@teamai/core";
+import type { Signal } from "@muxeon/core";
 
 export interface RawReplyDeps {
   /** The agent's topology name — the reply's `from` (§10.2). */

@@ -9,9 +9,9 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdtempSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { SessionDriver } from "@teamai/orchestrator";
-import { readMessage } from "@teamai/queue";
-import { type TeamaiServer, bootstrap } from "../src/bootstrap";
+import type { SessionDriver } from "@muxeon/orchestrator";
+import { readMessage } from "@muxeon/queue";
+import { type MuxeonServer, bootstrap } from "../src/bootstrap";
 import { LOOPBACK_DIRECT, connectClient } from "./mcp-helpers";
 
 const noopDriver = (): SessionDriver => ({
@@ -66,7 +66,7 @@ function structured(result: unknown): Record<string, unknown> {
 
 describe.skipIf(!LOOPBACK_DIRECT)("§18 federation end-to-end", () => {
   const dirs: string[] = [];
-  const servers: TeamaiServer[] = [];
+  const servers: MuxeonServer[] = [];
 
   beforeEach(() => {
     dirs.length = 0;
@@ -78,12 +78,12 @@ describe.skipIf(!LOOPBACK_DIRECT)("§18 federation end-to-end", () => {
     for (const dir of dirs) rmSync(dir, { recursive: true, force: true });
   });
 
-  async function boot(config: unknown, dir?: string): Promise<TeamaiServer> {
-    const home = dir ?? mkdtempSync(join(tmpdir(), "teamai-fed-"));
+  async function boot(config: unknown, dir?: string): Promise<MuxeonServer> {
+    const home = dir ?? mkdtempSync(join(tmpdir(), "muxeon-fed-"));
     if (dir === undefined) dirs.push(home);
-    writeFileSync(join(home, "teamai.config.json"), JSON.stringify(config));
+    writeFileSync(join(home, "muxeon.config.json"), JSON.stringify(config));
     const server = await bootstrap({
-      configFile: join(home, "teamai.config.json"),
+      configFile: join(home, "muxeon.config.json"),
       probe: async () => false, // every agent down: queues accumulate, nothing injects
       makeDriver: noopDriver,
       autoStart: true,
@@ -268,7 +268,7 @@ describe.skipIf(!LOOPBACK_DIRECT)("§18 federation end-to-end", () => {
 
   test("store-and-forward across a dead link; statuses go unknown (§10.25/§10.27)", async () => {
     const bPort = await freePort();
-    const bDir = mkdtempSync(join(tmpdir(), "teamai-fed-b-"));
+    const bDir = mkdtempSync(join(tmpdir(), "muxeon-fed-b-"));
     dirs.push(bDir);
     let b = await boot(exporterConfig(bPort), bDir);
     const a = await boot(importerConfig(bPort));
@@ -425,8 +425,8 @@ describe.skipIf(!LOOPBACK_DIRECT)("§18 federation end-to-end", () => {
 
   test("relay: the hub is the offline satellite's mailbox (§10.25, FR-154)", async () => {
     const cPort = await freePort();
-    const cDir = mkdtempSync(join(tmpdir(), "teamai-relay-c-"));
-    const bDir = mkdtempSync(join(tmpdir(), "teamai-relay-b-"));
+    const cDir = mkdtempSync(join(tmpdir(), "muxeon-relay-c-"));
+    const bDir = mkdtempSync(join(tmpdir(), "muxeon-relay-b-"));
     dirs.push(cDir, bDir);
     await boot(hubConfig(cPort), cDir);
     const a = await boot(satelliteConfig(cPort, "ann"));
@@ -489,7 +489,7 @@ describe.skipIf(!LOOPBACK_DIRECT)("§18 federation end-to-end", () => {
     // C (exports bob) ← B (imports c, transit; exports dev) ← A (imports b).
     const cPort = await freePort();
     const bPort = await freePort();
-    const cDir = mkdtempSync(join(tmpdir(), "teamai-fed-c-"));
+    const cDir = mkdtempSync(join(tmpdir(), "muxeon-fed-c-"));
     dirs.push(cDir);
     const c = await boot(
       {

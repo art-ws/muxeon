@@ -2,8 +2,8 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdtempSync, readFileSync, readdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { type Message, type Signal, Topology, parseQueueName } from "@teamai/core";
-import { dequeue, ensureQueueDirs, queuePaths } from "@teamai/queue";
+import { type Message, type Signal, Topology, parseQueueName } from "@muxeon/core";
+import { dequeue, ensureQueueDirs, queuePaths } from "@muxeon/queue";
 import { Router } from "../src/router";
 
 const KEYS = new Map([
@@ -16,7 +16,7 @@ let root: string;
 let router: Router;
 
 beforeEach(async () => {
-  root = mkdtempSync(join(tmpdir(), "teamai-router-"));
+  root = mkdtempSync(join(tmpdir(), "muxeon-router-"));
   for (const key of KEYS.values()) await ensureQueueDirs(queuePaths(root, key));
   router = new Router({
     topology: new Topology({ researcher: ["writer", "operator"], writer: ["researcher"] }),

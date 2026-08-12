@@ -27,8 +27,8 @@ import {
   type InboundHandler,
   normalizePayload,
   operatorErrorText,
-} from "@teamai/channels";
-import type { AgentStatus, Message, Signal } from "@teamai/core";
+} from "@muxeon/channels";
+import type { AgentStatus, Message, Signal } from "@muxeon/core";
 import {
   LoginRateLimiter,
   type PasswordVerifier,
@@ -45,7 +45,7 @@ import type {
   WebchatRole,
 } from "./ports";
 
-export const SESSION_COOKIE = "teamai_webchat";
+export const SESSION_COOKIE = "muxeon_webchat";
 
 /** Byte store under <root>/blobs/ (§5.3) — orchestrator's BlobStore, structurally. */
 export interface WebchatBlobStore {
@@ -185,13 +185,13 @@ export interface WebchatConnectorOptions {
   readonly lifecycle?: WebchatLifecycle;
   /** Blob store (§12.5); absent ⇒ media endpoints answer 503. */
   readonly blobs?: WebchatBlobStore;
-  /** Built SPA dir (§12.7, the @teamai/webchat-ui dist); absent ⇒ non-API 404. */
+  /** Built SPA dir (§12.7, the @muxeon/webchat-ui dist); absent ⇒ non-API 404. */
   readonly staticDir?: string;
   /**
    * Instance label (FR-90, §12.7): injected into the served shell as
-   * `<title><name> - TeamAI</title>` and `<meta name="teamai-name">` (the topbar
+   * `<title><name> - Muxeon</title>` and `<meta name="muxeon-name">` (the topbar
    * reads the meta). Already defaulted to hostname() by the caller; absent
-   * (tests) ⇒ the shell is served verbatim (title stays "TeamAI").
+   * (tests) ⇒ the shell is served verbatim (title stays "Muxeon").
    */
   readonly instanceName?: string;
   /**
@@ -1011,7 +1011,7 @@ export class WebchatConnector implements ChannelConnector {
     if (peer.length === 0) return json({ error: "agent name required" }, 400);
     const now = (this.#options.now ?? Date.now)();
     const body = {
-      format: "teamai-chat-history",
+      format: "muxeon-chat-history",
       version: 1,
       operator: me.name,
       peer,
@@ -1342,19 +1342,19 @@ function escapeHtml(value: string): string {
 }
 
 /**
- * Brand the SPA shell: the instance label (FR-90) as `<title><name> - TeamAI</title>`
- * plus a `<meta name="teamai-name">` the topbar reads, and the identity mode
- * (§17.2, FR-127) as `<meta name="teamai-auth">`. An empty label leaves the title
+ * Brand the SPA shell: the instance label (FR-90) as `<title><name> - Muxeon</title>`
+ * plus a `<meta name="muxeon-name">` the topbar reads, and the identity mode
+ * (§17.2, FR-127) as `<meta name="muxeon-auth">`. An empty label leaves the title
  * alone; missing markers leave the shell as-is.
  */
 function brandShell(html: string, name: string, usersMode: boolean): string {
   const safe = escapeHtml(name);
   const metas = [
-    ...(name !== "" ? [`<meta name="teamai-name" content="${safe}" />`] : []),
-    ...(usersMode ? ['<meta name="teamai-auth" content="users" />'] : []),
+    ...(name !== "" ? [`<meta name="muxeon-name" content="${safe}" />`] : []),
+    ...(usersMode ? ['<meta name="muxeon-auth" content="users" />'] : []),
   ];
   const titled =
-    name === "" ? html : html.replace(/<title>[^<]*<\/title>/, `<title>${safe} - TeamAI</title>`);
+    name === "" ? html : html.replace(/<title>[^<]*<\/title>/, `<title>${safe} - Muxeon</title>`);
   if (metas.length === 0) return titled;
   return titled.replace(/<\/head>/, `  ${metas.join("\n  ")}\n  </head>`);
 }

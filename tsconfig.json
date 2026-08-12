@@ -1,11 +1,11 @@
 {
   "$schema": "https://json.schemastore.org/tsconfig",
-  "_comment": "Repo type-check project: checks every package's src + tests in one pass. Cross-package `@teamai/*` imports resolve to source via `paths` (and bun workspace symlinks).",
+  "_comment": "Repo type-check project: checks every package's src + tests in one pass. Cross-package `@muxeon/*` imports resolve to source via `paths` (and bun workspace symlinks).",
   "extends": "./tsconfig.base.json",
   "compilerOptions": {
     "baseUrl": ".",
     "paths": {
-      "@teamai/*": ["packages/*/src/index.ts"]
+      "@muxeon/*": ["packages/*/src/index.ts"]
     }
   },
   "_commentExclude": "webchat-ui is a browser SPA (§12.7): DOM libs + JSX — checked by its own tsconfig (packages/webchat-ui/tsconfig.json, `bun run typecheck` there / in its build).",

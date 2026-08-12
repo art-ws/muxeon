@@ -12,8 +12,8 @@
 // is acceptable; a crash between the push and the done/ rename is re-sent on restart
 // the same way (recovery, §5.3).
 
-import type { Signal } from "@teamai/core";
-import { type DequeuedItem, type QueuePaths, complete, dequeue, readCur } from "@teamai/queue";
+import type { Signal } from "@muxeon/core";
+import { type DequeuedItem, type QueuePaths, complete, dequeue, readCur } from "@muxeon/queue";
 import { ControlLane } from "./control";
 
 /** Egress sink: push one message to the operator's channel (§8.4). */

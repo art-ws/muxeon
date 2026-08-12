@@ -8,8 +8,8 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdtempSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { type Adapter, AdapterRegistry } from "@teamai/adapters";
-import { type TelegramApi, TelegramConnector, type TelegramIncoming } from "@teamai/channels";
+import { type Adapter, AdapterRegistry } from "@muxeon/adapters";
+import { type TelegramApi, TelegramConnector, type TelegramIncoming } from "@muxeon/channels";
 import { bootstrap } from "../src/bootstrap";
 
 class FakeApi implements TelegramApi {
@@ -67,7 +67,7 @@ let api: FakeApi;
 let injected: string[];
 
 beforeEach(() => {
-  dir = mkdtempSync(join(tmpdir(), "teamai-channels-"));
+  dir = mkdtempSync(join(tmpdir(), "muxeon-channels-"));
   api = new FakeApi();
   injected = [];
 });
@@ -77,7 +77,7 @@ afterEach(() => {
 });
 
 function writeConfig(): string {
-  const configFile = join(dir, "teamai.config.json");
+  const configFile = join(dir, "muxeon.config.json");
   writeFileSync(
     configFile,
     JSON.stringify({
@@ -207,7 +207,7 @@ describe("channel wiring (T30, Checkpoint 8: §3.2, §10.8/§10.9, FR-37)", () =
   });
 
   test("an unknown channel type fails the boot (fail-fast)", async () => {
-    const configFile = join(dir, "teamai.config.json");
+    const configFile = join(dir, "muxeon.config.json");
     writeFileSync(
       configFile,
       JSON.stringify({

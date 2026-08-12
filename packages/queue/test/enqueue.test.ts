@@ -2,14 +2,14 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdtempSync, readFileSync, readdirSync, rmSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { type Message, parseQueueName } from "@teamai/core";
+import { type Message, parseQueueName } from "@muxeon/core";
 import { enqueue } from "../src/enqueue";
 import { ensureQueueDirs, queuePaths } from "../src/layout";
 
 let root: string;
 
 beforeEach(() => {
-  root = mkdtempSync(join(tmpdir(), "teamai-queue-"));
+  root = mkdtempSync(join(tmpdir(), "muxeon-queue-"));
 });
 
 afterEach(() => {

@@ -1,5 +1,5 @@
 {
-  "name": "@teamai/lifecycle",
+  "name": "@muxeon/lifecycle",
   "version": "0.0.0",
   "private": true,
   "type": "module",
@@ -13,10 +13,10 @@
     }
   },
   "dependencies": {
-    "@teamai/core": "workspace:*",
-    "@teamai/config": "workspace:*",
-    "@teamai/tmux": "workspace:*",
-    "@teamai/adapters": "workspace:*",
-    "@teamai/orchestrator": "workspace:*"
+    "@muxeon/core": "workspace:*",
+    "@muxeon/config": "workspace:*",
+    "@muxeon/tmux": "workspace:*",
+    "@muxeon/adapters": "workspace:*",
+    "@muxeon/orchestrator": "workspace:*"
   }
 }

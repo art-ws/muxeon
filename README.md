@@ -1,10 +1,10 @@
 <p align="center">
-  <img src="assets/logo/teamai-mark.png" alt="" width="110" />
+  <img src="assets/logo/muxeon-mark.png" alt="" width="110" />
 </p>
 
-<h1 align="center">TEAMAI</h1>
+<h1 align="center">MUXEON</h1>
 
-TEAMAI is a **transport and coordinator** for local CLI agents (`claude`,
+MUXEON is a **transport and coordinator** for local CLI agents (`claude`,
 `codex`, …) running in **tmux sessions**. It is not an agent itself: it
 connects agents, tracks their lifecycle, routes messages between them along a
 declared topology, and lets **people** reach them through channels (a web panel
@@ -16,37 +16,37 @@ TypeScript monorepo on [bun](https://bun.sh). MIT licensed.
 
 ## Requirements
 
-- **[Bun](https://bun.sh) ≥ 1.2** — TEAMAI is a Bun application (the HTTP
+- **[Bun](https://bun.sh) ≥ 1.2** — MUXEON is a Bun application (the HTTP
   surfaces, process control and static serving are all Bun APIs). The `npx`
   entry point is a thin Node shim that hands over to `bun`; it will tell you so
-  if bun is missing. Set `TEAMAI_BUN` to use a bun outside `PATH`.
+  if bun is missing. Set `MUXEON_BUN` to use a bun outside `PATH`.
 - **tmux** — that is where the agents live.
 
 ## Quick start
 
 ```bash
 # describe your team
-curl -o teamai.config.json \
-  https://raw.githubusercontent.com/art-ws/teamai/main/teamai.config.example.json
+curl -o muxeon.config.json \
+  https://raw.githubusercontent.com/art-ws/muxeon/main/muxeon.config.example.json
 
 # run it straight from npm — no install. The config is found by convention
-# (./teamai.config.json, then upward), or pass a path / --config
-npx @art-ws/teamai
+# (./muxeon.config.json, then upward), or pass a path / --config
+npx @art-ws/muxeon
 ```
 
-`bunx @art-ws/teamai` works too and skips the Node shim entirely. To install it
+`bunx @art-ws/muxeon` works too and skips the Node shim entirely. To install it
 once:
 
 ```bash
-npm i -g @art-ws/teamai     # or: bun i -g @art-ws/teamai
-teamai agents               # the command is `teamai`, scope or not
+npm i -g @art-ws/muxeon     # or: bun i -g @art-ws/muxeon
+muxeon agents               # the command is `muxeon`, scope or not
 ```
 
 From a clone, run it from source instead:
 
 ```bash
 bun install
-cp teamai.config.example.json teamai.config.json
+cp muxeon.config.example.json muxeon.config.json
 bun packages/server/src/index.ts
 ```
 
@@ -60,7 +60,7 @@ A minimal config is one agent, a human, and the edge between them:
   ],
   "users": [
     { "name": "alex", "role": "admin",
-      "auth": { "password": { "$env": "TEAMAI_ALEX_PASSWORD" } },
+      "auth": { "password": { "$env": "MUXEON_ALEX_PASSWORD" } },
       "channels": { "web": true } }
   ],
   "topology": { "researcher": ["alex"] },
@@ -89,12 +89,12 @@ The same binary carries the operator subcommands (a thin client to the
 loopback HTTP-admin):
 
 ```bash
-teamai agents                         # names + idle/busy/down
-teamai kill researcher                # interrupt; queue keeps accumulating
-teamai restart researcher             # kill + provision; queue drains
-teamai signals send --from alex --to researcher "ship the report"
-teamai queues peek researcher         # inspect pending/ and cur/
-teamai routines list                  # scheduled MD routines
+muxeon agents                         # names + idle/busy/down
+muxeon kill researcher                # interrupt; queue keeps accumulating
+muxeon restart researcher             # kill + provision; queue drains
+muxeon signals send --from alex --to researcher "ship the report"
+muxeon queues peek researcher         # inspect pending/ and cur/
+muxeon routines list                  # scheduled MD routines
 ```
 
 See the **[operator guide](docs/operator-guide.md)** for the full surface:
@@ -121,17 +121,17 @@ email-style names (`dev@hq`), each link is store-and-forward, and two servers
 that cannot reach each other can relay through a shared hub they both import.
 
 Agents that cannot (or should not) speak MCP use the **file exchange** instead:
-an incoming message is materialized as `.teamai/inbox/<id>/message.json` in the
+an incoming message is materialized as `.muxeon/inbox/<id>/message.json` in the
 agent's working directory, the agent writes `reply.md` next to it and deletes
 the message file to end its turn. Dropping a `{ "to": …, "payload": … }` file
-into `.teamai/outbox/` sends. The exchange is a projection — the queue stays
+into `.muxeon/outbox/` sends. The exchange is a projection — the queue stays
 the truth.
 
 ## Packages
 
 Layering is acyclic and enforced by `tools/architecture.test.ts` — a dependency
 edge against the layering, a cycle, or an unauthorized consumer of
-`@teamai/queue` fails the suite.
+`@muxeon/queue` fails the suite.
 
 | Package | Responsibility |
 |---|---|
@@ -172,7 +172,7 @@ vulnerability.
 > `§10.2` or `FR-93`. They point into the project's internal specification and
 > requirement register, which are not part of this repository. Treat them as
 > stable traceability labels — the code and the operator guide are
-> self-contained; you never need the spec to read, build, or extend TEAMAI.
+> self-contained; you never need the spec to read, build, or extend MUXEON.
 
 ## License
 

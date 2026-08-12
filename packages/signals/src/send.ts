@@ -3,8 +3,8 @@
 // envelope, then route it THROUGH the router (topology edge check §10.2 → enqueue) —
 // never past it (§8.2). signals owns no queue; it only constructs and hands off.
 
-import type { Signal } from "@teamai/core";
-import type { RouteResult } from "@teamai/orchestrator";
+import type { Signal } from "@muxeon/core";
+import type { RouteResult } from "@muxeon/orchestrator";
 import { type BuildOptions, type SignalInput, buildSignal } from "./envelope";
 
 /** The slice of the router signals needs — the single delivery point (§8.2). */

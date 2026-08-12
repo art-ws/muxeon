@@ -13,11 +13,11 @@ let routinesDir: string;
 let agentCwd: string;
 
 beforeEach(() => {
-  dir = mkdtempSync(join(tmpdir(), "teamai-cwd-routines-"));
+  dir = mkdtempSync(join(tmpdir(), "muxeon-cwd-routines-"));
   routinesDir = join(dir, "central");
   agentCwd = join(dir, "repo");
   mkdirSync(routinesDir, { recursive: true });
-  mkdirSync(join(agentCwd, ".teamai", "routines"), { recursive: true });
+  mkdirSync(join(agentCwd, ".muxeon", "routines"), { recursive: true });
 });
 
 afterEach(() => {
@@ -34,7 +34,7 @@ function writeCentral(owner: string, id: string, extra?: string): void {
 }
 
 function writeCwd(id: string, extra?: string): void {
-  writeFileSync(join(agentCwd, ".teamai", "routines", `${id}.md`), md(id, extra));
+  writeFileSync(join(agentCwd, ".muxeon", "routines", `${id}.md`), md(id, extra));
 }
 
 const discover = (withCwd = true) =>
@@ -51,7 +51,7 @@ describe("cwd-side routine discovery + merge (§6.2)", () => {
     expect(routines).toHaveLength(1);
     expect(routines[0]?.owner).toBe("researcher");
     expect(routines[0]?.target).toBe("researcher"); // default self (§6.2)
-    expect(routines[0]?.source).toContain(".teamai");
+    expect(routines[0]?.source).toContain(".muxeon");
   });
 
   test("central overrides cwd on an id collision", () => {
@@ -88,7 +88,7 @@ describe("cwd-side routine discovery + merge (§6.2)", () => {
   });
 
   test("a malformed cwd file is skipped with a reason, the rest load (§6.2)", () => {
-    writeFileSync(join(agentCwd, ".teamai", "routines", "broken.md"), "no frontmatter at all");
+    writeFileSync(join(agentCwd, ".muxeon", "routines", "broken.md"), "no frontmatter at all");
     writeCwd("good");
     const { routines, skipped } = discover();
     expect(routines.map((r) => r.id)).toEqual(["good"]);
@@ -96,8 +96,8 @@ describe("cwd-side routine discovery + merge (§6.2)", () => {
     expect(skipped[0]?.reason).toContain("frontmatter");
   });
 
-  test("a missing .teamai/routines dir is simply empty", () => {
-    rmSync(join(agentCwd, ".teamai"), { recursive: true });
+  test("a missing .muxeon/routines dir is simply empty", () => {
+    rmSync(join(agentCwd, ".muxeon"), { recursive: true });
     expect(discover().routines).toHaveLength(0);
   });
 });

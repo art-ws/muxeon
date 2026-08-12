@@ -1,11 +1,11 @@
 // The codex adapter (§5.2, §8.3, FR-11/FR-11b). OpenAI Codex CLI (`gpt-5.5`) is a
 // second console agent type alongside claude; the two coexist — the registry maps
 // each agent's config `type` to its adapter, so a park can mix them freely.
-// Output detection is the reliable path (TEAMAI never modifies agent config);
+// Output detection is the reliable path (MUXEON never modifies agent config);
 // stateless, like the claude adapter.
 
 import { join } from "node:path";
-import type { Session } from "@teamai/core";
+import type { Session } from "@muxeon/core";
 import { type Adapter, makeDefaultRender } from "./contract";
 
 export interface CodexAdapterOptions {

@@ -1,9 +1,9 @@
 {
-  "name": "@teamai/queue",
+  "name": "@muxeon/queue",
   "version": "0.0.0",
   "private": true,
   "type": "module",
-  "description": "Per-session file queues (maildir, SPEC.md §5.3) — dumb FS layer; enqueue only via router (§8.2). Imported solely by @teamai/orchestrator.",
+  "description": "Per-session file queues (maildir, SPEC.md §5.3) — dumb FS layer; enqueue only via router (§8.2). Imported solely by @muxeon/orchestrator.",
   "main": "src/index.ts",
   "types": "src/index.ts",
   "exports": {
@@ -13,6 +13,6 @@
     }
   },
   "dependencies": {
-    "@teamai/core": "workspace:*"
+    "@muxeon/core": "workspace:*"
   }
 }

@@ -9,10 +9,10 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { type Adapter, AdapterRegistry } from "@teamai/adapters";
-import { TelegramConnector } from "@teamai/channels";
-import type { SessionControl } from "@teamai/lifecycle";
-import { type TeamaiServer, bootstrap } from "../src/bootstrap";
+import { type Adapter, AdapterRegistry } from "@muxeon/adapters";
+import { TelegramConnector } from "@muxeon/channels";
+import type { SessionControl } from "@muxeon/lifecycle";
+import { type MuxeonServer, bootstrap } from "../src/bootstrap";
 import { LOOPBACK_DIRECT } from "./mcp-helpers";
 
 function dummyRegistry(): AdapterRegistry {
@@ -51,11 +51,11 @@ class FakeSessions implements SessionControl {
 
 let dir: string;
 let sessions: FakeSessions;
-let server: TeamaiServer;
+let server: MuxeonServer;
 let base: string;
 
 beforeEach(() => {
-  dir = mkdtempSync(join(tmpdir(), "teamai-admin-"));
+  dir = mkdtempSync(join(tmpdir(), "muxeon-admin-"));
   sessions = new FakeSessions();
 });
 
@@ -65,7 +65,7 @@ afterEach(async () => {
 });
 
 async function boot(): Promise<void> {
-  const configFile = join(dir, "teamai.config.json");
+  const configFile = join(dir, "muxeon.config.json");
   writeFileSync(
     configFile,
     JSON.stringify({

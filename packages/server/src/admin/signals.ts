@@ -4,7 +4,7 @@
 // of an agent" privilege is bounded by the topology's nodes (§8.7), never an
 // invented name.
 
-import { type SignalRouter, buildSignal } from "@teamai/signals";
+import { type SignalRouter, buildSignal } from "@muxeon/signals";
 import { AdminError } from "./error";
 
 export interface SignalSendInput {

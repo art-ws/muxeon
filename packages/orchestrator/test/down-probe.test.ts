@@ -2,8 +2,8 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdtempSync, readdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { Message } from "@teamai/core";
-import { type QueuePaths, enqueue, ensureQueueDirs, queuePaths } from "@teamai/queue";
+import type { Message } from "@muxeon/core";
+import { type QueuePaths, enqueue, ensureQueueDirs, queuePaths } from "@muxeon/queue";
 import { Dispatcher, type SessionDriver } from "../src/dispatcher";
 import { waitForSessionDown } from "../src/down-probe";
 import { AgentState } from "../src/status";
@@ -43,7 +43,7 @@ describe("dispatcher busy→down (§5.1, §10.9)", () => {
   let paths: QueuePaths;
 
   beforeEach(async () => {
-    root = mkdtempSync(join(tmpdir(), "teamai-down-"));
+    root = mkdtempSync(join(tmpdir(), "muxeon-down-"));
     paths = queuePaths(root, "s");
     await ensureQueueDirs(paths);
   });

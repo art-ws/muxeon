@@ -16,8 +16,8 @@ import { createHash } from "node:crypto";
 import { mkdir, readFile, readdir, realpath, rename, stat, unlink } from "node:fs/promises";
 import { isAbsolute, join, resolve, sep } from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
-import type { Signal } from "@teamai/core";
-import type { BlobStore } from "@teamai/orchestrator";
+import type { Signal } from "@muxeon/core";
+import type { BlobStore } from "@muxeon/orchestrator";
 import { mimeByName } from "./exchange-reply";
 
 export interface OutboxMonitorOptions {
@@ -34,7 +34,7 @@ export interface OutboxMonitorOptions {
   readonly blobs: BlobStore;
   /**
    * Admin users (§17.11, FR-135): the fan-out set of an outbox file WITHOUT `to` —
-   * the human "behind the console" is resolved through TEAMAI as the `admin` role,
+   * the human "behind the console" is resolved through MUXEON as the `admin` role,
    * no separate entity. Returns the CURRENT admins (config is fixed at boot, so a
    * plain closure over the config is enough). Empty / absent ⇒ `to` stays mandatory
    * and a file without it is rejected exactly as before.
@@ -215,7 +215,7 @@ export class OutboxMonitor {
           } else {
             const warn = this.#o.warn ?? ((text: string) => process.stderr.write(`${text}\n`));
             warn(
-              `teamai: warning: outbox message "${name}" of ${this.#o.agent} did not reach admin "${admin}" (${result.code ?? "refused"}) — §17.11`,
+              `muxeon: warning: outbox message "${name}" of ${this.#o.agent} did not reach admin "${admin}" (${result.code ?? "refused"}) — §17.11`,
             );
           }
         } catch {
@@ -337,7 +337,7 @@ export class OutboxMonitor {
     await rename(currentPath, rejected).catch(() => undefined);
     const warn = this.#o.warn ?? ((text: string) => process.stderr.write(`${text}\n`));
     warn(
-      `teamai: warning: outbox message "${name}" of ${this.#o.agent} ${why} — moved to ${base}.rejected.json (FR-55)`,
+      `muxeon: warning: outbox message "${name}" of ${this.#o.agent} ${why} — moved to ${base}.rejected.json (FR-55)`,
     );
   }
 }

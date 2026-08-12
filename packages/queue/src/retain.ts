@@ -7,7 +7,7 @@
 
 import { unlink } from "node:fs/promises";
 import { join } from "node:path";
-import { parseQueueName } from "@teamai/core";
+import { parseQueueName } from "@muxeon/core";
 import { listEntries } from "./inspect";
 import type { QueuePaths } from "./layout";
 

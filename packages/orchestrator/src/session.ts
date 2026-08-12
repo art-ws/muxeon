@@ -1,11 +1,11 @@
 // Session runtime helpers (§8.2) — the queue and tmux primitives the composition
-// root (server) needs, exposed THROUGH orchestrator so @teamai/queue stays
+// root (server) needs, exposed THROUGH orchestrator so @muxeon/queue stays
 // orchestrator-only (§8) and the server never imports queue or tmux directly.
 
-import { type QueuePaths, ensureQueueDirs, loadDoneIds, queuePaths, readCur } from "@teamai/queue";
-import { hasSession } from "@teamai/tmux";
+import { type QueuePaths, ensureQueueDirs, loadDoneIds, queuePaths, readCur } from "@muxeon/queue";
+import { hasSession } from "@muxeon/tmux";
 
-export type { QueuePaths } from "@teamai/queue";
+export type { QueuePaths } from "@muxeon/queue";
 
 export function sessionPaths(root: string, key: string): QueuePaths {
   return queuePaths(root, key);

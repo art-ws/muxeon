@@ -10,7 +10,7 @@ import { dirname, isAbsolute, join, resolve } from "node:path";
 import { ConfigError } from "./error";
 
 // Convention names, in priority order (§7.4).
-const CONFIG_NAMES = ["teamai.config.json", join(".teamai", "config.json")];
+const CONFIG_NAMES = ["muxeon.config.json", join(".muxeon", "config.json")];
 
 export interface ConfigLocation {
   /** Absolute path to the config file. */
@@ -90,7 +90,7 @@ function isFile(path: string): boolean {
 
 /**
  * Extracts the optional config path from launcher args (§7.4):
- * `teamai <path>`, `teamai --config <path>`, or `teamai --config=<path>`.
+ * `muxeon <path>`, `muxeon --config <path>`, or `muxeon --config=<path>`.
  * Operator subcommands (kill/restart/…) are layered on in T33.
  */
 export function parseConfigArg(argv: readonly string[]): string | undefined {

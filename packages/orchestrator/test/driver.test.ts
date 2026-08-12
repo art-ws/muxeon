@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import type { Adapter, NativeStatus } from "@teamai/adapters";
-import type { Session } from "@teamai/core";
+import type { Adapter, NativeStatus } from "@muxeon/adapters";
+import type { Session } from "@muxeon/core";
 import { SUBMIT_RETRIES, TmuxSessionDriver } from "../src/driver";
 
 const session: Session = { name: "s" };

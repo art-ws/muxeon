@@ -11,7 +11,7 @@ export type Visibility = {
 
 export const SHOW_ALL: Visibility = { mode: "all", selected: new Set() };
 
-const KEY = "teamai-pref:visible-agents";
+const KEY = "muxeon-pref:visible-agents";
 
 interface VisStorage {
   getItem(key: string): string | null;

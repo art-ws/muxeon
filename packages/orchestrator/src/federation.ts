@@ -4,7 +4,7 @@
 // inbound envelopes pass the owner's gates here; a link may never enqueue past it.
 
 import { join } from "node:path";
-import type { Signal } from "@teamai/core";
+import type { Signal } from "@muxeon/core";
 
 /** Receipt codes travelling back over a link (§18.5, FR-143). */
 export type FederationReceiptCode =

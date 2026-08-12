@@ -1,4 +1,4 @@
-/* TEAMAI panel (§12.7) — a compact chat layout. Two themes (FR-59): light is
+/* MUXEON panel (§12.7) — a compact chat layout. Two themes (FR-59): light is
    the DEFAULT (:root), dark is the [data-theme="dark"] override set on <html>
    by the topbar toggle; every color below goes through these variables. */
 

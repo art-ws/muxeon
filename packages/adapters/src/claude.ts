@@ -1,12 +1,12 @@
 // The claude adapter (§5.2, §8.3, FR-11/FR-11b). Output detection is the reliable
-// path — TEAMAI never modifies agent configuration, so the native status file is
+// path — MUXEON never modifies agent configuration, so the native status file is
 // only an opportunistic accelerator IF the agent's owner pre-installed (outside
-// TEAMAI) a Stop-hook writing { status, turn } to the convention path the
+// MUXEON) a Stop-hook writing { status, turn } to the convention path the
 // dispatcher reads. Stateless; the stateDir is immutable configuration, not
 // per-session state.
 
 import { join } from "node:path";
-import type { Session } from "@teamai/core";
+import type { Session } from "@muxeon/core";
 import { type Adapter, makeDefaultRender } from "./contract";
 
 export interface ClaudeAdapterOptions {
@@ -26,7 +26,7 @@ export interface ClaudeAdapterOptions {
 // a running turn (§10.1), so the busy match is kept deliberately broad.
 //
 // T65 live finding: with an active TODO task the spinner label is the MULTI-WORD
-// task name (`✳ Playing Bulls and Cows via TEAMAI… (10s · ↓ 148 tokens)`) — the
+// task name (`✳ Playing Bulls and Cows via MUXEON… (10s · ↓ 148 tokens)`) — the
 // old single-word `\S+…` never matched, sawBusy never armed (driver.ts edge), and
 // the turn hung forever. Also: tmux capture races the spinner redraw and drops
 // characters (`… 34s)` without the `(`), so the `(…)` tail must NOT be required —
@@ -103,7 +103,7 @@ export function extractClaudeReply(pane: string, attribution: string): string | 
   }
   if (current !== null) blocks.push(current.join(" "));
 
-  // Tool INVOCATIONS also render as ⏺ blocks — `Bash(date)`, `teamai - send (MCP)(…)`.
+  // Tool INVOCATIONS also render as ⏺ blocks — `Bash(date)`, `muxeon - send (MCP)(…)`.
   // The agent's prose never starts as `Name(`/`name - name (`; drop the calls.
   const prose = blocks.filter((block) => !/^\S+(\s-\s\S+)?\s?\(/.test(block));
 

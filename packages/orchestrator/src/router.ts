@@ -2,11 +2,11 @@
 // channels §3.2, signals/routines §6) routes only through here: topology edge check
 // (§10.2) → resolve the recipient name to its queue key → sanitize the id (§10.11)
 // → queue.enqueue. Direct queue.enqueue past the router is impossible by import —
-// @teamai/queue is depended on only by @teamai/orchestrator (§8, enforced by the
+// @muxeon/queue is depended on only by @muxeon/orchestrator (§8, enforced by the
 // architecture guard), and within it the router is the only caller of enqueue.
 
-import { type Signal, type Topology, appendServer, isFqn, splitFqn } from "@teamai/core";
-import { enqueue, queueDepth, queuePaths, sanitizeFileId } from "@teamai/queue";
+import { type Signal, type Topology, appendServer, isFqn, splitFqn } from "@muxeon/core";
+import { enqueue, queueDepth, queuePaths, sanitizeFileId } from "@muxeon/queue";
 import {
   DEFAULT_HOP_CAP,
   type FederationIngressResult,

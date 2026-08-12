@@ -7,7 +7,7 @@ import { discoverCentralRoutines } from "../src/discover";
 let root: string;
 
 beforeEach(() => {
-  root = mkdtempSync(join(tmpdir(), "teamai-routines-"));
+  root = mkdtempSync(join(tmpdir(), "muxeon-routines-"));
 });
 
 afterEach(() => {

@@ -4,7 +4,7 @@
 // forward-compatible kinds (reactions etc., T38/S) plug in without touching the core.
 
 import { randomUUID } from "node:crypto";
-import type { Signal, SignalKind } from "@teamai/core";
+import type { Signal, SignalKind } from "@muxeon/core";
 
 export interface SignalInput {
   readonly from: string;

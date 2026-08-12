@@ -23,7 +23,7 @@ let dir: string;
 let file: string;
 
 beforeEach(() => {
-  dir = mkdtempSync(join(tmpdir(), "teamai-session-"));
+  dir = mkdtempSync(join(tmpdir(), "muxeon-session-"));
   file = join(dir, "sessions", "operator-web.json");
 });
 
@@ -208,7 +208,7 @@ describe("connector: sessions survive a restart (FR-57)", () => {
 
   async function login(connector: WebchatConnector): Promise<string> {
     const response = await connector.handleRequest(post("/api/login", { password: "hunter2" }));
-    const token = /teamai_webchat=([^;]+)/.exec(response.headers.get("set-cookie") ?? "")?.[1];
+    const token = /muxeon_webchat=([^;]+)/.exec(response.headers.get("set-cookie") ?? "")?.[1];
     if (token === undefined) throw new Error("no session cookie");
     return `${SESSION_COOKIE}=${token}`;
   }

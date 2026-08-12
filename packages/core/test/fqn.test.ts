@@ -12,7 +12,7 @@ describe("FQN (§18.4)", () => {
   });
 
   test("splitFqn resolves by the LAST @ — the head stays opaque", () => {
-    expect(splitFqn("alex@teamai1")).toEqual({ head: "alex", tail: "teamai1" });
+    expect(splitFqn("alex@muxeon1")).toEqual({ head: "alex", tail: "muxeon1" });
     expect(splitFqn("bob@c@b")).toEqual({ head: "bob@c", tail: "b" });
   });
 

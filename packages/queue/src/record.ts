@@ -3,7 +3,7 @@
 // fully-written message.
 
 import { readFile } from "node:fs/promises";
-import type { Signal } from "@teamai/core";
+import type { Signal } from "@muxeon/core";
 
 export async function readMessage(path: string): Promise<Signal> {
   return JSON.parse(await readFile(path, { encoding: "utf8" })) as Signal;

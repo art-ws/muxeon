@@ -1,9 +1,9 @@
 // Blob access for the edges (§5.3, §8.7) — exposed THROUGH orchestrator so
-// @teamai/queue stays orchestrator-only (§8), like session.ts. Channel connectors
+// @muxeon/queue stays orchestrator-only (§8), like session.ts. Channel connectors
 // (§8.4) write inbound media as blobs and resolve outbound payload blob refs to
 // bytes ONLY under <root>/blobs/ — containment lives in the queue layer (§10.11).
 
-import { blobExtension, ensureBlobDirs, readBlob, writeBlob } from "@teamai/queue";
+import { blobExtension, ensureBlobDirs, readBlob, writeBlob } from "@muxeon/queue";
 
 /** What the writing edge knows about the bytes (T117) — both optional. */
 export interface BlobHint {

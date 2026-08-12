@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { join } from "node:path";
-import type { Message, Session } from "@teamai/core";
+import type { Message, Session } from "@muxeon/core";
 import { CODEX_READY, createCodexAdapter } from "../src/codex";
 
 const session: Session = { name: "tl" };
@@ -42,7 +42,7 @@ const PANE_APPROVAL = [
 // carry NO busy marker — must stay READY (must not false-trigger busy).
 const PANE_IDLE_WITH_TOOL_BLOCKS = [
   "✔ You approved codex to always run commands that start with bin/dsh",
-  "• Ran bin/dsh rm .teamai/inbox/linkcheck-dev-20260705/message.json",
+  "• Ran bin/dsh rm .muxeon/inbox/linkcheck-dev-20260705/message.json",
   "  └ (no output)",
   "─────────────────────────────────────────────────────────────────────────────────",
   "› Explain this codebase",
@@ -58,7 +58,7 @@ const PANE_BUSY_TORN_CAPTURE = ["  Working (34s • esc to interrupt)", "› Imp
 describe("codex adapter (§5.2, §8.3, FR-11/FR-11b)", () => {
   test("render produces attribution + payload", () => {
     expect(createCodexAdapter({ stateDir: "/state" }).render(msg())).toContain(
-      "[teamai] from=a id=id1",
+      "[muxeon] from=a id=id1",
     );
   });
 

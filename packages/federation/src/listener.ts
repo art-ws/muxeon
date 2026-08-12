@@ -6,7 +6,7 @@
 // nothing, including whether a name exists.
 
 import { createHash, timingSafeEqual } from "node:crypto";
-import type { StatusProjection } from "@teamai/core";
+import type { StatusProjection } from "@muxeon/core";
 import {
   FED_ACTORS_PATH,
   FED_HANDSHAKE_PATH,

@@ -1,4 +1,4 @@
-// @teamai/core — domain types and the queue message-name codec. No I/O.
+// @muxeon/core — domain types and the queue message-name codec. No I/O.
 // (SPEC.md §8, §5.1, §5.3) — T03.
 export * from "./status";
 export * from "./signal";

@@ -7,11 +7,11 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { type Adapter, AdapterRegistry } from "@teamai/adapters";
-import { TelegramConnector, type TelegramIncoming } from "@teamai/channels";
+import { type Adapter, AdapterRegistry } from "@muxeon/adapters";
+import { TelegramConnector, type TelegramIncoming } from "@muxeon/channels";
 import { AdminError } from "../src/admin/error";
 import { createAdminHandler } from "../src/admin/plane";
-import { type TeamaiServer, bootstrap } from "../src/bootstrap";
+import { type MuxeonServer, bootstrap } from "../src/bootstrap";
 import { createTextRedactor } from "../src/redact";
 
 const TOKEN = "S3CRET-TELEGRAM-T0KEN-VALUE";
@@ -51,12 +51,12 @@ describe("createTextRedactor (§8.7)", () => {
 
 describe("no-leak sweep across a full operator↔agent exchange", () => {
   let dir: string;
-  let server: TeamaiServer;
+  let server: MuxeonServer;
   let inbox: TelegramIncoming[][];
   let sentTexts: string[];
 
   beforeEach(() => {
-    dir = mkdtempSync(join(tmpdir(), "teamai-redaction-"));
+    dir = mkdtempSync(join(tmpdir(), "muxeon-redaction-"));
     inbox = [];
     sentTexts = [];
   });
@@ -67,7 +67,7 @@ describe("no-leak sweep across a full operator↔agent exchange", () => {
   });
 
   async function boot(): Promise<void> {
-    const configFile = join(dir, "teamai.config.json");
+    const configFile = join(dir, "muxeon.config.json");
     writeFileSync(
       configFile,
       JSON.stringify({

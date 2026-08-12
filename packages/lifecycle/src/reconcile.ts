@@ -12,7 +12,7 @@
 // Attach-only BY DESIGN: it NEVER provisions/spawns (a down agent with no session
 // stays down — bring-up is FR-50/FR-51/operator territory), so OOS-9 is not widened.
 
-import type { AgentStatus } from "@teamai/core";
+import type { AgentStatus } from "@muxeon/core";
 import type { AgentTarget, SessionControl } from "./context";
 
 export async function reconcileLiveness(

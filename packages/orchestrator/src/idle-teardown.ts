@@ -1,7 +1,7 @@
 // Idle auto-teardown (FR-92, §5.1) — retire an agent the system raised once it
 // has been inactive long enough. "Inactive" = continuously idle (§5.1) with no
 // messages routed to or from it (the transport, §8.2) for the configured window.
-// Only SYSTEM-RAISED sessions (provisioned by TEAMAI, AgentState.origin, §5.1) are
+// Only SYSTEM-RAISED sessions (provisioned by MUXEON, AgentState.origin, §5.1) are
 // reaped: a hand-started / attach-only agent is left alone — we retire what we
 // raised. New queued work later lazy-revives the agent (FR-51), so this is a
 // bring-up/idle-down cycle, not a permanent shutdown.
@@ -14,7 +14,7 @@
 // queue + still-stale checked at execution). The sweeper itself never touches
 // tmux — it owns timing/eligibility only, like the down-probe (§8.2).
 
-import type { AgentStatus } from "@teamai/core";
+import type { AgentStatus } from "@muxeon/core";
 
 /** The 1h default window (FR-92) — `teardown.idle: true` resolves to this. */
 export const IDLE_TEARDOWN_DEFAULT_MS = 60 * 60 * 1000;

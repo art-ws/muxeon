@@ -7,7 +7,7 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { Message } from "@teamai/core";
+import type { Message } from "@muxeon/core";
 import { SESSION_COOKIE, type WebchatBlobStore, WebchatConnector } from "../src/connector";
 import { HistoryStore } from "../src/history";
 
@@ -37,7 +37,7 @@ class FakeBlobStore implements WebchatBlobStore {
 let blobs: FakeBlobStore;
 
 beforeEach(() => {
-  dir = mkdtempSync(join(tmpdir(), "teamai-blobs-"));
+  dir = mkdtempSync(join(tmpdir(), "muxeon-blobs-"));
   history = new HistoryStore({ dir: join(dir, "operator-web"), operator: "operator-web" });
   inbound = [];
   blobs = new FakeBlobStore();
@@ -72,7 +72,7 @@ async function login(connector: WebchatConnector): Promise<string> {
       body: JSON.stringify({ password: "hunter2" }),
     }),
   );
-  const token = /teamai_webchat=([^;]+)/.exec(response.headers.get("set-cookie") ?? "")?.[1];
+  const token = /muxeon_webchat=([^;]+)/.exec(response.headers.get("set-cookie") ?? "")?.[1];
   if (token === undefined) throw new Error("no session cookie issued");
   return `${SESSION_COOKIE}=${token}`;
 }

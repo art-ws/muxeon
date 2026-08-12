@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import type { Signal } from "@teamai/core";
-import type { RouteResult } from "@teamai/orchestrator";
+import type { Signal } from "@muxeon/core";
+import type { RouteResult } from "@muxeon/orchestrator";
 import { buildSignal } from "../src/envelope";
 import { type SignalRouter, sendSignal } from "../src/send";
 

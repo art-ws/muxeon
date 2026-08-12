@@ -1,9 +1,9 @@
 {
-  "name": "@teamai/orchestrator",
+  "name": "@muxeon/orchestrator",
   "version": "0.0.0",
   "private": true,
   "type": "module",
-  "description": "Execution core: dispatcher (dequeue→inject→await idle→complete), AgentStatus state-machine, router (topology-checked enqueue for all producers). Owns §10.1/§10.2/§10.8. Sole consumer of @teamai/queue.",
+  "description": "Execution core: dispatcher (dequeue→inject→await idle→complete), AgentStatus state-machine, router (topology-checked enqueue for all producers). Owns §10.1/§10.2/§10.8. Sole consumer of @muxeon/queue.",
   "main": "src/index.ts",
   "types": "src/index.ts",
   "exports": {
@@ -13,10 +13,10 @@
     }
   },
   "dependencies": {
-    "@teamai/core": "workspace:*",
-    "@teamai/config": "workspace:*",
-    "@teamai/queue": "workspace:*",
-    "@teamai/adapters": "workspace:*",
-    "@teamai/tmux": "workspace:*"
+    "@muxeon/core": "workspace:*",
+    "@muxeon/config": "workspace:*",
+    "@muxeon/queue": "workspace:*",
+    "@muxeon/adapters": "workspace:*",
+    "@muxeon/tmux": "workspace:*"
   }
 }

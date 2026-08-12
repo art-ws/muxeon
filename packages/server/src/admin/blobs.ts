@@ -4,7 +4,7 @@
 // The CLI mirror is `signals send --blob <path>`. Same default size cap as the
 // webchat upload (§12.5).
 
-import type { BlobStore } from "@teamai/orchestrator";
+import type { BlobStore } from "@muxeon/orchestrator";
 import { AdminError } from "./error";
 
 export const DEFAULT_BLOB_MAX_BYTES = 25 * 1024 * 1024; // 25 MiB, mirrors §12.5

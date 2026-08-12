@@ -10,14 +10,14 @@ describe("formatServerInfo (FR-91)", () => {
       { version: "0.0.0", commit: "78363b1", builtAt: "2026-06-09T20:45:05Z" },
       "built",
     );
-    expect(line).toContain("TeamAI 0.0.0");
+    expect(line).toContain("Muxeon 0.0.0");
     expect(line).toContain("78363b1");
     expect(line).toContain("built ");
     expect(line.split(" · ")).toHaveLength(3);
   });
 
   test("omits commit and build time when absent", () => {
-    expect(formatServerInfo({ version: "0.0.0" }, "built")).toBe("TeamAI 0.0.0");
+    expect(formatServerInfo({ version: "0.0.0" }, "built")).toBe("Muxeon 0.0.0");
   });
 
   test("an unparseable build time falls back to the raw string", () => {

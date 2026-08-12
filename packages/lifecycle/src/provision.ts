@@ -3,7 +3,7 @@
 // a shell string (§8.7). Agent configuration is untouched (FR-11b, §5.2) — no hooks,
 // no settings; detection works via the output front. The agent comes up idle (§5.1).
 
-import type { AgentStatus } from "@teamai/core";
+import type { AgentStatus } from "@muxeon/core";
 import type { AgentTarget, NewSessionOptions, SessionControl } from "./context";
 
 export interface ProvisionDeps {

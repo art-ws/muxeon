@@ -1,4 +1,4 @@
-// teamai operator CLI (T33, §7.4, FR-32): subcommands mirror the operator-plane
+// muxeon operator CLI (T33, §7.4, FR-32): subcommands mirror the operator-plane
 // (§8.5) and run against a booted server through the in-process admin transport
 // (the network path is the same handler behind the surface's loopback gate).
 
@@ -6,9 +6,9 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { type Adapter, AdapterRegistry } from "@teamai/adapters";
-import type { SessionControl } from "@teamai/lifecycle";
-import { type TeamaiServer, bootstrap } from "../src/bootstrap";
+import { type Adapter, AdapterRegistry } from "@muxeon/adapters";
+import type { SessionControl } from "@muxeon/lifecycle";
+import { type MuxeonServer, bootstrap } from "../src/bootstrap";
 import { CLI_COMMANDS, runCli } from "../src/cli/cli";
 
 function dummyRegistry(): AdapterRegistry {
@@ -40,16 +40,16 @@ class FakeSessions implements SessionControl {
 }
 
 let dir: string;
-let server: TeamaiServer;
+let server: MuxeonServer;
 let out: string[];
 let err: string[];
 
 beforeEach(async () => {
-  dir = mkdtempSync(join(tmpdir(), "teamai-cli-"));
+  dir = mkdtempSync(join(tmpdir(), "muxeon-cli-"));
   out = [];
   err = [];
   const sessions = new FakeSessions();
-  const configFile = join(dir, "teamai.config.json");
+  const configFile = join(dir, "muxeon.config.json");
   writeFileSync(
     configFile,
     JSON.stringify({
@@ -90,10 +90,10 @@ async function cli(...argv: string[]): Promise<number> {
   });
 }
 
-describe("teamai CLI (§7.4, §8.5, FR-32)", () => {
+describe("muxeon CLI (§7.4, §8.5, FR-32)", () => {
   test("the launcher and the CLI share one binary: subcommands are reserved", () => {
     expect(CLI_COMMANDS.has("agents")).toBe(true);
-    expect(CLI_COMMANDS.has("teamai.config.json")).toBe(false); // a config path still launches
+    expect(CLI_COMMANDS.has("muxeon.config.json")).toBe(false); // a config path still launches
   });
 
   test("agents lists names + status", async () => {
@@ -186,7 +186,7 @@ describe("teamai CLI (§7.4, §8.5, FR-32)", () => {
 
   test("admin errors surface as clear operator messages with exit 1", async () => {
     expect(await cli("kill", "ghost")).toBe(1);
-    expect(err).toEqual(['teamai: unknown agent "ghost"']);
+    expect(err).toEqual(['muxeon: unknown agent "ghost"']);
   });
 
   test("unknown command prints usage", async () => {
@@ -268,7 +268,7 @@ describe("signals send --blob (§8.5, FR-46)", () => {
   });
 });
 
-// `teamai hash-password` (§17.4, FR-122): an OFFLINE tool — no server, no config.
+// `muxeon hash-password` (§17.4, FR-122): an OFFLINE tool — no server, no config.
 // The hash it prints must verify against the plaintext, since that is exactly
 // what the panel does at login (verifyPassword, §17.4).
 describe("hash-password (§17.4, FR-122)", () => {

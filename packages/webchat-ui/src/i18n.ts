@@ -22,7 +22,7 @@ export type Messages = Readonly<Record<string, string>>;
 /** A translate function: English source text in, display text out. */
 export type Translate = (text: string) => string;
 
-const KEY = "teamai-pref:lang";
+const KEY = "muxeon-pref:lang";
 
 interface LangStorage {
   getItem(key: string): string | null;

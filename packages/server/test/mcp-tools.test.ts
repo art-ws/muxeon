@@ -3,9 +3,9 @@ import { mkdtempSync, readFileSync, readdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Client } from "@modelcontextprotocol/sdk/client/index.js";
-import type { AgentStatus } from "@teamai/core";
-import { Topology } from "@teamai/core";
-import { Router, TransportLog, ensureSessionQueue } from "@teamai/orchestrator";
+import type { AgentStatus } from "@muxeon/core";
+import { Topology } from "@muxeon/core";
+import { Router, TransportLog, ensureSessionQueue } from "@muxeon/orchestrator";
 import {
   type AgentPlaneHandle,
   SCREEN_MAX_HISTORY_LINES,
@@ -38,10 +38,10 @@ describe.skipIf(!LOOPBACK_DIRECT)("agent-plane tools (§8.6, §3.1)", () => {
   let root: string;
   let plane: AgentPlaneHandle;
   let alice: Client;
-  let seedTransport: (record: import("@teamai/core").Signal) => Promise<boolean>;
+  let seedTransport: (record: import("@muxeon/core").Signal) => Promise<boolean>;
 
   beforeEach(async () => {
-    root = mkdtempSync(join(tmpdir(), "teamai-tools-"));
+    root = mkdtempSync(join(tmpdir(), "muxeon-tools-"));
     for (const key of Object.values(KEY)) await ensureSessionQueue(root, key);
     const topology = new Topology(TOPOLOGY);
     const router = new Router({ topology, root, queueKeyOf: (n) => KEY[n] ?? null });
@@ -199,7 +199,7 @@ describe.skipIf(!LOOPBACK_DIRECT)("agent-plane groups & tags (§15.5)", () => {
   let alice: Client;
 
   beforeEach(async () => {
-    root = mkdtempSync(join(tmpdir(), "teamai-gt-"));
+    root = mkdtempSync(join(tmpdir(), "muxeon-gt-"));
     for (const key of Object.values(GT_KEY)) await ensureSessionQueue(root, key);
     const topology = new Topology(GT_TOPOLOGY);
     const resolveBroadcast = (to: string): { kind: "group" | "tag"; members: string[] } | null => {
@@ -292,7 +292,7 @@ describe.skipIf(!LOOPBACK_DIRECT)("agent-plane × pause (§16.5, FR-119)", () =>
 
   beforeEach(async () => {
     paused.clear();
-    root = mkdtempSync(join(tmpdir(), "teamai-pause-plane-"));
+    root = mkdtempSync(join(tmpdir(), "muxeon-pause-plane-"));
     for (const key of Object.values(KEY)) await ensureSessionQueue(root, key);
     const topology = new Topology(TOPOLOGY);
     const router = new Router({
@@ -410,7 +410,7 @@ describe.skipIf(!LOOPBACK_DIRECT)("get_screen (§8.6, FR-147)", () => {
   };
 
   beforeEach(async () => {
-    root = mkdtempSync(join(tmpdir(), "teamai-screen-"));
+    root = mkdtempSync(join(tmpdir(), "muxeon-screen-"));
     for (const key of Object.values(KEY)) await ensureSessionQueue(root, key);
     asked = [];
     panes = { bob: "> waiting for input\n$ ", op: "" };

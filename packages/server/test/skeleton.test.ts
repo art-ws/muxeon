@@ -3,8 +3,8 @@ import { randomUUID } from "node:crypto";
 import { mkdtempSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { type Adapter, AdapterRegistry } from "@teamai/adapters";
-import { capturePane, hasTmux, killSession, newSession } from "@teamai/tmux";
+import { type Adapter, AdapterRegistry } from "@muxeon/adapters";
+import { capturePane, hasTmux, killSession, newSession } from "@muxeon/tmux";
 import { bootstrap } from "../src/bootstrap";
 
 const HAS_TMUX = await hasTmux();
@@ -14,7 +14,7 @@ const dummyPath = join(import.meta.dir, "dummy-output-agent.ts");
 function dummyRegistry(): AdapterRegistry {
   const adapter: Adapter = {
     type: "dummy",
-    render: (message) => `[teamai id=${message.id}] ${String(message.payload)}`,
+    render: (message) => `[muxeon id=${message.id}] ${String(message.payload)}`,
     detect: { readyPrompt: /SKELETON_READY>\s*$/ },
     slashCommand: (name) => `/${name}`,
   };
@@ -38,8 +38,8 @@ describe.skipIf(!HAS_TMUX)("walking skeleton end-to-end (Checkpoint 4) [requires
   let session: string;
 
   beforeEach(() => {
-    dir = mkdtempSync(join(tmpdir(), "teamai-skeleton-"));
-    session = `teamai-skeleton-${randomUUID()}`;
+    dir = mkdtempSync(join(tmpdir(), "muxeon-skeleton-"));
+    session = `muxeon-skeleton-${randomUUID()}`;
   });
 
   afterEach(async () => {
@@ -52,7 +52,7 @@ describe.skipIf(!HAS_TMUX)("walking skeleton end-to-end (Checkpoint 4) [requires
     await newSession(session, { command: ["bun", dummyPath] });
     await waitFor(async () => /SKELETON_READY>/.test(await capturePane(session))); // agent ready
 
-    const configFile = join(dir, "teamai.config.json");
+    const configFile = join(dir, "muxeon.config.json");
     writeFileSync(
       configFile,
       JSON.stringify({

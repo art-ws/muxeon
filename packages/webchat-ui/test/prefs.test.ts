@@ -29,9 +29,9 @@ describe("prefs (FR-72)", () => {
     expect(loadPref("follow", true, storage)).toBe(false);
     expect(loadPref("transport", true, storage)).toBe(false);
     expect(Object.keys(storage.data).sort()).toEqual([
-      "teamai-pref:collapsed",
-      "teamai-pref:follow",
-      "teamai-pref:transport",
+      "muxeon-pref:collapsed",
+      "muxeon-pref:follow",
+      "muxeon-pref:transport",
     ]);
   });
 
@@ -42,7 +42,7 @@ describe("prefs (FR-72)", () => {
   });
 
   test("junk in storage falls back to the default", () => {
-    const storage = memoryStorage({ "teamai-pref:follow": "maybe" });
+    const storage = memoryStorage({ "muxeon-pref:follow": "maybe" });
     expect(loadPref("follow", true, storage)).toBe(true);
     expect(loadPref("follow", false, storage)).toBe(false);
   });
@@ -64,7 +64,7 @@ describe("prefs (FR-72)", () => {
     const storage = memoryStorage();
     savePref("tags-collapsed", true, storage);
     expect(loadPref("tags-collapsed", false, storage)).toBe(true);
-    expect(storage.data["teamai-pref:tags-collapsed"]).toBe("true");
+    expect(storage.data["muxeon-pref:tags-collapsed"]).toBe("true");
   });
 });
 
@@ -72,7 +72,7 @@ describe("expanded-groups pref (§15)", () => {
   test("round-trips the set of expanded group names as a sorted JSON array", () => {
     const storage = memoryStorage();
     saveExpandedGroups(new Set(["eng", "backend"]), storage);
-    expect(storage.data["teamai-pref:tree-expanded"]).toBe('["backend","eng"]');
+    expect(storage.data["muxeon-pref:tree-expanded"]).toBe('["backend","eng"]');
     expect([...(loadExpandedGroups(storage) ?? [])].sort()).toEqual(["backend", "eng"]);
   });
 
@@ -88,13 +88,13 @@ describe("expanded-groups pref (§15)", () => {
 
   test("junk JSON and a non-array falls back to undefined", () => {
     expect(
-      loadExpandedGroups(memoryStorage({ "teamai-pref:tree-expanded": "not json" })),
+      loadExpandedGroups(memoryStorage({ "muxeon-pref:tree-expanded": "not json" })),
     ).toBeUndefined();
     expect(
-      loadExpandedGroups(memoryStorage({ "teamai-pref:tree-expanded": '{"a":1}' })),
+      loadExpandedGroups(memoryStorage({ "muxeon-pref:tree-expanded": '{"a":1}' })),
     ).toBeUndefined();
     expect(
-      loadExpandedGroups(memoryStorage({ "teamai-pref:tree-expanded": "[1,2]" })),
+      loadExpandedGroups(memoryStorage({ "muxeon-pref:tree-expanded": "[1,2]" })),
     ).toBeUndefined();
   });
 

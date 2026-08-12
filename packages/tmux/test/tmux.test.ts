@@ -28,7 +28,7 @@ describe.skipIf(!HAS_TMUX)("tmux transport (§4, §5.2, FR-5) [requires tmux]", 
   let session: string;
 
   beforeEach(() => {
-    session = `teamai-test-${randomUUID()}`;
+    session = `muxeon-test-${randomUUID()}`;
   });
 
   afterEach(async () => {
@@ -49,9 +49,9 @@ describe.skipIf(!HAS_TMUX)("tmux transport (§4, §5.2, FR-5) [requires tmux]", 
 
   test("sendLiteral delivers input and capturePane reads the pane", async () => {
     await newSession(session, { command: ["sh"] });
-    await sendLiteral(session, "echo TEAMAI_MARKER_42");
+    await sendLiteral(session, "echo MUXEON_MARKER_42");
     await sendKeys(session, "Enter");
-    expect(await waitForPane(session, /TEAMAI_MARKER_42/)).toContain("TEAMAI_MARKER_42");
+    expect(await waitForPane(session, /MUXEON_MARKER_42/)).toContain("MUXEON_MARKER_42");
   });
 
   test("literal text starting with '-' is not parsed as a tmux flag (-- guard)", async () => {
@@ -74,10 +74,10 @@ describe.skipIf(!HAS_TMUX)("tmux transport (§4, §5.2, FR-5) [requires tmux]", 
 
       // With both alive, a marker sent to the short name must not appear in `${longer}`:
       await newSession(session, { command: ["sh"] });
-      await sendLiteral(session, "echo TEAMAI_SHORT_ONLY_99");
+      await sendLiteral(session, "echo MUXEON_SHORT_ONLY_99");
       await sendKeys(session, "Enter");
-      await waitForPane(session, /TEAMAI_SHORT_ONLY_99/);
-      expect(await capturePane(longer)).not.toContain("TEAMAI_SHORT_ONLY_99");
+      await waitForPane(session, /MUXEON_SHORT_ONLY_99/);
+      expect(await capturePane(longer)).not.toContain("MUXEON_SHORT_ONLY_99");
     } finally {
       await killSession(longer).catch(() => undefined);
     }

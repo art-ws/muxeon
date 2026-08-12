@@ -2,8 +2,8 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdtempSync, readdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { Message } from "@teamai/core";
-import { type QueuePaths, dequeue, enqueue, ensureQueueDirs, queuePaths } from "@teamai/queue";
+import type { Message } from "@muxeon/core";
+import { type QueuePaths, dequeue, enqueue, ensureQueueDirs, queuePaths } from "@muxeon/queue";
 import { EgressDispatcher } from "../src/egress";
 
 let root: string;
@@ -11,7 +11,7 @@ let paths: QueuePaths;
 let seq: number;
 
 beforeEach(async () => {
-  root = mkdtempSync(join(tmpdir(), "teamai-egress-"));
+  root = mkdtempSync(join(tmpdir(), "muxeon-egress-"));
   paths = queuePaths(root, "operator");
   await ensureQueueDirs(paths);
   seq = 0;

@@ -6,7 +6,7 @@
 
 import { readdir, rename, unlink } from "node:fs/promises";
 import { join } from "node:path";
-import { type QueueName, type Signal, compareQueueNames, parseQueueName } from "@teamai/core";
+import { type QueueName, type Signal, compareQueueNames, parseQueueName } from "@muxeon/core";
 import type { QueuePaths } from "./layout";
 import { readMessage } from "./record";
 

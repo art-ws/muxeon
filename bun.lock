@@ -2,7 +2,7 @@
   "lockfileVersion": 1,
   "workspaces": {
     "": {
-      "name": "teamai",
+      "name": "muxeon",
       "devDependencies": {
         "@biomejs/biome": "^1.9.4",
         "@secretlint/secretlint-rule-preset-recommend": "^13.0.4",
@@ -19,122 +19,122 @@
       },
     },
     "packages/adapters": {
-      "name": "@teamai/adapters",
+      "name": "@muxeon/adapters",
       "version": "0.0.0",
       "dependencies": {
-        "@teamai/core": "workspace:*",
-        "@teamai/tmux": "workspace:*",
+        "@muxeon/core": "workspace:*",
+        "@muxeon/tmux": "workspace:*",
       },
     },
     "packages/channels": {
-      "name": "@teamai/channels",
+      "name": "@muxeon/channels",
       "version": "0.0.0",
       "dependencies": {
-        "@teamai/core": "workspace:*",
-        "@teamai/orchestrator": "workspace:*",
+        "@muxeon/core": "workspace:*",
+        "@muxeon/orchestrator": "workspace:*",
       },
     },
     "packages/config": {
-      "name": "@teamai/config",
+      "name": "@muxeon/config",
       "version": "0.0.0",
       "dependencies": {
-        "@teamai/core": "workspace:*",
+        "@muxeon/core": "workspace:*",
       },
     },
     "packages/core": {
-      "name": "@teamai/core",
+      "name": "@muxeon/core",
       "version": "0.0.0",
     },
     "packages/federation": {
-      "name": "@teamai/federation",
+      "name": "@muxeon/federation",
       "version": "0.0.0",
       "dependencies": {
-        "@teamai/config": "workspace:*",
-        "@teamai/core": "workspace:*",
-        "@teamai/orchestrator": "workspace:*",
+        "@muxeon/config": "workspace:*",
+        "@muxeon/core": "workspace:*",
+        "@muxeon/orchestrator": "workspace:*",
       },
     },
     "packages/lifecycle": {
-      "name": "@teamai/lifecycle",
+      "name": "@muxeon/lifecycle",
       "version": "0.0.0",
       "dependencies": {
-        "@teamai/adapters": "workspace:*",
-        "@teamai/config": "workspace:*",
-        "@teamai/core": "workspace:*",
-        "@teamai/orchestrator": "workspace:*",
-        "@teamai/tmux": "workspace:*",
+        "@muxeon/adapters": "workspace:*",
+        "@muxeon/config": "workspace:*",
+        "@muxeon/core": "workspace:*",
+        "@muxeon/orchestrator": "workspace:*",
+        "@muxeon/tmux": "workspace:*",
       },
     },
     "packages/orchestrator": {
-      "name": "@teamai/orchestrator",
+      "name": "@muxeon/orchestrator",
       "version": "0.0.0",
       "dependencies": {
-        "@teamai/adapters": "workspace:*",
-        "@teamai/config": "workspace:*",
-        "@teamai/core": "workspace:*",
-        "@teamai/queue": "workspace:*",
-        "@teamai/tmux": "workspace:*",
+        "@muxeon/adapters": "workspace:*",
+        "@muxeon/config": "workspace:*",
+        "@muxeon/core": "workspace:*",
+        "@muxeon/queue": "workspace:*",
+        "@muxeon/tmux": "workspace:*",
       },
     },
     "packages/queue": {
-      "name": "@teamai/queue",
+      "name": "@muxeon/queue",
       "version": "0.0.0",
       "dependencies": {
-        "@teamai/core": "workspace:*",
+        "@muxeon/core": "workspace:*",
       },
     },
     "packages/routines": {
-      "name": "@teamai/routines",
+      "name": "@muxeon/routines",
       "version": "0.0.0",
       "dependencies": {
-        "@teamai/config": "workspace:*",
-        "@teamai/core": "workspace:*",
-        "@teamai/signals": "workspace:*",
+        "@muxeon/config": "workspace:*",
+        "@muxeon/core": "workspace:*",
+        "@muxeon/signals": "workspace:*",
         "croner": "^10.0.1",
       },
     },
     "packages/server": {
-      "name": "@teamai/server",
+      "name": "@muxeon/server",
       "version": "0.1.0",
       "dependencies": {
         "@modelcontextprotocol/sdk": "^1.29.0",
-        "@teamai/adapters": "workspace:*",
-        "@teamai/channels": "workspace:*",
-        "@teamai/config": "workspace:*",
-        "@teamai/core": "workspace:*",
-        "@teamai/federation": "workspace:*",
-        "@teamai/lifecycle": "workspace:*",
-        "@teamai/orchestrator": "workspace:*",
-        "@teamai/routines": "workspace:*",
-        "@teamai/signals": "workspace:*",
-        "@teamai/webchat": "workspace:*",
+        "@muxeon/adapters": "workspace:*",
+        "@muxeon/channels": "workspace:*",
+        "@muxeon/config": "workspace:*",
+        "@muxeon/core": "workspace:*",
+        "@muxeon/federation": "workspace:*",
+        "@muxeon/lifecycle": "workspace:*",
+        "@muxeon/orchestrator": "workspace:*",
+        "@muxeon/routines": "workspace:*",
+        "@muxeon/signals": "workspace:*",
+        "@muxeon/webchat": "workspace:*",
       },
     },
     "packages/signals": {
-      "name": "@teamai/signals",
+      "name": "@muxeon/signals",
       "version": "0.0.0",
       "dependencies": {
-        "@teamai/core": "workspace:*",
-        "@teamai/orchestrator": "workspace:*",
+        "@muxeon/core": "workspace:*",
+        "@muxeon/orchestrator": "workspace:*",
       },
     },
     "packages/tmux": {
-      "name": "@teamai/tmux",
+      "name": "@muxeon/tmux",
       "version": "0.0.0",
       "dependencies": {
-        "@teamai/core": "workspace:*",
+        "@muxeon/core": "workspace:*",
       },
     },
     "packages/webchat": {
-      "name": "@teamai/webchat",
+      "name": "@muxeon/webchat",
       "version": "0.0.0",
       "dependencies": {
-        "@teamai/channels": "workspace:*",
-        "@teamai/core": "workspace:*",
+        "@muxeon/channels": "workspace:*",
+        "@muxeon/core": "workspace:*",
       },
     },
     "packages/webchat-ui": {
-      "name": "@teamai/webchat-ui",
+      "name": "@muxeon/webchat-ui",
       "version": "0.0.0",
       "dependencies": {
         "katex": "^0.17.0",
@@ -277,33 +277,33 @@
 
     "@sindresorhus/merge-streams": ["@sindresorhus/merge-streams@4.0.0", "", {}, "sha512-tlqY9xq5ukxTUZBmoOp+m61cqwQD5pHJtFY3Mn8CA8ps6yghLH/Hw8UPdqg4OLmFW3IFlcXnQNmo/dh8HzXYIQ=="],
 
-    "@teamai/adapters": ["@teamai/adapters@workspace:packages/adapters"],
+    "@muxeon/adapters": ["@muxeon/adapters@workspace:packages/adapters"],
 
-    "@teamai/channels": ["@teamai/channels@workspace:packages/channels"],
+    "@muxeon/channels": ["@muxeon/channels@workspace:packages/channels"],
 
-    "@teamai/config": ["@teamai/config@workspace:packages/config"],
+    "@muxeon/config": ["@muxeon/config@workspace:packages/config"],
 
-    "@teamai/core": ["@teamai/core@workspace:packages/core"],
+    "@muxeon/core": ["@muxeon/core@workspace:packages/core"],
 
-    "@teamai/federation": ["@teamai/federation@workspace:packages/federation"],
+    "@muxeon/federation": ["@muxeon/federation@workspace:packages/federation"],
 
-    "@teamai/lifecycle": ["@teamai/lifecycle@workspace:packages/lifecycle"],
+    "@muxeon/lifecycle": ["@muxeon/lifecycle@workspace:packages/lifecycle"],
 
-    "@teamai/orchestrator": ["@teamai/orchestrator@workspace:packages/orchestrator"],
+    "@muxeon/orchestrator": ["@muxeon/orchestrator@workspace:packages/orchestrator"],
 
-    "@teamai/queue": ["@teamai/queue@workspace:packages/queue"],
+    "@muxeon/queue": ["@muxeon/queue@workspace:packages/queue"],
 
-    "@teamai/routines": ["@teamai/routines@workspace:packages/routines"],
+    "@muxeon/routines": ["@muxeon/routines@workspace:packages/routines"],
 
-    "@teamai/server": ["@teamai/server@workspace:packages/server"],
+    "@muxeon/server": ["@muxeon/server@workspace:packages/server"],
 
-    "@teamai/signals": ["@teamai/signals@workspace:packages/signals"],
+    "@muxeon/signals": ["@muxeon/signals@workspace:packages/signals"],
 
-    "@teamai/tmux": ["@teamai/tmux@workspace:packages/tmux"],
+    "@muxeon/tmux": ["@muxeon/tmux@workspace:packages/tmux"],
 
-    "@teamai/webchat": ["@teamai/webchat@workspace:packages/webchat"],
+    "@muxeon/webchat": ["@muxeon/webchat@workspace:packages/webchat"],
 
-    "@teamai/webchat-ui": ["@teamai/webchat-ui@workspace:packages/webchat-ui"],
+    "@muxeon/webchat-ui": ["@muxeon/webchat-ui@workspace:packages/webchat-ui"],
 
     "@textlint/ast-node-types": ["@textlint/ast-node-types@15.7.1", "", {}, "sha512-Wii5UgUKFEh9Uv6wbq1zr4/Kf+dtjiUuzPrrXzKp8H+ifkvKNzi23V4Nz+6wVyHQn5T28AFuc8VH8OtzvGYecA=="],
 

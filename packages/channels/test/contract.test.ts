@@ -38,7 +38,7 @@ describe("operator-facing errors (§3.2, §8.7)", () => {
 
   test("everything else is generic — internals never leak", () => {
     expect(operatorErrorText(new Error("ENOENT /config_dir/queue/op/cur"))).toBe(
-      "teamai: delivery failed",
+      "muxeon: delivery failed",
     );
   });
 });

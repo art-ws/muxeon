@@ -5,7 +5,7 @@
 // §10.2) plus queue *observation* — never mutation (§10.8): the panel watches
 // pending→cur→done/failed, it does not move records.
 
-import type { AgentStatus, Signal } from "@teamai/core";
+import type { AgentStatus, Signal } from "@muxeon/core";
 
 /** Where a sent message currently is in the recipient's queue (§5.3). */
 export type MessagePhase = "pending" | "cur" | "done" | "failed";

@@ -8,7 +8,7 @@
 // deliverUrl, deliver throws and the operator's queue simply accumulates
 // (at-least-once §10.9; inspect/cancel via the operator-plane §8.5).
 
-import type { Message } from "@teamai/core";
+import type { Message } from "@muxeon/core";
 import { resolveTarget } from "./address";
 import {
   type ChannelConnector,
@@ -24,7 +24,7 @@ export interface WebConnectorOptions {
   readonly port: number;
   /** Outbound webhook URL; absent ⇒ deliveries queue until one is configured. */
   readonly deliverUrl?: string;
-  /** Shared secret: inbound must carry it in the x-teamai-secret header ($env, §7.3). */
+  /** Shared secret: inbound must carry it in the x-muxeon-secret header ($env, §7.3). */
   readonly secret?: string;
   readonly knownAgents: readonly string[];
   readonly fetchImpl?: typeof fetch;
@@ -76,7 +76,7 @@ export class WebConnector implements ChannelConnector {
   async handleInbound(req: Request): Promise<Response> {
     if (req.method !== "POST") return json({ error: "POST only" }, 405);
     const secret = this.#options.secret;
-    if (secret !== undefined && req.headers.get("x-teamai-secret") !== secret) {
+    if (secret !== undefined && req.headers.get("x-muxeon-secret") !== secret) {
       return json({ error: "invalid secret" }, 401);
     }
     let body: Record<string, unknown>;

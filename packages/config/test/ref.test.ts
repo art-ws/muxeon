@@ -3,7 +3,7 @@ import { ConfigError } from "../src/error";
 import { loadConfig } from "../src/load";
 import { type ResolveRefOptions, resolveRefs } from "../src/ref";
 
-const BASE = "/cfg/teamai.config.json"; // dirname → /cfg
+const BASE = "/cfg/muxeon.config.json"; // dirname → /cfg
 
 // In-memory file reader keyed by absolute path (avoids touching the real fs).
 function memReader(files: Record<string, unknown>): (path: string) => string {

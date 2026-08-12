@@ -17,8 +17,8 @@
 // injected and the turn already completed, so the rule only governs how the
 // console is captured back.
 
-import { type KeyScript, type KeyStep, parseKeyScript } from "@teamai/config";
-import type { CommandConfig, RawModeConfig } from "@teamai/config";
+import { type KeyScript, type KeyStep, parseKeyScript } from "@muxeon/config";
+import type { CommandConfig, RawModeConfig } from "@muxeon/config";
 import type { AgentTarget, SessionControl } from "./context";
 
 const COMMAND_SETTLE_MS = 200; // separate input bursts (FR-58)

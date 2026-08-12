@@ -8,7 +8,7 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { Message, Signal } from "@teamai/core";
+import type { Message, Signal } from "@muxeon/core";
 import { WebchatConnector, type WebchatUserOptions } from "../src/connector";
 import { HistoryStore } from "../src/history";
 import type { WebchatPorts } from "../src/ports";
@@ -57,7 +57,7 @@ function user(name: string, extra: Partial<WebchatUserOptions> = {}): WebchatUse
 }
 
 beforeEach(async () => {
-  dir = mkdtempSync(join(tmpdir(), "teamai-webchat-users-"));
+  dir = mkdtempSync(join(tmpdir(), "muxeon-webchat-users-"));
   inbound = [];
   paused = new Set();
   histories = new Map();
@@ -82,7 +82,7 @@ const post = (path: string, body: unknown, cookie?: string): Request =>
     headers: {
       "content-type": "application/json",
       host: "panel.test",
-      ...(cookie !== undefined ? { cookie: `teamai_webchat=${cookie}` } : {}),
+      ...(cookie !== undefined ? { cookie: `muxeon_webchat=${cookie}` } : {}),
     },
     body: JSON.stringify(body),
   });
@@ -91,14 +91,14 @@ const get = (path: string, cookie?: string): Request =>
   new Request(`http://panel.test${path}`, {
     headers: {
       host: "panel.test",
-      ...(cookie !== undefined ? { cookie: `teamai_webchat=${cookie}` } : {}),
+      ...(cookie !== undefined ? { cookie: `muxeon_webchat=${cookie}` } : {}),
     },
   });
 
 async function login(name: string, password = `${name}-pw`): Promise<string> {
   const response = await connector.handleRequest(post("/api/login", { user: name, password }));
   expect(response.status).toBe(200);
-  const token = /teamai_webchat=([^;]+)/.exec(response.headers.get("set-cookie") ?? "")?.[1];
+  const token = /muxeon_webchat=([^;]+)/.exec(response.headers.get("set-cookie") ?? "")?.[1];
   if (token === undefined) throw new Error("no session cookie issued");
   return token;
 }
@@ -271,7 +271,7 @@ describe("self-chat (§17.7, FR-128)", () => {
     await legacy.start(async () => undefined);
     try {
       const response = await legacy.handleRequest(post("/api/login", { password: "op-pw" }));
-      const token = /teamai_webchat=([^;]+)/.exec(response.headers.get("set-cookie") ?? "")?.[1];
+      const token = /muxeon_webchat=([^;]+)/.exec(response.headers.get("set-cookie") ?? "")?.[1];
       const body = (await (await legacy.handleRequest(get("/api/peers", token))).json()) as {
         peers: { name: string }[];
       };

@@ -1,7 +1,7 @@
 // Shared fakes for the routines scheduler tests.
 
-import type { Signal } from "@teamai/core";
-import type { SignalRouter } from "@teamai/signals";
+import type { Signal } from "@muxeon/core";
+import type { SignalRouter } from "@muxeon/signals";
 import type { Routine } from "../src/discover";
 import type { StateStore } from "../src/state";
 

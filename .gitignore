@@ -10,8 +10,8 @@ dist/
 /state/
 /webchat/
 
-# Local config (ship only teamai.config.example.json)
-/teamai.config.json
+# Local config (ship only muxeon.config.example.json)
+/muxeon.config.json
 
 # Secrets (channel secrets are $env-only)
 .env

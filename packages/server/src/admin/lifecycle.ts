@@ -1,5 +1,5 @@
 // Operator-plane: agents/lifecycle (§8.5, FR-7/FR-8/FR-9). list returns names +
-// status (§5.1); provision/kill/restart delegate to @teamai/lifecycle. kill is
+// status (§5.1); provision/kill/restart delegate to @muxeon/lifecycle. kill is
 // IMMEDIATE — it is the interrupt: the dispatcher's down-probe sees the loss
 // mid-turn and frees cur/ for re-send (§5.1/FR-16b, §10.9). provision goes through
 // the session's control lane (§8.5) so a status flip never races a turn in flight.
@@ -15,8 +15,8 @@
 // is immediate like kill (it IS the graceful interrupt); reload runs through
 // the control lane like restart.
 
-import type { AgentTypeConfig, CommandConfig, RawModeConfig, TeardownConfig } from "@teamai/config";
-import type { AgentStatus } from "@teamai/core";
+import type { AgentTypeConfig, CommandConfig, RawModeConfig, TeardownConfig } from "@muxeon/config";
+import type { AgentStatus } from "@muxeon/core";
 import {
   type AgentTarget,
   type SessionControl,
@@ -26,8 +26,8 @@ import {
   restart,
   runCommand,
   teardown,
-} from "@teamai/lifecycle";
-import { type ControlLane, IDLE_TEARDOWN_DEFAULT_MS, parseRetainAge } from "@teamai/orchestrator";
+} from "@muxeon/lifecycle";
+import { type ControlLane, IDLE_TEARDOWN_DEFAULT_MS, parseRetainAge } from "@muxeon/orchestrator";
 import { AdminError } from "./error";
 
 export interface LifecycleRuntime {
@@ -274,7 +274,7 @@ export function createLifecycleAdmin(deps: LifecycleAdminDeps): LifecycleAdmin {
           .persist()
           .catch((error: unknown) =>
             process.stderr.write(
-              `teamai: warning: could not persist the pause state (§16.4): ${
+              `muxeon: warning: could not persist the pause state (§16.4): ${
                 error instanceof Error ? error.message : String(error)
               }\n`,
             ),

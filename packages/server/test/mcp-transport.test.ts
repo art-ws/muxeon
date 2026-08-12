@@ -9,7 +9,7 @@ const KNOWN = new Set(["alice", "bob"]);
 // A one-tool server whose tool echoes the bound caller — proves makeServer's identity
 // closure reaches the tool layer (the seam tools.ts fills in T22).
 function fakeServer(caller: string): Server {
-  const server = new Server({ name: "teamai", version: "0" }, { capabilities: { tools: {} } });
+  const server = new Server({ name: "muxeon", version: "0" }, { capabilities: { tools: {} } });
   server.setRequestHandler(ListToolsRequestSchema, async () => ({
     tools: [
       {

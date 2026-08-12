@@ -44,14 +44,14 @@ describe("auto adapter (§5.2, §8.3, FR-11/FR-11b) — claude ∪ codex", () =>
     const adapter = createAutoAdapter({ stateDir: "/state" });
     expect(
       adapter.render({ id: "id1", from: "a", to: "b", kind: "message", ts: 0, payload: "hi" }),
-    ).toContain("[teamai] from=a id=id1");
+    ).toContain("[muxeon] from=a id=id1");
     expect(adapter.slashCommand("mcp")).toBe("/mcp");
     expect(adapter.slashCommand("model", "opus")).toBe("/model opus");
   });
 
   test("reuses the claude console-fallback scraper (claude panes scrape; codex → null)", () => {
     const adapter = createAutoAdapter({ stateDir: "/state" });
-    const attr = "[teamai] from=op id=X-1";
+    const attr = "[muxeon] from=op id=X-1";
     expect(adapter.extractReply?.(`❯ ${attr}\n⏺ 42\n──────`, attr)).toBe("42");
     // A codex `•` pane has no ⏺ blocks → null (nudge fires, no garbage forwarded).
     expect(adapter.extractReply?.(`› ${attr}\n• Ответ записан.\n──────`, attr)).toBeNull();

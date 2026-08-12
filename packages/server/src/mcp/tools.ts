@@ -22,9 +22,9 @@ import type {
   SessionGrants,
   Signal,
   Topology,
-} from "@teamai/core";
-import { SESSION_ACTIONS, isFqn, isSessionAction } from "@teamai/core";
-import type { Router } from "@teamai/orchestrator";
+} from "@muxeon/core";
+import { SESSION_ACTIONS, isFqn, isSessionAction } from "@muxeon/core";
+import type { Router } from "@muxeon/orchestrator";
 
 export interface AgentPlaneDeps {
   readonly topology: Topology;
@@ -622,7 +622,7 @@ async function dispatch(
 
 /** Build a per-session MCP Server exposing the agent-plane tools bound to `caller` (§8.6). */
 export function createAgentServer(caller: string, deps: AgentPlaneDeps): Server {
-  const server = new Server({ name: "teamai", version: "0.0.0" }, { capabilities: { tools: {} } });
+  const server = new Server({ name: "muxeon", version: "0.0.0" }, { capabilities: { tools: {} } });
   server.setRequestHandler(ListToolsRequestSchema, async () => ({ tools: AGENT_TOOLS }));
   server.setRequestHandler(CallToolRequestSchema, async (req) =>
     dispatch(req.params.name, req.params.arguments ?? {}, caller, deps),

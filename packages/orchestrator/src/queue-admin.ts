@@ -1,5 +1,5 @@
 // Operator queue-edit operations (§8.5, NFR-9), exposed THROUGH orchestrator so
-// @teamai/queue stays orchestrator-only (§8). peek is read-only and safe outside
+// @muxeon/queue stays orchestrator-only (§8). peek is read-only and safe outside
 // the loop; cancel/requeue are MUTATIONS — the caller (server admin) must run them
 // via the session's ControlLane so the single owner of pending/cur is preserved
 // (§10.8) and there is no TOCTOU with dequeue.
@@ -12,10 +12,10 @@ import {
   removePending,
   requeueFailed,
   sanitizeFileId,
-} from "@teamai/queue";
+} from "@muxeon/queue";
 import type { QueueStamp } from "./router";
 
-export type { QueueEntry } from "@teamai/queue";
+export type { QueueEntry } from "@muxeon/queue";
 
 export interface PeekResult {
   readonly pending: QueueEntry[];

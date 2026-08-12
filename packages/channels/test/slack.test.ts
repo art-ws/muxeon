@@ -2,8 +2,8 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { Message } from "@teamai/core";
-import { type BlobStore, createBlobStore } from "@teamai/orchestrator";
+import type { Message } from "@muxeon/core";
+import { type BlobStore, createBlobStore } from "@muxeon/orchestrator";
 import { RouteRefusedError } from "../src/contract";
 import { type SlackApi, SlackConnector, type SlackIncoming } from "../src/slack";
 
@@ -58,7 +58,7 @@ let inbound: Message[];
 let connector: SlackConnector;
 
 beforeEach(async () => {
-  root = mkdtempSync(join(tmpdir(), "teamai-slack-"));
+  root = mkdtempSync(join(tmpdir(), "muxeon-slack-"));
   blobs = await createBlobStore(root);
   api = new FakeSlack();
   inbound = [];

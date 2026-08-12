@@ -9,7 +9,7 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { type Adapter, AdapterRegistry, makeDefaultRender } from "@teamai/adapters";
+import { type Adapter, AdapterRegistry, makeDefaultRender } from "@muxeon/adapters";
 import { bootstrap } from "../src/bootstrap";
 
 // An unprivileged high port unlikely to collide; the suite runs sequentially.
@@ -19,7 +19,7 @@ let dir: string;
 let injected: string[];
 
 beforeEach(() => {
-  dir = mkdtempSync(join(tmpdir(), "teamai-webchat-"));
+  dir = mkdtempSync(join(tmpdir(), "muxeon-webchat-"));
   injected = [];
 });
 
@@ -39,7 +39,7 @@ function dummyRegistry(): AdapterRegistry {
 }
 
 function writeConfig(channel: Record<string, unknown>, serverPort = 0): string {
-  const configFile = join(dir, "teamai.config.json");
+  const configFile = join(dir, "muxeon.config.json");
   writeFileSync(
     configFile,
     JSON.stringify({
@@ -62,12 +62,12 @@ async function boot(channelOverrides: Record<string, unknown> = {}, serverPort =
         type: "webchat",
         bindOperator: "operator-web",
         port: PANEL_PORT,
-        auth: { password: { $env: "TEAMAI_WEB_PASSWORD" } },
+        auth: { password: { $env: "MUXEON_WEB_PASSWORD" } },
         ...channelOverrides,
       },
       serverPort,
     ),
-    env: (name) => (name === "TEAMAI_WEB_PASSWORD" ? "hunter2" : undefined),
+    env: (name) => (name === "MUXEON_WEB_PASSWORD" ? "hunter2" : undefined),
     registry: dummyRegistry(),
     probe: async () => true,
     makeDriver: () => ({
@@ -322,7 +322,7 @@ describe("webchat wiring (T44: §12, §10.12, FR-38/FR-42)", () => {
       expect(download.status).toBe(200);
       expect(await download.text()).toBe("voice-note-bytes");
       // and the real store's containment refuses traversal ids (§8.7/§10.11)
-      const traversal = await fetch(api("/api/blobs/..%2F..%2Fteamai.config.json"), {
+      const traversal = await fetch(api("/api/blobs/..%2F..%2Fmuxeon.config.json"), {
         headers: { cookie },
       });
       expect(traversal.status).toBe(404);
@@ -344,7 +344,7 @@ describe("webchat wiring (T44: §12, §10.12, FR-38/FR-42)", () => {
       // SPA fallback for client routes; assets miss → 404; traversal → 404
       expect((await fetch(api("/some/client/route"))).status).toBe(200);
       expect((await fetch(api("/assets/ghost.js"))).status).toBe(404);
-      expect((await fetch(api("/..%2F..%2Fteamai.config.json"))).status).toBe(404);
+      expect((await fetch(api("/..%2F..%2Fmuxeon.config.json"))).status).toBe(404);
       // the public shell does NOT weaken the API gate
       expect((await fetch(api("/api/peers"))).status).toBe(401);
     } finally {
@@ -401,7 +401,7 @@ describe("webchat wiring (T44: §12, §10.12, FR-38/FR-42)", () => {
     // panel answers 200 without a re-login — the durable store under
     // <config_dir>/webchat/sessions/ carries the (hashed) token across.
     const first = await boot({
-      auth: { password: { $env: "TEAMAI_WEB_PASSWORD" }, session: { ttl: "1d" } },
+      auth: { password: { $env: "MUXEON_WEB_PASSWORD" }, session: { ttl: "1d" } },
     });
     let cookie: string;
     try {
@@ -419,7 +419,7 @@ describe("webchat wiring (T44: §12, §10.12, FR-38/FR-42)", () => {
     const stored = readFileSync(join(dir, "webchat", "sessions", "operator-web.json"), "utf8");
     expect(stored).not.toContain(cookie.split("=")[1]); // hashes at rest, not tokens (§8.7)
     const reborn = await boot({
-      auth: { password: { $env: "TEAMAI_WEB_PASSWORD" }, session: { ttl: "1d" } },
+      auth: { password: { $env: "MUXEON_WEB_PASSWORD" }, session: { ttl: "1d" } },
     });
     try {
       const peers = await fetch(api("/api/peers"), { headers: { cookie } });
@@ -431,7 +431,7 @@ describe("webchat wiring (T44: §12, §10.12, FR-38/FR-42)", () => {
 
   test("fail-fast: an invalid auth.session.ttl refuses to boot (§12.2/FR-57)", async () => {
     await expect(
-      boot({ auth: { password: { $env: "TEAMAI_WEB_PASSWORD" }, session: { ttl: "soon" } } }),
+      boot({ auth: { password: { $env: "MUXEON_WEB_PASSWORD" }, session: { ttl: "soon" } } }),
     ).rejects.toThrow(/invalid auth\.session\.ttl/);
   });
 

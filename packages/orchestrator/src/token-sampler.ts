@@ -7,9 +7,9 @@
 
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import type { TokenTrackingConfig } from "@teamai/config";
-import type { AgentStatus } from "@teamai/core";
-import { parseRetainAge } from "@teamai/queue";
+import type { TokenTrackingConfig } from "@muxeon/config";
+import type { AgentStatus } from "@muxeon/core";
+import { parseRetainAge } from "@muxeon/queue";
 import {
   DEFAULT_MINUTE_SPAN_MS,
   type TokenBucketFile,
@@ -62,7 +62,7 @@ export interface TokenSamplerDeps {
   readonly agents: () => readonly SamplerAgentView[];
   /** Live status; the sampler skips `down`/unknown agents (no pane to read). */
   readonly status: (name: string) => AgentStatus | undefined;
-  /** Capture an agent's console pane text (injected @teamai/tmux capturePane). */
+  /** Capture an agent's console pane text (injected @muxeon/tmux capturePane). */
   readonly capture: (session: string) => Promise<string>;
   /** Directory for `<session>.minutes.json` / `<session>.hours.json`. */
   readonly stateDir: string;

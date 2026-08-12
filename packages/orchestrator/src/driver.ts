@@ -4,9 +4,9 @@
 // are injectable so the detection logic is unit-testable without a live agent.
 
 import { readFile } from "node:fs/promises";
-import type { Adapter, NativeStatus } from "@teamai/adapters";
-import type { Session } from "@teamai/core";
-import { capturePane, sendKeys, sendLiteral } from "@teamai/tmux";
+import type { Adapter, NativeStatus } from "@muxeon/adapters";
+import type { Session } from "@muxeon/core";
+import { capturePane, sendKeys, sendLiteral } from "@muxeon/tmux";
 import type { SessionDriver } from "./dispatcher";
 
 export interface TmuxDriverOptions {

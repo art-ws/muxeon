@@ -1,4 +1,4 @@
-# TEAMAI — install and configure on a clean machine (agent runbook)
+# MUXEON — install and configure on a clean machine (agent runbook)
 
 **You are an agent. This document is your task input.** It is written to be
 executed, not skimmed: every step has a command and a check, and the checks are
@@ -23,17 +23,17 @@ Rules for this task:
 
 ## 0. What you are building
 
-TEAMAI is a **coordinator**, not an agent. It connects CLI agents that run in
+MUXEON is a **coordinator**, not an agent. It connects CLI agents that run in
 **tmux sessions**, routes messages between them along a declared topology, and
 exposes them to a human through channels. Optionally, it **federates**: two or
-more TEAMAI servers can join so actors on one talk to exported actors on
+more MUXEON servers can join so actors on one talk to exported actors on
 another (step 11) — a single-server deployment ignores all of that.
 
 The finished deployment is:
 
 ```
 <deployment root>/          <- you choose this; call it <ROOT>
-  teamai.config.json        <- the only file you author by hand
+  muxeon.config.json        <- the only file you author by hand
   .env                      <- secrets, gitignored, mode 600
   queue/                    <- created at boot: per-participant maildirs
                             <-   one per agent AND one per user (§17.5);
@@ -54,7 +54,7 @@ agent-plane share `server.port`; each channel that needs a port declares its own
 
 ## 1. Check the prerequisites
 
-TEAMAI needs three things on the machine. Check all three before installing
+MUXEON needs three things on the machine. Check all three before installing
 anything.
 
 ```bash
@@ -72,7 +72,7 @@ curl -fsSL https://bun.sh/install | bash
 ```
 
 Then re-open the shell (or source the profile the installer names) and re-check.
-TEAMAI is a Bun application — `Bun.serve`, `Bun.spawn`, `Bun.file`. It does not
+MUXEON is a Bun application — `Bun.serve`, `Bun.spawn`, `Bun.file`. It does not
 run on Node, and the `npx` entry point is only a shim that hands over to `bun`.
 
 If `tmux` is missing, install it with the system package manager
@@ -85,28 +85,28 @@ are tmux sessions; without it the coordinator has nothing to coordinate.
 
 ---
 
-## 2. Install TEAMAI
+## 2. Install MUXEON
 
 Pick **one** of these. Prefer the first unless told otherwise.
 
 **a) Run from npm, no install** — best for a first deployment:
 
 ```bash
-npx @art-ws/teamai      # or: bunx @art-ws/teamai
+npx @art-ws/muxeon      # or: bunx @art-ws/muxeon
 ```
 
 **b) Install globally** — best when it will be run repeatedly:
 
 ```bash
-npm i -g @art-ws/teamai
-teamai                  # the command is `teamai`, scope or not
+npm i -g @art-ws/muxeon
+muxeon                  # the command is `muxeon`, scope or not
 ```
 
 **c) From source** — only when you were asked to run a specific commit:
 
 ```bash
-git clone https://github.com/art-ws/teamai.git
-cd teamai
+git clone https://github.com/art-ws/muxeon.git
+cd muxeon
 bun install
 bun packages/server/src/index.ts
 ```
@@ -124,7 +124,7 @@ mkdir -p <ROOT>
 cd <ROOT>
 ```
 
-**Run TEAMAI from `<ROOT>` from now on.** This matters more than it looks:
+**Run MUXEON from `<ROOT>` from now on.** This matters more than it looks:
 
 - the config is discovered from the current directory upward, and
 - **`bun` loads `.env` from the current working directory**, not from the config
@@ -137,7 +137,7 @@ the server refuses to boot. Keep cwd == `<ROOT>`.
 
 ## 4. Write the config
 
-Create `<ROOT>/teamai.config.json`. Start from the smallest thing that works and
+Create `<ROOT>/muxeon.config.json`. Start from the smallest thing that works and
 grow it — a config that fails validation prevents boot entirely.
 
 The smallest config that actually boots — two agents and one edge:
@@ -161,7 +161,7 @@ in the topology that is neither an agent nor a declared user is a fatal config
 error:
 
 ```
-teamai: topology references unknown participant "alex" (at /topology/researcher/0)
+muxeon: topology references unknown participant "alex" (at /topology/researcher/0)
 ```
 
 So the moment you want a human in the topology, they arrive with the channel
@@ -176,7 +176,7 @@ they log in through:
   ],
   "users": [
     { "name": "alex", "role": "admin",
-      "auth": { "password": { "$env": "TEAMAI_ALEX_PASSWORD" } },
+      "auth": { "password": { "$env": "MUXEON_ALEX_PASSWORD" } },
       "channels": { "web": true } }
   ],
   "topology": { "researcher": ["alex"] },
@@ -243,7 +243,7 @@ binds. A name that resolves to none of those aborts the boot.
     "name": "researcher", "type": "claude", "tmux": "researcher",
     "title": "Researcher",              // panel label only; `name` stays the address
     "cwd": "/path/to/project",
-    "provision": {                      // how TEAMAI starts the agent itself
+    "provision": {                      // how MUXEON starts the agent itself
       "command": ["claude"],            // argv array — never a shell string
       "cwd": "/path/to/project",
       "env": {},
@@ -292,7 +292,7 @@ cd <ROOT>
 umask 077
 cat > .env <<'EOF'
 TG_TOKEN=<value the human gave you>
-TEAMAI_ALEX_PASSWORD=<value the human gave you>
+MUXEON_ALEX_PASSWORD=<value the human gave you>
 EOF
 chmod 600 .env
 ```
@@ -305,8 +305,8 @@ is allowed, and the boot warns about it. Prefer `$env` anyway. The third option
 is a hash, which is not a secret and may live inline:
 
 ```bash
-teamai hash-password            # reads the password without echoing it
-teamai hash-password --stdin    # or from a pipe, for non-interactive use
+muxeon hash-password            # reads the password without echoing it
+muxeon hash-password --stdin    # or from a pipe, for non-interactive use
 ```
 
 ```json
@@ -338,7 +338,7 @@ tmux new-session -d -s researcher -c /path/to/project 'claude'
 tmux has-session -t researcher && echo present
 ```
 
-**b) TEAMAI starts them** (config has `provision`): nothing to do here — with
+**b) MUXEON starts them** (config has `provision`): nothing to do here — with
 `"auto": true` the server provisions at boot, and a message to a `down` agent
 that has a `provision` block revives it.
 
@@ -348,17 +348,17 @@ session appears. You may create sessions before or after starting the server.
 
 ### Giving an agent the file exchange (optional, no MCP needed)
 
-An agent talks back through files. Its exchange directory is `<cwd>/.teamai` by
+An agent talks back through files. Its exchange directory is `<cwd>/.muxeon` by
 default (or `exchangeDir`, or a directory under the queue root when the agent
 has no `cwd`). The protocol, which you should put into the agent's own
 instructions file:
 
-- An incoming message appears as `.teamai/inbox/<id>/message.json`.
+- An incoming message appears as `.muxeon/inbox/<id>/message.json`.
 - The agent writes its answer to `reply.md` **next to** that file. Other files
   it leaves in that folder are returned as attachments.
 - The agent then **deletes `message.json`** — that ends its turn.
 - To start a conversation, it drops `{"to": "...", "payload": "..."}` as a JSON
-  file into `.teamai/outbox/`.
+  file into `.muxeon/outbox/`.
 
 ---
 
@@ -369,14 +369,14 @@ bounded run so you never end up holding a foreground server:
 
 ```bash
 cd <ROOT>
-timeout 5 npx @art-ws/teamai 2>&1 | head -20
+timeout 5 npx @art-ws/muxeon 2>&1 | head -20
 ```
 
 Two possible outcomes:
 
 - **A config error**, naming the offending field with a JSON pointer, e.g.
   `… (at /commandGrants/writer/researcher/0)`. Fix that field and re-run.
-- **`teamai: booted; N agent(s)`**, then `timeout` kills it at 5s. The config is
+- **`muxeon: booted; N agent(s)`**, then `timeout` kills it at 5s. The config is
   good — go to step 8 and start it properly.
 
 **Check:** you saw one of those two. Repeat until it is the second.
@@ -389,17 +389,17 @@ Run it inside a dedicated tmux session so it survives your shell:
 
 ```bash
 cd <ROOT>
-tmux new-session -d -s teamai-serve -c <ROOT> 'npx @art-ws/teamai'
+tmux new-session -d -s muxeon-serve -c <ROOT> 'npx @art-ws/muxeon'
 ```
 
 Watch it come up:
 
 ```bash
 sleep 5
-tmux capture-pane -t teamai-serve -p | tail -20
+tmux capture-pane -t muxeon-serve -p | tail -20
 ```
 
-**Check:** the pane contains `teamai: booted; N agent(s)` followed by the agent
+**Check:** the pane contains `muxeon: booted; N agent(s)` followed by the agent
 list and the plane lines. If it contains a config error, the server exited —
 fix and repeat step 7.
 
@@ -414,7 +414,7 @@ Run every check. Report the results as a group.
 curl -s -o /dev/null -w 'admin %{http_code}\n' http://localhost:8080/admin/agents
 
 # 2. agents and their state
-npx @art-ws/teamai agents
+npx @art-ws/muxeon agents
 
 # 3. the queue root was created
 ls -d queue
@@ -455,7 +455,7 @@ indistinguishable, so check both. Do **not** put the password in your report.
 Prove a message actually reaches an agent. Pick an agent that is `idle`:
 
 ```bash
-npx @art-ws/teamai signals send --from <user> --to <agent> "reply with the single word OK"
+npx @art-ws/muxeon signals send --from <user> --to <agent> "reply with the single word OK"
 ```
 
 `<user>` is a name from `users[]` (or the legacy operator) that has an edge to
@@ -503,7 +503,7 @@ The other types, for when the human asks for one and supplies the credential:
 { "name": "slack-main", "type": "slack", "token": { "$env": "SLACK_TOKEN" },
   "channel": "C0123456" }
 
-{ "type": "web", "port": 8090, "deliverUrl": "https://hooks.example/teamai",
+{ "type": "web", "port": 8090, "deliverUrl": "https://hooks.example/muxeon",
   "secret": { "$env": "WEB_HOOK_SECRET" }, "bindOperator": "ops-hook" }
 ```
 
@@ -534,7 +534,7 @@ http://localhost:8091/team/` returns `200`.
 
 ## 11. Federation — joining stands (only if asked)
 
-Federation connects two or more TEAMAI servers so actors on one reach actors
+Federation connects two or more MUXEON servers so actors on one reach actors
 on another. **Do not add it unless the human asked to join stands** — a config
 without `imports`/`federation` behaves exactly as before, and nothing below
 applies to a single server.
@@ -557,7 +557,7 @@ namespace from looping).
     "bind": "127.0.0.1",          // default; put a TLS reverse-proxy in front for a network
     "accept": [                   // one token per importer; the name you choose here
       { "name": "branch",         //   suffixes THEIR senders as seen on this side
-        "token": { "$env": "TEAMAI_FED_BRANCH_TOKEN" } }
+        "token": { "$env": "MUXEON_FED_BRANCH_TOKEN" } }
     ]
   },
   "agents": [ { "name": "dev", "type": "claude", "tmux": "dev", "exported": true } ],
@@ -575,7 +575,7 @@ including their names — is invisible, even by enumeration.
   "imports": [
     { "name": "hq",                              // your local alias for that server;
       "url": "http://127.0.0.1:8092",            //   it becomes the FQN suffix AND a
-      "token": { "$env": "TEAMAI_FED_HQ_TOKEN" } //   topology node. Token: issued by
+      "token": { "$env": "MUXEON_FED_HQ_TOKEN" } //   topology node. Token: issued by
     }                                            //   the EXPORTER (same value both .env's)
   ],
   "topology": { "researcher": ["hq"] }   // an edge on the IMPORT NAME grants that
@@ -592,7 +592,7 @@ Rules that save a debugging cycle:
   to **your** importers, suffix appended: your `bob@c` shows up one hop further
   as `bob@c@b`. Set `transit: false` to keep an import to yourself.
 - **Delivery is store-and-forward.** A send to `dev@hq` lands in a persistent
-  per-link queue (`queue/fed/hq/`, visible to `teamai queues`); a dead link
+  per-link queue (`queue/fed/hq/`, visible to `muxeon queues`); a dead link
   accumulates and drains on reconnect — nothing is lost. A refusal on the far
   side (paused, WIP-full, unknown actor) comes back **later** as a
   `[federation] not delivered: …` message in the sender's own chat with that
@@ -626,7 +626,7 @@ block**: no listener, no port, no reverse-proxy):
 {
   "imports": [
     { "name": "c", "url": "https://hub.example:8092",
-      "token": { "$env": "TEAMAI_FED_C_TOKEN" },
+      "token": { "$env": "MUXEON_FED_C_TOKEN" },
       "publish": true }                       // send MY export surface up this link
   ],
   "agents": [ { "name": "ann", "type": "claude", "tmux": "ann", "exported": true } ],
@@ -641,8 +641,8 @@ Hub:
   "federation": {
     "port": 8092,
     "accept": [
-      { "name": "a", "token": { "$env": "TEAMAI_FED_A_TOKEN" }, "relay": true },
-      { "name": "b", "token": { "$env": "TEAMAI_FED_B_TOKEN" }, "relay": true }
+      { "name": "a", "token": { "$env": "MUXEON_FED_A_TOKEN" }, "relay": true },
+      { "name": "b", "token": { "$env": "MUXEON_FED_B_TOKEN" }, "relay": true }
     ]
   }
 }
@@ -673,7 +673,7 @@ actor shows up as `<name>@<their-accept>@<your-import>` (e.g. `bob@b@c`) in the
 panel/`list_peers`, and a send to it round-trips:
 
 ```bash
-npx @art-ws/teamai signals send --from <user> --to bob@b@c "reply with the single word OK"
+npx @art-ws/muxeon signals send --from <user> --to bob@b@c "reply with the single word OK"
 ```
 
 On the far satellite the record arrives with the sender named
@@ -691,7 +691,7 @@ curl -s -H "authorization: Bearer <the accept token value>" \
 #    list_peers of an agent with an edge on the import shows dev@hq with a status)
 
 # 3. a message crosses (run on the importer; the sender needs an edge on "hq")
-npx @art-ws/teamai signals send --from <user> --to dev@hq "reply with the single word OK"
+npx @art-ws/muxeon signals send --from <user> --to dev@hq "reply with the single word OK"
 ```
 
 **Expected:** check 1 lists only the exported actors; check 3 prints
@@ -722,7 +722,7 @@ Summarise what changed yesterday.
 The body is the message sent on schedule.
 
 ```bash
-npx @art-ws/teamai routines list
+npx @art-ws/muxeon routines list
 ```
 
 **Check:** your routine appears with the expected owner and schedule.
@@ -735,24 +735,24 @@ The same binary is the operator CLI. It is a thin client to the loopback admin
 plane, so the server must be running.
 
 ```
-teamai agents
-teamai provision|kill|restart <agent>
-teamai pause|resume <agent|user>
-teamai command <slash> <selector…>
-teamai channels
-teamai signals send --from <node> --to <node> [--blob <path>] <text…>
-teamai queues peek|cancel|requeue <participant> [<id>]
-teamai routines list [<owner>]
-teamai routines get|delete|enable|disable|run-once <owner> <id>
-teamai routines put <owner> <id> <file.md>
-teamai hash-password [--stdin]
+muxeon agents
+muxeon provision|kill|restart <agent>
+muxeon pause|resume <agent|user>
+muxeon command <slash> <selector…>
+muxeon channels
+muxeon signals send --from <node> --to <node> [--blob <path>] <text…>
+muxeon queues peek|cancel|requeue <participant> [<id>]
+muxeon routines list [<owner>]
+muxeon routines get|delete|enable|disable|run-once <owner> <id>
+muxeon routines put <owner> <id> <file.md>
+muxeon hash-password [--stdin]
 options: --url <admin-url> | --config <path>
 ```
 
 `hash-password` is the one subcommand that talks to nothing — no server, no
 config — so it works before the stand exists. `pause` takes a user as well as an
 agent: for a person it is do-not-disturb (their own notes still land). With
-federation, `queues` also takes a **link name** (`teamai queues peek hq`) — the
+federation, `queues` also takes a **link name** (`muxeon queues peek hq`) — the
 per-link store-and-forward queue is a participant like any other, and `signals
 send --to <actor>@<import>` crosses the link.
 
@@ -760,8 +760,8 @@ send --to <actor>@<import>` crosses the link.
 once at boot — a config edit needs the server process restarted:
 
 ```bash
-tmux kill-session -t teamai-serve
-tmux new-session -d -s teamai-serve -c <ROOT> 'npx @art-ws/teamai'
+tmux kill-session -t muxeon-serve
+tmux new-session -d -s muxeon-serve -c <ROOT> 'npx @art-ws/muxeon'
 ```
 
 Restarting the server does **not** kill agent sessions; it re-attaches and
@@ -774,7 +774,7 @@ re-probes them. Queues live on disk and survive it.
 Do not deploy this quietly. The trust model is deliberate and the human must
 know it:
 
-- TEAMAI coordinates **mutually trusted local agents on one machine**.
+- MUXEON coordinates **mutually trusted local agents on one machine**.
 - The **admin plane is loopback-only and unauthenticated**. Any local process
   that reaches it can drive the whole system. **Never expose `server.port`**, and
   never put it behind a public reverse proxy.
@@ -814,12 +814,12 @@ outside this design and needs an explicit decision.
 | Panel 404 at `/` | `basePath` is set | Use `http://host:<port>/<basePath>/` |
 | Delivery refused | No topology edge, or unknown name | Add the edge; names are the `agents[].name`, not tmux names |
 | Message sits in `cur/` | Turn never detected as finished | Capture the pane and report; the agent may be blocked on a prompt |
-| `bun: not found` from `npx` | Node shim cannot find bun | Install bun, or set `TEAMAI_BUN=/path/to/bun` |
+| `bun: not found` from `npx` | Node shim cannot find bun | Install bun, or set `MUXEON_BUN=/path/to/bun` |
 | Login answers `"user" is required` | Channel is in users mode | Send `{"user":…,"password":…}` — the name is a `users[].name` |
 | Login answers `invalid credentials` | Wrong name **or** wrong password | The two are deliberately indistinguishable; check both |
 | Boot warns `inline auth.password` | A literal user password | Allowed (§17.2), but move it to `$env` or `passwordHash` |
 | Boot warns `no user bound to it` | users-mode channel with no binding | Nobody can log in — add `users[].channels` |
-| Telegram replies "not linked to a TEAMAI user" | Sender's alias is not bound | Add that account to some `users[].channels.<channel>.alias` |
+| Telegram replies "not linked to a MUXEON user" | Sender's alias is not bound | Add that account to some `users[].channels.<channel>.alias` |
 | A person sees no peers | No topology edges for that user | Their self-chat still works; add the edges |
 | Boot dies on a name with `@` | `@` is the FQN separator (federation) | Rename the local entity; only federated names carry `@` |
 | Send to `dev@hq` refused `TOPOLOGY_DENIED` | Sender has no edge on the import node | Add `"<sender>": ["hq"]` to the topology |
@@ -835,7 +835,7 @@ outside this design and needs an explicit decision.
 
 When you finish, report exactly this:
 
-1. **Versions**: bun, tmux, node, and the TEAMAI version you installed.
+1. **Versions**: bun, tmux, node, and the MUXEON version you installed.
 2. **`<ROOT>`** and the install method you used (a, b or c from step 2).
 3. **The config**: agent names, their types and tmux sessions, the topology
    edges, the channels, and **who can log in** — the `users[]` names with their

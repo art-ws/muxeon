@@ -14,7 +14,7 @@ import { HistoryStore } from "../src/history";
 let dir: string;
 
 beforeEach(() => {
-  dir = mkdtempSync(join(tmpdir(), "teamai-hardening-"));
+  dir = mkdtempSync(join(tmpdir(), "muxeon-hardening-"));
 });
 
 afterEach(() => {
@@ -70,7 +70,7 @@ async function login(connector: WebchatConnector): Promise<string> {
   const response = await connector.handleRequest(
     jsonPost("/api/login", JSON.stringify({ password: "correct-horse" })),
   );
-  const token = /teamai_webchat=([^;]+)/.exec(response.headers.get("set-cookie") ?? "")?.[1];
+  const token = /muxeon_webchat=([^;]+)/.exec(response.headers.get("set-cookie") ?? "")?.[1];
   if (token === undefined) throw new Error("no session cookie");
   return `${SESSION_COOKIE}=${token}`;
 }

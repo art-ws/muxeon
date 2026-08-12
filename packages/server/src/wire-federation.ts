@@ -4,16 +4,16 @@
 // federation ports (config + journal knowledge), one persistent link queue and
 // egress dispatcher per link (§18.5, store-and-forward), the link clients
 // (imports, FR-139), the listener (accepts, FR-138) and the status publisher
-// (FR-149) — all inside @teamai/federation's manager.
+// (FR-149) — all inside @muxeon/federation's manager.
 
 import { randomUUID } from "node:crypto";
 import {
   DEFAULT_FEDERATION_PUBLISH_STATUS,
   DEFAULT_FEDERATION_STATUS_DEBOUNCE_MS,
   DEFAULT_IMPORT_TRANSIT,
-  type TeamaiConfig,
-} from "@teamai/config";
-import type { AgentStatus, StatusProjection } from "@teamai/core";
+  type MuxeonConfig,
+} from "@muxeon/config";
+import type { AgentStatus, StatusProjection } from "@muxeon/core";
 import {
   FederationListener,
   FederationManager,
@@ -22,7 +22,7 @@ import {
   type OwnActor,
   type RemotePeer,
   type RemoteRegistry,
-} from "@teamai/federation";
+} from "@muxeon/federation";
 import {
   EgressDispatcher,
   type LinkRecord,
@@ -34,7 +34,7 @@ import {
   isLinkRecord,
   loadSessionDoneIds,
   sessionPaths,
-} from "@teamai/orchestrator";
+} from "@muxeon/orchestrator";
 
 /** How deep the reply-correlation scan looks into a pair's journal (§18.10-3). */
 const CORRELATION_SCAN_LIMIT = 1000;
@@ -48,7 +48,7 @@ const LINK_EGRESS_POLL_MS = 1000;
  * the router then treats an FQN as UNKNOWN_PEER exactly as before (FR-146).
  */
 export function buildRouterFederation(
-  config: TeamaiConfig,
+  config: MuxeonConfig,
   transportLog: TransportLog,
 ): RouterFederation | undefined {
   const imports = config.imports ?? [];
@@ -82,7 +82,7 @@ export function buildRouterFederation(
 }
 
 export interface WireFederationOptions {
-  readonly config: TeamaiConfig;
+  readonly config: MuxeonConfig;
   readonly root: string;
   readonly router: Router;
   readonly signal: AbortSignal;
@@ -114,7 +114,7 @@ export interface FederationHandle {
 }
 
 const stderrWarn = (message: string): void => {
-  process.stderr.write(`teamai: warning: ${message}\n`);
+  process.stderr.write(`muxeon: warning: ${message}\n`);
 };
 
 /** Wires federation, or returns undefined when the config has none (FR-146). */

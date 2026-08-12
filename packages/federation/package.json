@@ -1,5 +1,5 @@
 {
-  "name": "@teamai/federation",
+  "name": "@muxeon/federation",
   "version": "0.0.0",
   "private": true,
   "type": "module",
@@ -13,8 +13,8 @@
     }
   },
   "dependencies": {
-    "@teamai/config": "workspace:*",
-    "@teamai/core": "workspace:*",
-    "@teamai/orchestrator": "workspace:*"
+    "@muxeon/config": "workspace:*",
+    "@muxeon/core": "workspace:*",
+    "@muxeon/orchestrator": "workspace:*"
   }
 }

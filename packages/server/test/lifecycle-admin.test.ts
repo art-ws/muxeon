@@ -4,9 +4,9 @@
 // dispatcher loop.
 
 import { describe, expect, test } from "bun:test";
-import type { Adapter } from "@teamai/adapters";
-import type { AgentTarget, SessionControl } from "@teamai/lifecycle";
-import { AgentState, ControlLane } from "@teamai/orchestrator";
+import type { Adapter } from "@muxeon/adapters";
+import type { AgentTarget, SessionControl } from "@muxeon/lifecycle";
+import { AgentState, ControlLane } from "@muxeon/orchestrator";
 import { createLifecycleAdmin } from "../src/admin/lifecycle";
 
 function fakeControl(): SessionControl & { live: Set<string> } {

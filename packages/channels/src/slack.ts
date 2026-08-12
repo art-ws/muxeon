@@ -7,8 +7,8 @@
 // `@name` convention as every channel (Slack <@U…> mention ids are not topology
 // names). The connector never touches the queue (§8, §10.8).
 
-import type { Message, Signal } from "@teamai/core";
-import type { BlobStore } from "@teamai/orchestrator";
+import type { Message, Signal } from "@muxeon/core";
+import type { BlobStore } from "@muxeon/orchestrator";
 import { resolveTarget } from "./address";
 import {
   type BlobRef,
@@ -132,7 +132,7 @@ export class SlackConnector implements ChannelConnector {
         (event.sender?.userId !== undefined ? identity.userOf(event.sender.userId) : undefined);
       if (sender === undefined) {
         await this.#reply(
-          "teamai: this slack account is not linked to a TEAMAI user — ask the operator to bind it",
+          "muxeon: this slack account is not linked to a MUXEON user — ask the operator to bind it",
         );
         return;
       }
@@ -144,7 +144,7 @@ export class SlackConnector implements ChannelConnector {
       const resolved = resolveTarget(event.text, this.#knownAgents, this.defaultTarget);
       if (!resolved.ok) {
         await this.#reply(
-          "teamai: no recipient — address an agent with @name (no default target is set)",
+          "muxeon: no recipient — address an agent with @name (no default target is set)",
         );
         return;
       }
@@ -155,7 +155,7 @@ export class SlackConnector implements ChannelConnector {
     try {
       payload = await this.#buildPayload(event);
     } catch {
-      await this.#reply("teamai: failed to fetch the attached file");
+      await this.#reply("muxeon: failed to fetch the attached file");
       return;
     }
     if (payload === undefined) return;

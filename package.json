@@ -1,8 +1,8 @@
 {
-  "name": "@art-ws/teamai",
+  "name": "muxeon",
   "version": "0.1.7",
   "type": "module",
-  "description": "TEAMAI — transport and coordinator for local CLI agents running in tmux sessions.",
+  "description": "MUXEON — transport and coordinator for local CLI agents running in tmux sessions.",
   "keywords": [
     "ai-agents",
     "multi-agent",
@@ -19,19 +19,19 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/art-ws/teamai.git"
+    "url": "git+https://github.com/art-ws/muxeon.git"
   },
-  "homepage": "https://github.com/art-ws/teamai#readme",
+  "homepage": "https://github.com/art-ws/muxeon#readme",
   "bugs": {
-    "url": "https://github.com/art-ws/teamai/issues"
+    "url": "https://github.com/art-ws/muxeon/issues"
   },
   "bin": {
-    "teamai": "bin/teamai.js"
+    "muxeon": "bin/muxeon.js"
   },
   "files": [
     "bin",
     "dist",
-    "teamai.config.example.json",
+    "muxeon.config.example.json",
     "README.md",
     "LICENSE"
   ],

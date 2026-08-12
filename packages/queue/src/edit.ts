@@ -5,7 +5,7 @@
 
 import { rename, unlink } from "node:fs/promises";
 import { join } from "node:path";
-import { formatQueueName } from "@teamai/core";
+import { formatQueueName } from "@muxeon/core";
 import { type QueuePaths, assertSafeFileId } from "./layout";
 
 /** Remove one record from pending/ (cancel, §8.5). */

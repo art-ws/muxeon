@@ -10,15 +10,15 @@ import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { mkdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { Session } from "@teamai/core";
-import type { SessionDriver } from "@teamai/orchestrator";
-import { type TeamaiServer, bootstrap } from "../src/bootstrap";
+import type { Session } from "@muxeon/core";
+import type { SessionDriver } from "@muxeon/orchestrator";
+import { type MuxeonServer, bootstrap } from "../src/bootstrap";
 
 let dir: string;
-let server: TeamaiServer;
+let server: MuxeonServer;
 
 beforeEach(() => {
-  dir = mkdtempSync(join(tmpdir(), "teamai-raw-e2e-"));
+  dir = mkdtempSync(join(tmpdir(), "muxeon-raw-e2e-"));
 });
 
 afterEach(async () => {
@@ -37,7 +37,7 @@ async function waitFor(cond: () => boolean | Promise<boolean>, ms = 5000): Promi
 const CONSOLE = "total 24\ndrwxr-xr-x  .git\n❯ ";
 
 test("raw turn: verbatim inject, NO inbox dir, captured console routed back (FR-88)", async () => {
-  const configFile = join(dir, "teamai.config.json");
+  const configFile = join(dir, "muxeon.config.json");
   writeFileSync(
     configFile,
     JSON.stringify({
@@ -92,7 +92,7 @@ test("raw turn: verbatim inject, NO inbox dir, captured console routed back (FR-
   });
   expect(result.ok).toBe(true);
 
-  // the researcher saw the text VERBATIM — no [teamai] preamble, no exchange hint
+  // the researcher saw the text VERBATIM — no [muxeon] preamble, no exchange hint
   await waitFor(() => researcherInjected.length > 0);
   expect(researcherInjected).toEqual(["ls -la"]);
 

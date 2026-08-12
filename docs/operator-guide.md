@@ -1,20 +1,20 @@
-# TEAMAI operator guide
+# MUXEON operator guide
 
 How to run a team, talk to it, and keep it healthy.
 
 > `§`/`FR-` markers in parentheses are traceability labels pointing into the
 > project's internal specification, which is not part of this repository. This
-> guide is self-contained — you never need the spec to operate TEAMAI.
+> guide is self-contained — you never need the spec to operate MUXEON.
 
 ## 1. Launching
 
 ```
-teamai [path/to/config.json]      # or: teamai --config <path>
+muxeon [path/to/config.json]      # or: muxeon --config <path>
 ```
 
 Without a path the config is discovered by convention (§7.4): the current
-directory, then upward, looking for `teamai.config.json`, then
-`.teamai/config.json`. The directory of the found config is `<config_dir>` —
+directory, then upward, looking for `muxeon.config.json`, then
+`.muxeon/config.json`. The directory of the found config is `<config_dir>` —
 the base for queues (`<config_dir>/queue`), routine state
 (`<config_dir>/state`), central routines (`<config_dir>/routines`) and
 relative `$ref`s.
@@ -34,7 +34,7 @@ itself (bring-up stays `provision`/auto-revive/operator territory).
 {
   "name": "prod-cluster",         // optional (FR-90): a label for this instance — shown in
                                   //   the panel topbar next to the logo and in the page title
-                                  //   ("<name> - TeamAI"); omitted ⇒ the server's hostname()
+                                  //   ("<name> - Muxeon"); omitted ⇒ the server's hostname()
   "server": {
     "port": 8080,                 // both planes share this port (§8.1)
     "mcp": true,                  // agent-plane gate; false = no agent coordination
@@ -82,7 +82,7 @@ itself (bring-up stays `provision`/auto-revive/operator territory).
   },
   "users": [                      // the PEOPLE on this stand (§17.2, section 8.1a)
     { "name": "alex", "role": "admin",
-      "auth": { "password": { "$env": "TEAMAI_ALEX_PASSWORD" } },
+      "auth": { "password": { "$env": "MUXEON_ALEX_PASSWORD" } },
       "channels": { "web": true, "tg-main": { "alias": "alex_tg" } } }
   ],
   "channels": [                   // `name` = the binding key (default: the type)
@@ -93,7 +93,7 @@ itself (bring-up stays `provision`/auto-revive/operator territory).
     // legacy single-login channels still work — one channel binds ONE operator (§7.5):
     { "type": "slack", "token": { "$env": "SLACK_TOKEN" }, "channel": "C0123456",
       "bindOperator": "ops2" },
-    { "type": "web", "port": 8090, "deliverUrl": "https://hooks.example/teamai",
+    { "type": "web", "port": 8090, "deliverUrl": "https://hooks.example/muxeon",
       "secret": { "$env": "WEB_HOOK_SECRET" }, "bindOperator": "ops3" }
   ]
 }
@@ -169,7 +169,7 @@ history is the durable copy, each channel push is best-effort.
 
 ### 3.1 Agent replies: the file exchange (§13, FR-52..56) — the default path
 
-Every agent gets an **exchange directory** (`agent.exchangeDir` → `<cwd>/.teamai`
+Every agent gets an **exchange directory** (`agent.exchangeDir` → `<cwd>/.muxeon`
 → `<queue root>/<session>/exchange`) and needs NOTHING configured — no MCP, no
 hooks. Each delivered message materializes as
 `<exchange>/inbox/<id>/message.json`, and the injected text is a self-sufficient
@@ -205,10 +205,10 @@ The MCP client is **no longer required** for replies (before §13 an agent
 without one was receive-only). It remains useful for mid-turn
 reactions/progress, `get_status`, `get_screen` (read a neighbour's console as
 text — see below) and tool-style sends. Connecting it is the **owner's
-deliberate action** — TEAMAI never touches agent configuration (FR-11b). Step by
+deliberate action** — MUXEON never touches agent configuration (FR-11b). Step by
 step:
 
-1. **Prerequisites.** `server.mcp` must not be `false` in `teamai.config.json`
+1. **Prerequisites.** `server.mcp` must not be `false` in `muxeon.config.json`
    (default `true`); know the agent's **topology name** (`agents[].name`) and
    its workspace (`agents[].cwd` — the dir its CLI runs in) and `server.port`.
 2. **Register the shim** in the agent's own MCP-client config. A CLI agent's
@@ -220,19 +220,19 @@ step:
    ```jsonc
    {
      "mcpServers": {
-       "teamai": {
+       "muxeon": {
          "command": "bun",
          "args": ["/path/to/team-ai/packages/server/src/mcp/shim.ts"],
          "env": {
-           "TEAMAI_AGENT_NAME": "researcher",            // agents[].name, EXACTLY
-           "TEAMAI_MCP_URL": "http://127.0.0.1:8080/mcp" // server.port
+           "MUXEON_AGENT_NAME": "researcher",            // agents[].name, EXACTLY
+           "MUXEON_MCP_URL": "http://127.0.0.1:8080/mcp" // server.port
          }
        }
      }
    }
    ```
 
-3. **Restart the agent** so its client picks the config up: `teamai restart
+3. **Restart the agent** so its client picks the config up: `muxeon restart
    <name>` (CLI §4) or restart its CLI inside the tmux session by hand. A
    mid-turn restart re-sends the in-flight message after the agent is back
    (§10.9). (This is needed once, to load `.mcp.json` — NOT after every server
@@ -259,8 +259,8 @@ now means.
 
 **Durable across server restarts (FR-89).** The shim is a self-healing stdio
 interface: it connects to the agent-plane lazily and reconnects on any upstream
-failure, so a TEAMAI **server** restart (a deploy) no longer severs agents — you
-do NOT need to `teamai restart <name>` afterwards. The next tool call simply
+failure, so a MUXEON **server** restart (a deploy) no longer severs agents — you
+do NOT need to `muxeon restart <name>` afterwards. The next tool call simply
 re-initializes (the old session 404s, the shim re-handshakes); during the blip
 `get_status`/`send` return a retryable `UPSTREAM_UNAVAILABLE`, and `tools/list`
 serves the last-known set. A shim started **before** the server warms up in the
@@ -272,7 +272,7 @@ line is your trace of a duplicate-name misconfiguration (two live agents
 claiming one name). The shim bypasses local `*_PROXY` interception itself
 (re-exec with a clean env).
 
-**Disconnecting** is the reverse: remove the `teamai` entry from the agent's
+**Disconnecting** is the reverse: remove the `muxeon` entry from the agent's
 `.mcp.json` (delete the file if it held nothing else) and restart the agent.
 The exchange path (§3.1) keeps working either way.
 
@@ -283,18 +283,18 @@ the port from the discovered config (`--config <path>` to point elsewhere) or
 takes `--url http://127.0.0.1:8080/admin` explicitly.
 
 ```
-teamai agents                                  # list: name (session): status [paused]
-teamai provision|kill|restart <agent>          # lifecycle (§4)
-teamai pause|resume <agent|user>               # block/unblock message delivery (§16/§17.8)
-teamai channels                                # operator bindings + deliver status
-teamai signals send --from <node> --to <node> [--id <id>] [--reply-to <id>] <text…>
-teamai queues peek <participant>               # pending/ + cur/ records
-teamai queues cancel <participant> <id>        # remove from pending (cur is refused)
-teamai queues requeue <participant> <id>       # failed/ → pending tail, same id
-teamai routines list [<owner>]
-teamai routines get|delete|enable|disable|run-once <owner> <id>
-teamai routines put <owner> <id> <file.md>
-teamai hash-password [--stdin]                 # argon2id hash for users[].auth (§17.4)
+muxeon agents                                  # list: name (session): status [paused]
+muxeon provision|kill|restart <agent>          # lifecycle (§4)
+muxeon pause|resume <agent|user>               # block/unblock message delivery (§16/§17.8)
+muxeon channels                                # operator bindings + deliver status
+muxeon signals send --from <node> --to <node> [--id <id>] [--reply-to <id>] <text…>
+muxeon queues peek <participant>               # pending/ + cur/ records
+muxeon queues cancel <participant> <id>        # remove from pending (cur is refused)
+muxeon queues requeue <participant> <id>       # failed/ → pending tail, same id
+muxeon routines list [<owner>]
+muxeon routines get|delete|enable|disable|run-once <owner> <id>
+muxeon routines put <owner> <id> <file.md>
+muxeon hash-password [--stdin]                 # argon2id hash for users[].auth (§17.4)
 ```
 
 Notes:
@@ -314,7 +314,7 @@ Notes:
   HTTP 409 on the admin plane) and **the message is discarded** — senders must
   retry after the resume, nothing is queued up behind the pause. Whatever was
   already queued stays put and drains on `resume`. The flag is recorded in
-  `<config_dir>/state/paused.json`, so it survives a restart; `teamai agents`
+  `<config_dir>/state/paused.json`, so it survives a restart; `muxeon agents`
   and the panel both mark it. A **user** can be paused too (§17.8) — that is
   Do-not-disturb: everything from others is refused, their own notes to self
   still land.
@@ -340,7 +340,7 @@ Two locations, merged by id (§6.2):
 
 - **central** — `<config_dir>/routines/<agent>/*.md`, owned by the operator
   (this is what the CLI CRUD edits);
-- **cwd** — `<agent.cwd>/.teamai/routines/*.md`, versioned with the agent's
+- **cwd** — `<agent.cwd>/.muxeon/routines/*.md`, versioned with the agent's
   repo.
 
 Central wins a collision — in particular a central `enabled: false` is the
@@ -362,18 +362,18 @@ failed/   render/inject errors (requeue-able)
 `done/` and `failed/` are pruned by `retain.age`/`retain.count`; blobs under
 `<root>/blobs/` are garbage-collected once unreferenced and older than
 `retain.age`. Editing queue files by hand while the server runs is unsupported
-— use `teamai queues …`, which serializes through the owning dispatcher.
+— use `muxeon queues …`, which serializes through the owning dispatcher.
 
 ## 7. Troubleshooting
 
 | Symptom | Likely cause / action |
 |---|---|
-| Agent shows `down` at boot | tmux session absent — `teamai provision <agent>` (needs a `provision` block) or start the session and `restart`. |
-| Agent stuck `busy` | The turn never finished (no per-message timeout in baseline) — `teamai kill <agent>` then `restart`; the in-flight message is re-sent. |
-| Operator gets no replies | `teamai channels` — `pending` means the connector has not registered its deliver port; for telegram the bot cannot initiate: write to it once first. |
-| Message sits in `pending/` | Recipient down or busy — queues drain on idle; `teamai queues peek` to confirm. |
+| Agent shows `down` at boot | tmux session absent — `muxeon provision <agent>` (needs a `provision` block) or start the session and `restart`. |
+| Agent stuck `busy` | The turn never finished (no per-message timeout in baseline) — `muxeon kill <agent>` then `restart`; the in-flight message is re-sent. |
+| Operator gets no replies | `muxeon channels` — `pending` means the connector has not registered its deliver port; for telegram the bot cannot initiate: write to it once first. |
+| Message sits in `pending/` | Recipient down or busy — queues drain on idle; `muxeon queues peek` to confirm. |
 | "no topology edge" errors | Add the edge in `topology` and restart the server (config is read at boot). |
-| A routine never fires | `teamai routines get <owner> <id>` — check `enabled`, `tz`, and that the owner directory name is a configured agent. |
+| A routine never fires | `muxeon routines get <owner> <id>` — check `enabled`, `tz`, and that the owner directory name is a configured agent. |
 
 ## 8. Web panel (`webchat`, §12)
 
@@ -383,7 +383,7 @@ live status and message-lifecycle ticks. It runs on its **own port** and is
 meant to face the internet only through a TLS reverse-proxy.
 
 The topbar shows the instance label next to the logo and the browser tab reads
-`<name> - TeamAI`, where `<name>` is the optional top-level `name` (§2) or, when
+`<name> - Muxeon`, where `<name>` is the optional top-level `name` (§2) or, when
 omitted, the server's hostname — handy for telling apart several panels.
 
 Each chat's actions menu (the ⋮ kebab) carries **Pause / Resume** (§16): a
@@ -408,7 +408,7 @@ to unauthenticated visitors; a non-git deployment simply shows the version.
   "auth": { "mode": "users" },      // identities = the users bound to this channel
   // legacy alternative, mutually exclusive with the two lines above:
   //   "bindOperator": "operator-web",  // its topology edges = the visible agents (§10.2)
-  //   "auth": { "password": { "$env": "TEAMAI_WEB_PASSWORD" } },  // $env only
+  //   "auth": { "password": { "$env": "MUXEON_WEB_PASSWORD" } },  // $env only
   "port": 8091,                     // REQUIRED, ≠ server.port
   "bind": "127.0.0.1",              // default; keep loopback, proxy from outside
   "upload": { "maxBytes": 26214400, "mime": ["image/*", "audio/*", "video/*",
@@ -456,7 +456,7 @@ or slack identity.
       "role": "admin",                   // "admin" | "user" (default) — see below
       "group": "managers",               // optional; a broadcast to the group reaches them
       "tags": ["leadership"],            // optional; same rules as an agent's
-      "auth": { "password": { "$env": "TEAMAI_ALEX_PASSWORD" } },
+      "auth": { "password": { "$env": "MUXEON_ALEX_PASSWORD" } },
       "channels": { "web": true, "tg-main": { "alias": "alex_tg" } }
     }
   ],
@@ -473,7 +473,7 @@ or slack identity.
   channel of that type. Naming them lets you run two telegram bots side by side.
 - **Passwords** (`auth`, exactly one of the two): `password` — a literal or an
   `$env` reference — or `passwordHash`, an inline argon2id hash produced by
-  `teamai hash-password` (works offline, reads the password without echoing it).
+  `muxeon hash-password` (works offline, reads the password without echoing it).
   A literal password is allowed but warns at boot.
 - **Roles** are a panel capability, never a transport ACL: who may talk to whom
   is the topology and nothing else. `admin` additionally sees the Transport
@@ -541,7 +541,7 @@ server {
 
 Checklist before exposing it:
 
-- `TEAMAI_WEB_PASSWORD` is long and unique — everyone holding it acts as the
+- `MUXEON_WEB_PASSWORD` is long and unique — everyone holding it acts as the
   same operator (one shared credential; per-user logins are OOS-14).
 - TLS terminates at the proxy; the panel itself stays on loopback.
 - Login is rate-limited app-side; add proxy-side request-rate caps for depth
@@ -554,7 +554,7 @@ Checklist before exposing it:
 
 ## 9. Federation (§18)
 
-Federation joins several TEAMAI servers so agents and users on different
+Federation joins several MUXEON servers so agents and users on different
 instances interact as if they shared one machine. Names are email-style FQNs:
 `dev@hq` is "the actor exported as `dev` by the server I import as `hq`";
 chains grow on the right (`bob@c@b`) and resolve by the last `@`.
@@ -576,11 +576,11 @@ importers, suffix appended.
 {
   "imports": [
     { "name": "hq", "url": "https://hq.example.com:8092",
-      "token": { "$env": "TEAMAI_FED_HQ_TOKEN" } }
+      "token": { "$env": "MUXEON_FED_HQ_TOKEN" } }
   ],
   "federation": {
     "port": 8092,                       // its own listener, never server.port
-    "accept": [ { "name": "branch", "token": { "$env": "TEAMAI_FED_BRANCH_TOKEN" } } ]
+    "accept": [ { "name": "branch", "token": { "$env": "MUXEON_FED_BRANCH_TOKEN" } } ]
   },
   "agents": [ { "name": "dev", "...": "...", "exported": true } ]
 }
@@ -604,7 +604,7 @@ relay is for hubs you trust.
 What to expect at runtime:
 
 - **Delivery is store-and-forward.** A send to `dev@hq` lands in a persistent
-  per-link queue (`<queue root>/fed/<name>/`, visible to `teamai queues`); a
+  per-link queue (`<queue root>/fed/<name>/`, visible to `muxeon queues`); a
   dead link accumulates and drains on reconnect — nothing is lost. Receipts
   (delivered / WIP_LIMIT / AGENT_PAUSED / UNKNOWN_ACTOR) come back
   asynchronously; a failure appears as a `[federation]` notice in the sender's

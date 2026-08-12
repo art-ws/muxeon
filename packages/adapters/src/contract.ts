@@ -4,13 +4,13 @@
 // output front-flag, file watch) lives in the dispatcher, not here.
 
 import { join } from "node:path";
-import type { Session, Signal } from "@teamai/core";
+import type { Session, Signal } from "@muxeon/core";
 
 // Detection (§5.2, FR-11/FR-11b): readyPrompt is ALWAYS declared — output (front)
-// detection needs zero agent cooperation, and TEAMAI never touches agent
+// detection needs zero agent cooperation, and MUXEON never touches agent
 // configuration, so it is the only path that can be relied on. statusFile is an
 // OPPORTUNISTIC native accelerator: IF the agent's owner pre-installed (outside
-// TEAMAI) a mechanism writing { status, turn } to the convention path, the
+// MUXEON) a mechanism writing { status, turn } to the convention path, the
 // dispatcher takes the faster edge. The dispatcher watches BOTH paths in parallel
 // and the first to fire wins; an absent/stale status file never blocks a turn.
 export interface Detect {
@@ -61,13 +61,13 @@ export interface Adapter {
 }
 
 /**
- * The default attribution preamble (§8.3): `[teamai] from=<from> id=<id>[ replyTo=<replyTo>]`,
+ * The default attribution preamble (§8.3): `[muxeon] from=<from> id=<id>[ replyTo=<replyTo>]`,
  * so the agent can reply with send(to=from, replyTo=id) (§8.1).
  */
 export function renderAttribution(message: Signal): string {
   const parts = [`from=${message.from}`, `id=${message.id}`];
   if (message.replyTo !== undefined) parts.push(`replyTo=${message.replyTo}`);
-  return `[teamai] ${parts.join(" ")}`;
+  return `[muxeon] ${parts.join(" ")}`;
 }
 
 /**
@@ -77,7 +77,7 @@ export function renderAttribution(message: Signal): string {
  * (receive-only, §4) and that is fine.
  */
 export function renderReplyHint(message: Signal): string {
-  return `[reply via the teamai MCP tool: send(to="${message.from}", replyTo="${message.id}") — your answer as plain-text payload]`;
+  return `[reply via the muxeon MCP tool: send(to="${message.from}", replyTo="${message.id}") — your answer as plain-text payload]`;
 }
 
 export interface RenderOptions {
@@ -119,7 +119,7 @@ export function renderExchangeHint(messageFile: string, payloadInlined: boolean)
     ...(payloadInlined
       ? []
       : ["[the payload is too long for the console — READ the message file first]"]),
-    `[teamai exchange] full message: ${messageFile}`,
+    `[muxeon exchange] full message: ${messageFile}`,
     "[reply contract: 1) FIRST write your answer into reply.md NEXT TO message.json (plain text / markdown), in the SAME LANGUAGE as the message itself — mirror the request language; any other files you create in that folder are sent back to the sender as attachments; 2) THEN, as your VERY LAST action, DELETE message.json — deleting it ends your turn immediately, so anything written after that is lost; 3) the coordinator collects reply.md and REMOVES that folder itself once the answer is delivered — the folder outliving your delete is normal, so do NOT inspect it afterwards and do NOT duplicate your answer through another channel]",
   ].join("\n");
 }

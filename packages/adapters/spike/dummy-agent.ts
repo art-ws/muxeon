@@ -3,14 +3,14 @@
 // detection paths so the spike can confirm them before the dispatcher (T16) is built:
 //
 //   output : the ready prompt VANISHES while busy and REAPPEARS when idle (front edge);
-//   native : it writes { status, turn } to $TEAMAI_STATUS_FILE, advancing the turn
+//   native : it writes { status, turn } to $MUXEON_STATUS_FILE, advancing the turn
 //            token each turn so idle is edge-triggered, not level.
 
 import { writeFileSync } from "node:fs";
 import { createInterface } from "node:readline";
 
 const READY = "DUMMY_READY>";
-const statusFile = process.env.TEAMAI_STATUS_FILE;
+const statusFile = process.env.MUXEON_STATUS_FILE;
 
 function writeStatus(status: "idle" | "busy", turn: string): void {
   if (statusFile !== undefined) {

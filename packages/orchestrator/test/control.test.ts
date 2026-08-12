@@ -2,9 +2,9 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { defaultRender } from "@teamai/adapters";
-import type { Message } from "@teamai/core";
-import { type QueuePaths, enqueue, ensureQueueDirs, queuePaths } from "@teamai/queue";
+import { defaultRender } from "@muxeon/adapters";
+import type { Message } from "@muxeon/core";
+import { type QueuePaths, enqueue, ensureQueueDirs, queuePaths } from "@muxeon/queue";
 import { ControlLane } from "../src/control";
 import { Dispatcher, type SessionDriver } from "../src/dispatcher";
 import { AgentState } from "../src/status";
@@ -46,7 +46,7 @@ describe("control ops run in the dispatcher loop between turns (§8.5, §10.8)",
   let paths: QueuePaths;
 
   beforeEach(async () => {
-    root = mkdtempSync(join(tmpdir(), "teamai-control-"));
+    root = mkdtempSync(join(tmpdir(), "muxeon-control-"));
     paths = queuePaths(root, "s");
     await ensureQueueDirs(paths);
   });

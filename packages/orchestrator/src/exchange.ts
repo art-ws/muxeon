@@ -13,8 +13,8 @@
 import { mkdir, readFile, readdir, realpath, rename, rm, stat, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
-import type { Signal } from "@teamai/core";
-import { sanitizeFileId } from "@teamai/queue";
+import type { Signal } from "@muxeon/core";
+import { sanitizeFileId } from "@muxeon/queue";
 
 export interface ExchangeLocation {
   /** Explicit agent.exchangeDir (§7.1); relative paths resolve from configDir. */
@@ -30,7 +30,7 @@ export interface ExchangeLocation {
 }
 
 /**
- * Resolve the agent's <exchange> dir (§13.1): explicit exchangeDir → <cwd>/.teamai
+ * Resolve the agent's <exchange> dir (§13.1): explicit exchangeDir → <cwd>/.muxeon
  * → <root>/<session>/exchange. The cwd default is deliberate: a sandboxed agent is
  * guaranteed read/write only inside its own working directory.
  */
@@ -38,7 +38,7 @@ export function resolveExchangeDir(location: ExchangeLocation): string {
   if (location.exchangeDir !== undefined) {
     return resolve(location.configDir, location.exchangeDir);
   }
-  if (location.cwd !== undefined) return join(location.cwd, ".teamai");
+  if (location.cwd !== undefined) return join(location.cwd, ".muxeon");
   return join(location.root, location.session, "exchange");
 }
 
@@ -277,7 +277,7 @@ export function createExchange(options: ExchangeOptions): Exchange {
   const pollIntervalMs = options.pollIntervalMs ?? 100;
   const replySettleTicks = options.replySettleTicks ?? DEFAULT_REPLY_SETTLE_TICKS;
   const warn =
-    options.warn ?? ((text: string) => void process.stderr.write(`teamai: warning: ${text}\n`));
+    options.warn ?? ((text: string) => void process.stderr.write(`muxeon: warning: ${text}\n`));
   let ensured = false;
 
   // Lazy one-time setup: inbox/outbox dirs + the system-owned .gitignore (§13.1)

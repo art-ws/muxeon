@@ -1,4 +1,4 @@
-// @teamai/lifecycle — agent lifecycle operations (§4, FR-7/FR-8/FR-9): attach to a
+// @muxeon/lifecycle — agent lifecycle operations (§4, FR-7/FR-8/FR-9): attach to a
 // running session, provision a new one (argv, no shell — §8.7), kill / restart, and
 // send slash commands. Each operation acts on an AgentTarget through a SessionControl
 // port and transitions the agent's status cell (§5.1). Consumed by the operator-plane

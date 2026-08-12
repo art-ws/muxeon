@@ -1,6 +1,6 @@
 // SPA build (§12.7, R1): bundle with bun itself — no extra toolchain. Output is
 // plain statics in dist/ (relative paths only, §12.6 — proxyable under any
-// prefix); @teamai/webchat serves them.
+// prefix); @muxeon/webchat serves them.
 
 import { cp, mkdir, rm } from "node:fs/promises";
 import { join } from "node:path";

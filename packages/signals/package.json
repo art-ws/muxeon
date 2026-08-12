@@ -1,9 +1,9 @@
 {
-  "name": "@teamai/signals",
+  "name": "@muxeon/signals",
   "version": "0.0.0",
   "private": true,
   "type": "module",
-  "description": "On-demand signal delivery (send primitive via router); owns the Signal/kind envelope (SPEC.md §5.3, §3.3). Scheduling is delegated to @teamai/routines.",
+  "description": "On-demand signal delivery (send primitive via router); owns the Signal/kind envelope (SPEC.md §5.3, §3.3). Scheduling is delegated to @muxeon/routines.",
   "main": "src/index.ts",
   "types": "src/index.ts",
   "exports": {
@@ -13,7 +13,7 @@
     }
   },
   "dependencies": {
-    "@teamai/core": "workspace:*",
-    "@teamai/orchestrator": "workspace:*"
+    "@muxeon/core": "workspace:*",
+    "@muxeon/orchestrator": "workspace:*"
   }
 }

@@ -10,7 +10,7 @@ let routinesDir: string;
 let stateDir: string;
 
 beforeEach(() => {
-  root = mkdtempSync(join(tmpdir(), "teamai-rescan-"));
+  root = mkdtempSync(join(tmpdir(), "muxeon-rescan-"));
   routinesDir = join(root, "routines");
   stateDir = join(root, "state");
 });

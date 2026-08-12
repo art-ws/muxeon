@@ -4,8 +4,8 @@
 // deliver() as the egress sink (§5.3). The connector NEVER touches the queue
 // (§8, §10.8) — completion is the dispatcher's job.
 
-import type { Message, Signal } from "@teamai/core";
-import type { RouteCode } from "@teamai/orchestrator";
+import type { Message, Signal } from "@muxeon/core";
+import type { RouteCode } from "@muxeon/orchestrator";
 
 /**
  * Bridge to the router (§8.2), injected by the server wiring (T30). Rejects by
@@ -82,8 +82,8 @@ export class RouteRefusedError extends Error {
 
 /** Operator-facing error text (§3.2): clear for route refusals, generic otherwise (§8.7). */
 export function operatorErrorText(error: unknown): string {
-  if (error instanceof RouteRefusedError) return `teamai: ${error.message}`;
-  return "teamai: delivery failed";
+  if (error instanceof RouteRefusedError) return `muxeon: ${error.message}`;
+  return "muxeon: delivery failed";
 }
 
 /** Short text for a reaction signal (FR-25b): the payload as plain text. */

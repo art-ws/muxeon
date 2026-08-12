@@ -7,8 +7,8 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdtempSync, readdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { Topology } from "@teamai/core";
-import { readMessage } from "@teamai/queue";
+import { Topology } from "@muxeon/core";
+import { readMessage } from "@muxeon/queue";
 import {
   type LinkKind,
   type LinkRecord,
@@ -22,7 +22,7 @@ import { ensureSessionQueue } from "../src/session";
 let root: string;
 
 beforeEach(async () => {
-  root = mkdtempSync(join(tmpdir(), "teamai-fed-router-"));
+  root = mkdtempSync(join(tmpdir(), "muxeon-fed-router-"));
   for (const key of ["dev-session", "alex", "sec-session"]) {
     await ensureSessionQueue(root, key);
   }

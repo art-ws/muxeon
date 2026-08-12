@@ -2,8 +2,8 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { Message } from "@teamai/core";
-import { type BlobStore, createBlobStore } from "@teamai/orchestrator";
+import type { Message } from "@muxeon/core";
+import { type BlobStore, createBlobStore } from "@muxeon/orchestrator";
 import { RouteRefusedError } from "../src/contract";
 import { type TelegramApi, TelegramConnector, type TelegramIncoming } from "../src/telegram";
 
@@ -59,7 +59,7 @@ let inbound: Message[];
 let connector: TelegramConnector;
 
 beforeEach(async () => {
-  root = mkdtempSync(join(tmpdir(), "teamai-telegram-"));
+  root = mkdtempSync(join(tmpdir(), "muxeon-telegram-"));
   blobs = await createBlobStore(root);
   api = new FakeApi();
   inbound = [];
@@ -138,7 +138,7 @@ describe("telegram connector (§3.2, §8.4, FR-24a/FR-25a/FR-26)", () => {
     });
     api.push({ updateId: 4, chatId: 9, text: "@writer hi" });
     await waitFor(() => api.texts.length === 1);
-    expect(api.texts[0]?.text).toBe("teamai: delivery failed");
+    expect(api.texts[0]?.text).toBe("muxeon: delivery failed");
     expect(api.texts[0]?.text).not.toContain("/secret"); // no internal paths leak
   });
 

@@ -9,9 +9,9 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { ChannelConnector } from "@teamai/channels";
-import type { Signal } from "@teamai/core";
-import type { SessionDriver } from "@teamai/orchestrator";
+import type { ChannelConnector } from "@muxeon/channels";
+import type { Signal } from "@muxeon/core";
+import type { SessionDriver } from "@muxeon/orchestrator";
 import { bootstrap } from "../src/bootstrap";
 
 // Unprivileged high ports unlikely to collide; every boot takes a FRESH one, so a
@@ -22,7 +22,7 @@ const panelPort = (): number => nextPanelPort++;
 let dir: string;
 
 beforeEach(() => {
-  dir = mkdtempSync(join(tmpdir(), "teamai-users-"));
+  dir = mkdtempSync(join(tmpdir(), "muxeon-users-"));
 });
 
 afterEach(() => {
@@ -73,7 +73,7 @@ function withPanelPort(config: unknown): unknown {
 }
 
 function writeConfig(config: unknown = CONFIG): string {
-  const file = join(dir, "teamai.config.json");
+  const file = join(dir, "muxeon.config.json");
   writeFileSync(file, JSON.stringify(withPanelPort(config)));
   return file;
 }
@@ -284,7 +284,7 @@ describe("panel surface with a user peer (§17.7, FR-129)", () => {
       body: JSON.stringify({ user: "alex", password: "alex-pw" }),
     });
     expect(login.status).toBe(200);
-    const cookie = /teamai_webchat=[^;]+/.exec(login.headers.get("set-cookie") ?? "")?.[0] ?? "";
+    const cookie = /muxeon_webchat=[^;]+/.exec(login.headers.get("set-cookie") ?? "")?.[0] ?? "";
 
     const response = await fetch(`${base}/api/peers`, { headers: { cookie } });
     expect(response.status).toBe(200);
@@ -326,7 +326,7 @@ describe("panel surface with a user peer (§17.7, FR-129)", () => {
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ user: "alex", password: "alex-pw" }),
     });
-    const cookie = /teamai_webchat=[^;]+/.exec(login.headers.get("set-cookie") ?? "")?.[0] ?? "";
+    const cookie = /muxeon_webchat=[^;]+/.exec(login.headers.get("set-cookie") ?? "")?.[0] ?? "";
     const body = (await (await fetch(`${base}/api/peers`, { headers: { cookie } })).json()) as {
       peers: { name: string; title?: string }[];
     };

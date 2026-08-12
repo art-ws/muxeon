@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import type { Client } from "@modelcontextprotocol/sdk/client/index.js";
-import { CommandGrants, type CommandGrantsMap, Topology } from "@teamai/core";
-import { Router } from "@teamai/orchestrator";
+import { CommandGrants, type CommandGrantsMap, Topology } from "@muxeon/core";
+import { Router } from "@muxeon/orchestrator";
 import { type AgentPlaneHandle, createAgentServer, startAgentPlane } from "../src/mcp";
 import { LOOPBACK_DIRECT, connectClient } from "./mcp-helpers";
 
@@ -26,7 +26,7 @@ interface Harness {
 // unknown-command refusal that lifecycleAdmin.command throws, FR-66).
 function makePlane(grants: CommandGrantsMap, busy?: string): Harness {
   const topology = new Topology(TOPOLOGY);
-  const router = new Router({ topology, root: "/tmp/teamai-unused", queueKeyOf: () => null });
+  const router = new Router({ topology, root: "/tmp/muxeon-unused", queueKeyOf: () => null });
   const calls: Array<{ name: string; slash: string }> = [];
   const plane = startAgentPlane({
     port: 0,

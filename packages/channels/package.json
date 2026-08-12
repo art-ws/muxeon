@@ -1,9 +1,9 @@
 {
-  "name": "@teamai/channels",
+  "name": "@muxeon/channels",
   "version": "0.0.0",
   "private": true,
   "type": "module",
-  "description": "Unified channel interface + connectors (telegram, …): inbound→router.route, outbound via injected deliver port (SPEC.md §8.4, §3.2). Never touches @teamai/queue directly.",
+  "description": "Unified channel interface + connectors (telegram, …): inbound→router.route, outbound via injected deliver port (SPEC.md §8.4, §3.2). Never touches @muxeon/queue directly.",
   "main": "src/index.ts",
   "types": "src/index.ts",
   "exports": {
@@ -13,7 +13,7 @@
     }
   },
   "dependencies": {
-    "@teamai/core": "workspace:*",
-    "@teamai/orchestrator": "workspace:*"
+    "@muxeon/core": "workspace:*",
+    "@muxeon/orchestrator": "workspace:*"
   }
 }

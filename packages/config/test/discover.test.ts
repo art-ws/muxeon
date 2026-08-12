@@ -9,7 +9,7 @@ import { loadConfig } from "../src/load";
 let root: string;
 
 beforeEach(() => {
-  root = mkdtempSync(join(tmpdir(), "teamai-discover-"));
+  root = mkdtempSync(join(tmpdir(), "muxeon-discover-"));
 });
 
 afterEach(() => {
@@ -33,39 +33,39 @@ describe("config discovery (§7.4, FR-32)", () => {
     expect(() => discoverConfig({ explicitPath: join(root, "nope.json") })).toThrow(ConfigError);
   });
 
-  test("convention finds teamai.config.json in the start dir", () => {
-    writeFileSync(join(root, "teamai.config.json"), "{}");
-    expect(discoverConfig({ startDir: root }).configFile).toBe(join(root, "teamai.config.json"));
+  test("convention finds muxeon.config.json in the start dir", () => {
+    writeFileSync(join(root, "muxeon.config.json"), "{}");
+    expect(discoverConfig({ startDir: root }).configFile).toBe(join(root, "muxeon.config.json"));
   });
 
-  test("convention prefers teamai.config.json over .teamai/config.json", () => {
-    writeFileSync(join(root, "teamai.config.json"), "{}");
-    mkdirSync(join(root, ".teamai"));
-    writeFileSync(join(root, ".teamai", "config.json"), "{}");
-    expect(discoverConfig({ startDir: root }).configFile).toBe(join(root, "teamai.config.json"));
+  test("convention prefers muxeon.config.json over .muxeon/config.json", () => {
+    writeFileSync(join(root, "muxeon.config.json"), "{}");
+    mkdirSync(join(root, ".muxeon"));
+    writeFileSync(join(root, ".muxeon", "config.json"), "{}");
+    expect(discoverConfig({ startDir: root }).configFile).toBe(join(root, "muxeon.config.json"));
   });
 
-  test("convention falls back to .teamai/config.json", () => {
-    mkdirSync(join(root, ".teamai"));
-    writeFileSync(join(root, ".teamai", "config.json"), "{}");
+  test("convention falls back to .muxeon/config.json", () => {
+    mkdirSync(join(root, ".muxeon"));
+    writeFileSync(join(root, ".muxeon", "config.json"), "{}");
     const loc = discoverConfig({ startDir: root });
-    expect(loc.configFile).toBe(join(root, ".teamai", "config.json"));
-    expect(loc.configDir).toBe(join(root, ".teamai")); // <config_dir> is the found file's dir
+    expect(loc.configFile).toBe(join(root, ".muxeon", "config.json"));
+    expect(loc.configDir).toBe(join(root, ".muxeon")); // <config_dir> is the found file's dir
   });
 
   test("convention walks up to a parent directory", () => {
-    writeFileSync(join(root, "teamai.config.json"), "{}");
+    writeFileSync(join(root, "muxeon.config.json"), "{}");
     const deep = join(root, "a", "b", "c");
     mkdirSync(deep, { recursive: true });
-    expect(discoverConfig({ startDir: deep }).configFile).toBe(join(root, "teamai.config.json"));
+    expect(discoverConfig({ startDir: deep }).configFile).toBe(join(root, "muxeon.config.json"));
   });
 
   test("the nearest config wins when a child and a parent both have one", () => {
-    writeFileSync(join(root, "teamai.config.json"), "{}");
+    writeFileSync(join(root, "muxeon.config.json"), "{}");
     const child = join(root, "child");
     mkdirSync(child);
-    writeFileSync(join(child, "teamai.config.json"), "{}");
-    expect(discoverConfig({ startDir: child }).configFile).toBe(join(child, "teamai.config.json"));
+    writeFileSync(join(child, "muxeon.config.json"), "{}");
+    expect(discoverConfig({ startDir: child }).configFile).toBe(join(child, "muxeon.config.json"));
   });
 
   test("not found is fatal and lists the checked paths", () => {
@@ -78,11 +78,11 @@ describe("config discovery (§7.4, FR-32)", () => {
       error = caught;
     }
     expect(error).toBeInstanceOf(ConfigError);
-    expect((error as ConfigError).message).toContain("teamai.config.json");
+    expect((error as ConfigError).message).toContain("muxeon.config.json");
   });
 
   test("discovered config can be read and loaded end-to-end", () => {
-    const file = join(root, "teamai.config.json");
+    const file = join(root, "muxeon.config.json");
     writeFileSync(
       file,
       JSON.stringify({

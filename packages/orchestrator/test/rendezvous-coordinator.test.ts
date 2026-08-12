@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import type { AgentStatus, Signal } from "@teamai/core";
+import type { AgentStatus, Signal } from "@muxeon/core";
 import { RendezvousStore } from "../src/rendezvous";
 import type { RendezvousFile } from "../src/rendezvous";
 import { RendezvousCoordinator, rendezvousPayload } from "../src/rendezvous-coordinator";

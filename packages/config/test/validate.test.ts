@@ -4,7 +4,7 @@ import type {
   AgentConfig,
   ChannelConfig,
   GroupConfig,
-  TeamaiConfig,
+  MuxeonConfig,
   TopologyMap,
 } from "../src/schema";
 import { validateRules } from "../src/validate";
@@ -18,7 +18,7 @@ function base(
     channels?: ChannelConfig[];
     groups?: GroupConfig[];
   } = {},
-): TeamaiConfig {
+): MuxeonConfig {
   return {
     server: { port: 8080, mcp: true },
     agents: overrides.agents ?? [
@@ -95,7 +95,7 @@ describe("§7.5 fail-fast validation rules", () => {
     expect(() => validateRules(config, { knownAdapterTypes: KNOWN })).toThrow(
       /unknown type "mystery"/,
     );
-    // Without injected types the rule is skipped (config can't import @teamai/adapters):
+    // Without injected types the rule is skipped (config can't import @muxeon/adapters):
     expect(() => validateRules(config)).not.toThrow();
   });
 
@@ -324,7 +324,7 @@ describe("§7.5 rule 9: webchat channel (§12.2)", () => {
 describe("§7.5 rule 10: agent→agent command grants (FR-94/FR-95)", () => {
   // researcher↔writer↔operator wired (base topology); writer carries two commands
   // so the catalog check (mergeCommands ∪ internal) has something to match.
-  const withCommands = (): TeamaiConfig =>
+  const withCommands = (): MuxeonConfig =>
     base({
       agents: [
         { name: "researcher", type: "claude", tmux: "r" },
@@ -336,11 +336,11 @@ describe("§7.5 rule 10: agent→agent command grants (FR-94/FR-95)", () => {
         },
       ],
     });
-  const grant = (commandGrants: TeamaiConfig["commandGrants"]): TeamaiConfig => ({
+  const grant = (commandGrants: MuxeonConfig["commandGrants"]): MuxeonConfig => ({
     ...withCommands(),
     ...(commandGrants !== undefined ? { commandGrants } : {}),
   });
-  const check = (config: TeamaiConfig) => validateRules(config, { knownAdapterTypes: KNOWN });
+  const check = (config: MuxeonConfig) => validateRules(config, { knownAdapterTypes: KNOWN });
 
   test("a valid grant passes (edge exists, command in the recipient's catalog)", () => {
     expect(check(grant({ researcher: { writer: ["clear"] } }))).toEqual([]);
@@ -369,7 +369,7 @@ describe("§7.5 rule 10: agent→agent command grants (FR-94/FR-95)", () => {
   });
 
   test("an explicit pair without a topology edge is fatal (a grant cannot widen the graph)", () => {
-    const config: TeamaiConfig = {
+    const config: MuxeonConfig = {
       ...base({
         agents: [
           { name: "researcher", type: "claude", tmux: "r" },
@@ -404,25 +404,25 @@ describe("§7.5 rule 10: agent→agent command grants (FR-94/FR-95)", () => {
 describe("§7.5 rule 11: agent→agent session grants (FR-96/FR-97)", () => {
   // researcher↔writer↔operator wired; writer carries a provision command so the
   // start/restart/reload applicability check (FR-7/FR-96) has a startable recipient.
-  const withProvision = (): TeamaiConfig =>
+  const withProvision = (): MuxeonConfig =>
     base({
       agents: [
         { name: "researcher", type: "claude", tmux: "r" },
         { name: "writer", type: "claude", tmux: "w", provision: { command: "start-writer" } },
       ],
     });
-  const grant = (sessionGrants: TeamaiConfig["sessionGrants"]): TeamaiConfig => ({
+  const grant = (sessionGrants: MuxeonConfig["sessionGrants"]): MuxeonConfig => ({
     ...withProvision(),
     ...(sessionGrants !== undefined ? { sessionGrants } : {}),
   });
-  const check = (config: TeamaiConfig) => validateRules(config, { knownAdapterTypes: KNOWN });
+  const check = (config: MuxeonConfig) => validateRules(config, { knownAdapterTypes: KNOWN });
 
   test("a valid grant passes (edge exists, recipient is startable)", () => {
     expect(check(grant({ researcher: { writer: ["restart", "stop"] } }))).toEqual([]);
   });
 
   test("stop/shutdown need no provision command — a provision-less recipient is stoppable", () => {
-    const config: TeamaiConfig = {
+    const config: MuxeonConfig = {
       ...base({
         agents: [
           { name: "researcher", type: "claude", tmux: "r" },
@@ -453,7 +453,7 @@ describe("§7.5 rule 11: agent→agent session grants (FR-96/FR-97)", () => {
   });
 
   test("an explicit pair without a topology edge is fatal (a grant cannot widen the graph)", () => {
-    const config: TeamaiConfig = {
+    const config: MuxeonConfig = {
       ...base({
         agents: [
           { name: "researcher", type: "claude", tmux: "r" },
@@ -479,7 +479,7 @@ describe("§7.5 rule 11: agent→agent session grants (FR-96/FR-97)", () => {
   });
 
   test("start/restart/reload on a provision-less recipient is fatal", () => {
-    const config: TeamaiConfig = {
+    const config: MuxeonConfig = {
       ...base({
         agents: [
           { name: "researcher", type: "claude", tmux: "r" },
@@ -505,7 +505,7 @@ describe("§15 groups & tags", () => {
     agents: AgentConfig[],
     groups: GroupConfig[],
     topology: TopologyMap = {},
-  ): TeamaiConfig =>
+  ): MuxeonConfig =>
     base({ agents, groups, topology, channels: [{ type: "telegram", bindOperator: "operator" }] });
 
   test("a valid group forest + tags + topology nodes passes", () => {

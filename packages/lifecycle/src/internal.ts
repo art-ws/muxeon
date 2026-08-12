@@ -1,4 +1,4 @@
-// Internal slash commands (T90, FR-67, §8.5): commands EXECUTED BY TEAMAI, not
+// Internal slash commands (T90, FR-67, §8.5): commands EXECUTED BY MUXEON, not
 // typed into the agent's console — available on every agent without any config.
 // They share the operator surface of configured commands (FR-66: same endpoints,
 // same dropdown, same as-is output) but not the execution discipline: an internal
@@ -13,7 +13,7 @@
 // cannot shadow an internal one — INTERNAL_COMMAND_SLASHES (config) is the
 // single name list, and a test pins this registry to it.
 
-import type { INTERNAL_COMMAND_SLASHES } from "@teamai/config";
+import type { INTERNAL_COMMAND_SLASHES } from "@muxeon/config";
 import type { AgentTarget, SessionControl } from "./context";
 
 export interface InternalCommandDeps {

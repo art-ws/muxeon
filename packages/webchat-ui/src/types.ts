@@ -1,5 +1,5 @@
 // Wire types of the webchat API (§12.4) — the UI is a plain JSON client of
-// @teamai/webchat; these mirror its responses, they are not runtime imports
+// @muxeon/webchat; these mirror its responses, they are not runtime imports
 // (webchat-ui stays out of the §8 runtime graph).
 
 export type AgentStatus = "idle" | "busy" | "down";

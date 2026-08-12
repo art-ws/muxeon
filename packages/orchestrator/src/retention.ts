@@ -1,4 +1,4 @@
-// Retention sweep (§5.4, FR-34) — composed THROUGH orchestrator so @teamai/queue
+// Retention sweep (§5.4, FR-34) — composed THROUGH orchestrator so @muxeon/queue
 // stays orchestrator-only (§8). One sweep: per session, prune done/ (double cap)
 // and failed/ (independent), shrink the live dedup window by the pruned done/ ids
 // (§10.9), then run blob GC over the surviving records (§5.4: GC is tied to the
@@ -11,10 +11,10 @@ import {
   gcBlobs,
   pruneArchive,
   queuePaths,
-} from "@teamai/queue";
+} from "@muxeon/queue";
 
-export type { RetentionPolicy } from "@teamai/queue";
-export { parseRetainAge } from "@teamai/queue";
+export type { RetentionPolicy } from "@muxeon/queue";
+export { parseRetainAge } from "@muxeon/queue";
 
 export interface RetentionTarget {
   /** Queue key — the agent's tmux name or the operator name (§5.3). */

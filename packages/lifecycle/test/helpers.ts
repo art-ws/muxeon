@@ -1,10 +1,10 @@
 // Shared fakes for the lifecycle unit tests: a recording SessionControl (no real
 // tmux) and an AgentTarget builder with a minimal claude-like adapter.
 
-import type { Adapter } from "@teamai/adapters";
-import type { AgentConfig, ProvisionConfig } from "@teamai/config";
-import type { AgentStatus } from "@teamai/core";
-import { AgentState } from "@teamai/orchestrator";
+import type { Adapter } from "@muxeon/adapters";
+import type { AgentConfig, ProvisionConfig } from "@muxeon/config";
+import type { AgentStatus } from "@muxeon/core";
+import { AgentState } from "@muxeon/orchestrator";
 import type { AgentTarget, NewSessionOptions, SessionControl } from "../src/context";
 
 export interface ControlCalls {

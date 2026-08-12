@@ -4,8 +4,8 @@
 // this IS kill(). Either way the agent ends down (§5.1); its queue keeps
 // accumulating while down and is delivered on the next come-up (§10.9).
 
-import type { TeardownConfig } from "@teamai/config";
-import type { AgentStatus } from "@teamai/core";
+import type { TeardownConfig } from "@muxeon/config";
+import type { AgentStatus } from "@muxeon/core";
 import type { AgentTarget, SessionControl } from "./context";
 import { kill } from "./kill";
 

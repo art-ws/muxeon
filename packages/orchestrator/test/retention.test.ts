@@ -6,9 +6,9 @@ import { afterEach, beforeEach, expect, test } from "bun:test";
 import { mkdtempSync, readdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { defaultRender } from "@teamai/adapters";
-import type { Message } from "@teamai/core";
-import { type QueuePaths, enqueue, ensureQueueDirs, queuePaths } from "@teamai/queue";
+import { defaultRender } from "@muxeon/adapters";
+import type { Message } from "@muxeon/core";
+import { type QueuePaths, enqueue, ensureQueueDirs, queuePaths } from "@muxeon/queue";
 import { Dispatcher } from "../src/dispatcher";
 import { createRetention } from "../src/retention";
 import { AgentState } from "../src/status";
@@ -18,7 +18,7 @@ let paths: QueuePaths;
 let seq: number;
 
 beforeEach(async () => {
-  root = mkdtempSync(join(tmpdir(), "teamai-retention-"));
+  root = mkdtempSync(join(tmpdir(), "muxeon-retention-"));
   paths = queuePaths(root, "s");
   await ensureQueueDirs(paths);
   seq = 0;

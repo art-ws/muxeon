@@ -1,5 +1,5 @@
 {
-  "name": "@teamai/adapters",
+  "name": "@muxeon/adapters",
   "version": "0.0.0",
   "private": true,
   "type": "module",
@@ -13,7 +13,7 @@
     }
   },
   "dependencies": {
-    "@teamai/core": "workspace:*",
-    "@teamai/tmux": "workspace:*"
+    "@muxeon/core": "workspace:*",
+    "@muxeon/tmux": "workspace:*"
   }
 }

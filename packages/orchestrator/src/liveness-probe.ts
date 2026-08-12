@@ -9,7 +9,7 @@
 // the per-turn down-probe (FR-16b) owns busy→down — and the reconcile re-checks busy
 // at execution too, since a turn may start between the tick and the lane op.
 
-import type { AgentStatus } from "@teamai/core";
+import type { AgentStatus } from "@muxeon/core";
 
 export interface LivenessTarget {
   /** Participant name — the in-flight key. */

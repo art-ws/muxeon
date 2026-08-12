@@ -9,7 +9,7 @@
 // by the operator-plane control loop (§8.5, T31); this primitive is the normal
 // kill→provision path.
 
-import type { AgentStatus } from "@teamai/core";
+import type { AgentStatus } from "@muxeon/core";
 import type { AgentTarget } from "./context";
 import { kill } from "./kill";
 import { type ProvisionDeps, provision } from "./provision";

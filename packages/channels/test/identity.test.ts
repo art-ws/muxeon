@@ -6,7 +6,7 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { type BlobStore, createBlobStore } from "@teamai/orchestrator";
+import { type BlobStore, createBlobStore } from "@muxeon/orchestrator";
 import { type ChannelIdentity, resolveUserTarget } from "../src/identity";
 import { type TelegramApi, TelegramConnector, type TelegramIncoming } from "../src/telegram";
 
@@ -96,7 +96,7 @@ let root: string;
 let blobs: BlobStore;
 
 beforeEach(async () => {
-  root = mkdtempSync(join(tmpdir(), "teamai-tg-users-"));
+  root = mkdtempSync(join(tmpdir(), "muxeon-tg-users-"));
   blobs = await createBlobStore(root);
 });
 
@@ -131,7 +131,7 @@ describe("telegram in users mode (§17.6, FR-125/FR-126)", () => {
     api.push(incoming({ text: "@dev hi", sender: { username: "stranger" } }));
     await waitFor(() => api.sent.length > 0);
     expect(routed).toEqual([]);
-    expect(api.sent[0]?.text).toMatch(/not linked to a TEAMAI user/);
+    expect(api.sent[0]?.text).toMatch(/not linked to a MUXEON user/);
   });
 
   test("a bound sender is attributed to their user, target from the mention", async () => {

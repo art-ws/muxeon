@@ -20,7 +20,7 @@
 //   DELETE /admin/routines/<owner>/<id>
 //   POST   /admin/routines/<owner>/<id>/(enable|disable|run-once)
 
-import type { CommandFanoutResult } from "@teamai/orchestrator";
+import type { CommandFanoutResult } from "@muxeon/orchestrator";
 import type { BlobsAdmin } from "./blobs";
 import type { ChannelsAdmin } from "./channels";
 import { AdminError } from "./error";

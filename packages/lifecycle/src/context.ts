@@ -6,9 +6,9 @@
 // operations are unit-testable with a fake control, exactly as the dispatcher does
 // with SessionDriver (§8.2); tmuxSessionControl is the real, tmux-backed default.
 
-import type { Adapter } from "@teamai/adapters";
-import type { AgentConfig } from "@teamai/config";
-import type { AgentState } from "@teamai/orchestrator";
+import type { Adapter } from "@muxeon/adapters";
+import type { AgentConfig } from "@muxeon/config";
+import type { AgentState } from "@muxeon/orchestrator";
 import {
   type NewSessionOptions,
   capturePane,
@@ -17,7 +17,7 @@ import {
   newSession,
   sendKeys,
   sendLiteral,
-} from "@teamai/tmux";
+} from "@muxeon/tmux";
 
 export type { NewSessionOptions };
 

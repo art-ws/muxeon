@@ -12,8 +12,8 @@ import type {
   QueuePaths,
   QueueStamp,
   RequeueResult,
-} from "@teamai/orchestrator";
-import { cancelPendingById, peekQueue, requeueFailedById } from "@teamai/orchestrator";
+} from "@muxeon/orchestrator";
+import { cancelPendingById, peekQueue, requeueFailedById } from "@muxeon/orchestrator";
 import { AdminError } from "./error";
 
 /** One participant's queue runtime: its paths, owning lane, and dedup window. */

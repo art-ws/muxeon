@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import type { AgentStatus } from "@teamai/core";
+import type { AgentStatus } from "@muxeon/core";
 import { AgentState, canTransition } from "../src/status";
 
 describe("AgentStatus state-machine (§5.1, FR-10)", () => {

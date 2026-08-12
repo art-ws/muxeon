@@ -16,7 +16,7 @@
 
 import { appendFile, mkdir, readFile, rename, unlink, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
-import type { Signal } from "@teamai/core";
+import type { Signal } from "@muxeon/core";
 
 /** §5.4-spirit defaults — the log is a view, not the source of truth (§12.3). */
 export const TRANSPORT_DEFAULT_AGE_MS = 90 * 24 * 60 * 60 * 1000;

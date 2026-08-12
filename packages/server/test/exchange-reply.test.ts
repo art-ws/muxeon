@@ -6,13 +6,13 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { mkdir, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { Message, Signal } from "@teamai/core";
+import type { Message, Signal } from "@muxeon/core";
 import { mimeByName, routeExchangeReply } from "../src/exchange-reply";
 
 let dir: string;
 
 beforeEach(async () => {
-  dir = mkdtempSync(join(tmpdir(), "teamai-xreply-"));
+  dir = mkdtempSync(join(tmpdir(), "muxeon-xreply-"));
   await mkdir(dir, { recursive: true });
 });
 

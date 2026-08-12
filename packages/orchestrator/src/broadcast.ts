@@ -5,7 +5,7 @@
 // normal agent/operator recipient — the router's single-delivery path handles it).
 //
 // This module is deliberately dependency-free — it takes plain structural records,
-// not the config types — so it stays trivially unit-testable and keeps @teamai/config
+// not the config types — so it stays trivially unit-testable and keeps @muxeon/config
 // out of the orchestrator's dependency graph. The composition root (server bootstrap)
 // feeds it `config.groups`/`config.agents` and hands the resulting resolver to the
 // Router as `resolveBroadcast`.

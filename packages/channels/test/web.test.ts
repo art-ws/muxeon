@@ -3,7 +3,7 @@
 // injected fetch. Text-first; outbound blob refs stay opaque ids (§5.3).
 
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import type { Message } from "@teamai/core";
+import type { Message } from "@muxeon/core";
 import { RouteRefusedError } from "../src/contract";
 import { WebConnector } from "../src/web";
 
@@ -106,7 +106,7 @@ describe("web connector (T37/S, FR-24b, §3.2)", () => {
   test("a configured shared secret gates inbound (401 without it)", async () => {
     await make({ secret: "shh-secret" });
     expect((await post({ text: "hi" })).status).toBe(401);
-    expect((await post({ text: "hi" }, { "x-teamai-secret": "shh-secret" })).status).toBe(200);
+    expect((await post({ text: "hi" }, { "x-muxeon-secret": "shh-secret" })).status).toBe(200);
   });
 
   test("deliver POSTs the webhook with attribution and opaque blob refs (§5.3)", async () => {

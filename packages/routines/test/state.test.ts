@@ -7,7 +7,7 @@ import { createFsStateStore } from "../src/state";
 let dir: string;
 
 beforeEach(() => {
-  dir = mkdtempSync(join(tmpdir(), "teamai-rstate-"));
+  dir = mkdtempSync(join(tmpdir(), "muxeon-rstate-"));
 });
 
 afterEach(() => {

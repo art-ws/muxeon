@@ -7,8 +7,8 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { type Adapter, AdapterRegistry } from "@teamai/adapters";
-import { type TeamaiServer, bootstrap } from "../src/bootstrap";
+import { type Adapter, AdapterRegistry } from "@muxeon/adapters";
+import { type MuxeonServer, bootstrap } from "../src/bootstrap";
 
 function dummyRegistry(): AdapterRegistry {
   const adapter: Adapter = {
@@ -21,12 +21,12 @@ function dummyRegistry(): AdapterRegistry {
 }
 
 let dir: string;
-let server: TeamaiServer;
+let server: MuxeonServer;
 let agentUp: boolean;
 let injectFails: boolean;
 
 beforeEach(() => {
-  dir = mkdtempSync(join(tmpdir(), "teamai-admin2-"));
+  dir = mkdtempSync(join(tmpdir(), "muxeon-admin2-"));
   agentUp = true;
   injectFails = false;
 });
@@ -37,7 +37,7 @@ afterEach(async () => {
 });
 
 async function boot(): Promise<void> {
-  const configFile = join(dir, "teamai.config.json");
+  const configFile = join(dir, "muxeon.config.json");
   writeFileSync(
     configFile,
     JSON.stringify({

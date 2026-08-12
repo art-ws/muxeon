@@ -16,7 +16,7 @@
 
 import { appendFile, mkdir, readFile, readdir, rename, unlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import type { Signal } from "@teamai/core";
+import type { Signal } from "@muxeon/core";
 
 /** §12.3 defaults — deliberately wider than the queue's done/ window (§5.4). */
 export const HISTORY_DEFAULT_AGE_MS = 90 * 24 * 60 * 60 * 1000;

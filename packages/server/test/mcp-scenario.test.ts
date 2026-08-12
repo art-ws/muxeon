@@ -7,8 +7,8 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdtempSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { SessionDriver } from "@teamai/orchestrator";
-import { type TeamaiServer, bootstrap } from "../src/bootstrap";
+import type { SessionDriver } from "@muxeon/orchestrator";
+import { type MuxeonServer, bootstrap } from "../src/bootstrap";
 import { LOOPBACK_DIRECT, connectClient } from "./mcp-helpers";
 
 const noopDriver = (): SessionDriver => ({
@@ -23,7 +23,7 @@ function structured(result: unknown): Record<string, unknown> {
   >;
 }
 
-function planeUrl(server: TeamaiServer): string {
+function planeUrl(server: MuxeonServer): string {
   const plane = server.agentPlane;
   if (plane === undefined) throw new Error("expected an agent plane");
   return plane.url;
@@ -31,10 +31,10 @@ function planeUrl(server: TeamaiServer): string {
 
 describe.skipIf(!LOOPBACK_DIRECT)("§3.1 two-agent coordination via the booted server", () => {
   let dir: string;
-  let server: TeamaiServer;
+  let server: MuxeonServer;
 
   beforeEach(() => {
-    dir = mkdtempSync(join(tmpdir(), "teamai-scenario-"));
+    dir = mkdtempSync(join(tmpdir(), "muxeon-scenario-"));
   });
 
   afterEach(async () => {
@@ -42,8 +42,8 @@ describe.skipIf(!LOOPBACK_DIRECT)("§3.1 two-agent coordination via the booted s
     rmSync(dir, { recursive: true, force: true });
   });
 
-  function boot(config: unknown): Promise<TeamaiServer> {
-    const configFile = join(dir, "teamai.config.json");
+  function boot(config: unknown): Promise<MuxeonServer> {
+    const configFile = join(dir, "muxeon.config.json");
     writeFileSync(configFile, JSON.stringify(config));
     return bootstrap({
       configFile,

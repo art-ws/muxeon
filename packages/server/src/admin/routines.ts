@@ -15,8 +15,8 @@ import {
   parseFrontmatter,
   setEnabledInContent,
   writeRoutineFile,
-} from "@teamai/routines";
-import { type SignalRouter, buildSignal } from "@teamai/signals";
+} from "@muxeon/routines";
+import { type SignalRouter, buildSignal } from "@muxeon/signals";
 import { AdminError } from "./error";
 
 export interface RoutineSummary {

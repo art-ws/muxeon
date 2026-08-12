@@ -18,7 +18,7 @@ describe("routine file admin (§8.5, §6.2, FR-23)", () => {
   let dir: string;
 
   beforeEach(() => {
-    dir = mkdtempSync(join(tmpdir(), "teamai-routines-admin-"));
+    dir = mkdtempSync(join(tmpdir(), "muxeon-routines-admin-"));
   });
 
   afterEach(() => {

@@ -8,8 +8,8 @@
 // not a protocol detail: message delivery survives a dead link, status
 // knowledge does not.
 
-import type { FederatedActorType, SignalKind, StatusProjection } from "@teamai/core";
-import type { FederationReceiptCode, LinkRecord } from "@teamai/orchestrator";
+import type { FederatedActorType, SignalKind, StatusProjection } from "@muxeon/core";
+import type { FederationReceiptCode, LinkRecord } from "@muxeon/orchestrator";
 
 /** Protocol version (§18.7): a mismatch is link-down with a clear log, not a guess.
  * v2 (§18.11.5): the handshake negotiates relay mode — request `publish`/`statusPublished`,

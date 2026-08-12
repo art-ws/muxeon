@@ -7,7 +7,7 @@ import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync } from "node
 import { mkdir, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { Signal } from "@teamai/core";
+import type { Signal } from "@muxeon/core";
 import { OutboxMonitor } from "../src/outbox";
 
 let base: string;
@@ -15,8 +15,8 @@ let outboxDir: string;
 let cwd: string;
 
 beforeEach(async () => {
-  base = mkdtempSync(join(tmpdir(), "teamai-outbox-"));
-  outboxDir = join(base, ".teamai", "outbox");
+  base = mkdtempSync(join(tmpdir(), "muxeon-outbox-"));
+  outboxDir = join(base, ".muxeon", "outbox");
   cwd = join(base, "work");
   await mkdir(outboxDir, { recursive: true });
   await mkdir(cwd, { recursive: true });
@@ -44,7 +44,7 @@ function makeMonitor(
   const monitor = new OutboxMonitor({
     agent: "researcher",
     outboxDir,
-    containRoots: [join(base, ".teamai"), cwd],
+    containRoots: [join(base, ".muxeon"), cwd],
     filesBase: cwd,
     blobs: {
       write: async (bytes) => {
@@ -240,7 +240,7 @@ describe("outbox pickup (FR-55, §13.4)", () => {
     const monitor = new OutboxMonitor({
       agent: "researcher",
       outboxDir,
-      containRoots: [join(base, ".teamai")],
+      containRoots: [join(base, ".muxeon")],
       filesBase: cwd,
       blobs: { write: async () => "b", read: async () => new Uint8Array() },
       route: async (message) => {

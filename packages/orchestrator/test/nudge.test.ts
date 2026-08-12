@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import type { Signal } from "@teamai/core";
+import type { Signal } from "@muxeon/core";
 import { ReplyNudger, nudgePayload } from "../src/nudge";
 
 const OPERATORS = new Set(["operator-web"]);
@@ -57,7 +57,7 @@ describe("ReplyNudger (§8.2, FR-45)", () => {
     const { nudger, routed } = makeNudger();
     const msg = operatorMsg();
     nudger.beginTurn("qwen", msg);
-    nudger.recordSend("qwen", "teamai"); // talked to a peer, not to the sender
+    nudger.recordSend("qwen", "muxeon"); // talked to a peer, not to the sender
     await nudger.afterTurn("qwen", msg);
     expect(routed).toHaveLength(1);
   });
@@ -82,7 +82,7 @@ describe("ReplyNudger (§8.2, FR-45)", () => {
 
   test("agent-to-agent messages never nudge (T61: window opens, scrape only)", async () => {
     const { nudger, routed } = makeNudger();
-    const msg = operatorMsg({ from: "teamai" }); // a peer agent, not an operator
+    const msg = operatorMsg({ from: "muxeon" }); // a peer agent, not an operator
     expect(nudger.expectsReply(msg)).toBe(true); // the window DOES open (T61)…
     nudger.beginTurn("qwen", msg);
     await nudger.afterTurn("qwen", msg); // …but no scrape hook and no nudge for a peer
@@ -146,20 +146,20 @@ describe("console-fallback scrape (§8.2, FR-47)", () => {
 describe("inter-agent fallback scope (§8.2, FR-47, T61)", () => {
   test("a peer message's console answer is scraped and routed to the peer", async () => {
     const { nudger, routed } = makeNudger();
-    const msg = operatorMsg({ from: "teamai" }); // agent → agent
+    const msg = operatorMsg({ from: "muxeon" }); // agent → agent
     nudger.beginTurn("qwen", msg);
     await nudger.afterTurn("qwen", msg, async () => "50");
     expect(routed).toHaveLength(1);
     const reply = routed[0];
     expect(reply?.id).toBe("m1:scrape");
     expect(reply?.from).toBe("qwen");
-    expect(reply?.to).toBe("teamai"); // the peer sender, not an operator
+    expect(reply?.to).toBe("muxeon"); // the peer sender, not an operator
     expect(reply?.origin).toBe("tmux-fallback");
   });
 
   test("an empty scrape on a peer message earns NOTHING — no nudge for peers", async () => {
     const { nudger, routed } = makeNudger();
-    const msg = operatorMsg({ from: "teamai" });
+    const msg = operatorMsg({ from: "muxeon" });
     nudger.beginTurn("qwen", msg);
     await nudger.afterTurn("qwen", msg, async () => null); // e.g. a pure ack, rightly ignored
     expect(routed).toHaveLength(0);
@@ -167,10 +167,10 @@ describe("inter-agent fallback scope (§8.2, FR-47, T61)", () => {
 
   test("a scraped message never opens a window itself — no scrape ping-pong", async () => {
     const { nudger, routed } = makeNudger();
-    const scraped = operatorMsg({ from: "qwen", to: "teamai", origin: "tmux-fallback" });
+    const scraped = operatorMsg({ from: "qwen", to: "muxeon", origin: "tmux-fallback" });
     expect(nudger.expectsReply(scraped)).toBe(false);
-    nudger.beginTurn("teamai", scraped);
-    await nudger.afterTurn("teamai", scraped, async () => "console echo");
+    nudger.beginTurn("muxeon", scraped);
+    await nudger.afterTurn("muxeon", scraped, async () => "console echo");
     expect(routed).toHaveLength(0); // one fallback hop max per genuine message
   });
 });

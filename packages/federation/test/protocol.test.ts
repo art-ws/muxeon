@@ -2,7 +2,7 @@
 // export-alias mapping on `from`, and the malformed-peer guard.
 
 import { describe, expect, test } from "bun:test";
-import type { LinkRecord } from "@teamai/orchestrator";
+import type { LinkRecord } from "@muxeon/orchestrator";
 import { parseFrame, toLinkRecord, toWireFrame } from "../src";
 
 const wireName = (name: string): string => (name === "alex" ? "alexander" : name);

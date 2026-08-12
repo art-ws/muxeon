@@ -17,9 +17,9 @@ import {
   WebConnector,
   createSlackWebApi,
   createTelegramBotApi,
-} from "@teamai/channels";
-import { type ChannelConfig, channelName } from "@teamai/config";
-import type { Message, Signal } from "@teamai/core";
+} from "@muxeon/channels";
+import { type ChannelConfig, channelName } from "@muxeon/config";
+import type { Message, Signal } from "@muxeon/core";
 import {
   type BlobStore,
   EgressDispatcher,
@@ -28,7 +28,7 @@ import {
   loadSessionDoneIds,
   parseRetainAge,
   sessionPaths,
-} from "@teamai/orchestrator";
+} from "@muxeon/orchestrator";
 import {
   HistoryStore,
   type TransportObservability,
@@ -36,7 +36,7 @@ import {
   type WebchatLifecycle,
   type WebchatPorts,
   type WebchatUserOptions,
-} from "@teamai/webchat";
+} from "@muxeon/webchat";
 import { buildInfo } from "./build-info";
 
 export interface ConnectorDeps {
@@ -206,7 +206,7 @@ export async function wireChannels(options: WireChannelsOptions): Promise<Channe
 // stays out of the §8 dependency graph; absence just means the panel serves
 // API-only. Two layouts have to work:
 //
-//   workspace  packages/server/src/… → resolve @teamai/webchat-ui, take its dist/
+//   workspace  packages/server/src/… → resolve @muxeon/webchat-ui, take its dist/
 //   published  dist/index.js         → dist/ui/ (npm tarball: no workspace to resolve)
 //
 // The published layout is checked FIRST because it is unambiguous: if `ui/` sits
@@ -215,7 +215,7 @@ function resolveUiDist(): string | undefined {
   const shipped = join(import.meta.dir, "ui");
   if (existsSync(join(shipped, "index.html"))) return shipped;
   try {
-    const pkg = Bun.resolveSync("@teamai/webchat-ui/package.json", import.meta.dir);
+    const pkg = Bun.resolveSync("@muxeon/webchat-ui/package.json", import.meta.dir);
     const dist = join(pkg, "..", "dist");
     return existsSync(join(dist, "index.html")) ? dist : undefined;
   } catch {

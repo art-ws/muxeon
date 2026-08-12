@@ -1,4 +1,4 @@
-// @teamai/server — shutdown path: graceful stop under a hard watchdog (FR-136).
+// @muxeon/server — shutdown path: graceful stop under a hard watchdog (FR-136).
 // Live finding (Q05): a deploy's SIGINT could hang forever inside stop() — the
 // operator had to `kill -KILL` the pid and recreate the tmux session. The
 // graceful path stays primary; the watchdog guarantees an upper bound so a

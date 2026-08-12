@@ -4,7 +4,7 @@
 // not when a message arrived inside the window.
 
 import { describe, expect, test } from "bun:test";
-import type { AgentStatus } from "@teamai/core";
+import type { AgentStatus } from "@muxeon/core";
 import {
   IDLE_TEARDOWN_DEFAULT_MS,
   IdleTeardownSweeper,

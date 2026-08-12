@@ -6,7 +6,7 @@
 
 import { rename, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { type Signal, formatQueueName } from "@teamai/core";
+import { type Signal, formatQueueName } from "@muxeon/core";
 import { type QueuePaths, assertSafeFileId } from "./layout";
 
 export interface EnqueueRecord {

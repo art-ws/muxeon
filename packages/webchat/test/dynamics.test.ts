@@ -8,7 +8,7 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { AgentStatus, Message, Signal } from "@teamai/core";
+import type { AgentStatus, Message, Signal } from "@muxeon/core";
 import { SESSION_COOKIE, WebchatConnector, type WebchatEvent } from "../src/connector";
 import { HistoryStore } from "../src/history";
 import type {
@@ -78,7 +78,7 @@ class FakePorts implements WebchatPorts {
 let ports: FakePorts;
 
 beforeEach(() => {
-  dir = mkdtempSync(join(tmpdir(), "teamai-dynamics-"));
+  dir = mkdtempSync(join(tmpdir(), "muxeon-dynamics-"));
   history = new HistoryStore({ dir: join(dir, "operator-web"), operator: "operator-web" });
   inbound = [];
   ports = new FakePorts();
@@ -120,7 +120,7 @@ function get(path: string, headers: Record<string, string> = {}): Request {
 
 async function login(connector: WebchatConnector): Promise<string> {
   const response = await connector.handleRequest(post("/api/login", { password: "hunter2" }));
-  const token = /teamai_webchat=([^;]+)/.exec(response.headers.get("set-cookie") ?? "")?.[1];
+  const token = /muxeon_webchat=([^;]+)/.exec(response.headers.get("set-cookie") ?? "")?.[1];
   if (token === undefined) throw new Error("no session cookie issued");
   return `${SESSION_COOKIE}=${token}`;
 }

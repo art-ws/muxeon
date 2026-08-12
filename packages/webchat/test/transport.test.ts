@@ -5,7 +5,7 @@
 // packages/server/test/webchat.test.ts.
 
 import { describe, expect, test } from "bun:test";
-import type { Signal } from "@teamai/core";
+import type { Signal } from "@muxeon/core";
 import { SESSION_COOKIE, WebchatConnector, type WebchatEvent } from "../src/connector";
 import type { TransportObservability, TransportPage } from "../src/ports";
 
@@ -31,7 +31,7 @@ class FakeTransport implements TransportObservability {
 
 const record = (id: string): Signal => ({
   id,
-  from: "teamai",
+  from: "muxeon",
   to: "qwen",
   kind: "message",
   ts: 1000,
@@ -63,7 +63,7 @@ async function startedConnector(transport: FakeTransport | undefined): Promise<W
 
 async function loginCookie(connector: WebchatConnector): Promise<Record<string, string>> {
   const response = await connector.handleRequest(post("/api/login", { password: "hunter2" }));
-  const token = /teamai_webchat=([^;]+)/.exec(response.headers.get("set-cookie") ?? "")?.[1];
+  const token = /muxeon_webchat=([^;]+)/.exec(response.headers.get("set-cookie") ?? "")?.[1];
   if (token === undefined) throw new Error("no session cookie issued");
   return { cookie: `${SESSION_COOKIE}=${token}` };
 }

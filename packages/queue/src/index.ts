@@ -1,4 +1,4 @@
-// @teamai/queue — maildir layout, enqueue/dequeue/complete/recovery/dedup, blob
+// @muxeon/queue — maildir layout, enqueue/dequeue/complete/recovery/dedup, blob
 // store with realpath-containment. Dumb FS layer; enqueue only via the router
 // (§8.2). (SPEC.md §5.3, §8.7) — T08–T10.
 export * from "./layout";

@@ -7,7 +7,7 @@ export type Theme = "light" | "dark";
 
 export const DEFAULT_THEME: Theme = "light";
 
-const STORAGE_KEY = "teamai-theme";
+const STORAGE_KEY = "muxeon-theme";
 
 /** Anything that is not exactly "dark" is the default (light). */
 export function normalizeTheme(value: unknown): Theme {

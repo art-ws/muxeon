@@ -3,8 +3,8 @@
 // dispatchers. Channel connectors (Phase 8) and the routine scheduler (Phase 7) are
 // wired in later; this is the walking skeleton.
 //
-// The server reaches queue/tmux only through @teamai/orchestrator helpers, so
-// @teamai/queue stays orchestrator-only (§8).
+// The server reaches queue/tmux only through @muxeon/orchestrator helpers, so
+// @muxeon/queue stays orchestrator-only (§8).
 
 import { readdir } from "node:fs/promises";
 import { hostname } from "node:os";
@@ -15,15 +15,15 @@ import {
   createDefaultRegistry,
   renderAttribution,
   renderRaw,
-} from "@teamai/adapters";
-import type { ChannelIdentity } from "@teamai/channels";
+} from "@muxeon/adapters";
+import type { ChannelIdentity } from "@muxeon/channels";
 import {
   type AgentConfig,
   DEFAULT_PRESENCE_SWEEP_MS,
   DEFAULT_PRESENCE_TTL,
   DEFAULT_RENDEZVOUS_SWEEP_MS,
   type EnvSource,
-  type TeamaiConfig,
+  type MuxeonConfig,
   type TeardownConfig,
   type UserConfig,
   channelName,
@@ -33,7 +33,7 @@ import {
   resolveWipLimit,
   secretValues,
   userRole,
-} from "@teamai/config";
+} from "@muxeon/config";
 import {
   type AgentStatus,
   CommandGrants,
@@ -41,7 +41,7 @@ import {
   type SessionAction,
   SessionGrants,
   Topology,
-} from "@teamai/core";
+} from "@muxeon/core";
 import {
   type Reviver,
   type SessionControl,
@@ -50,7 +50,7 @@ import {
   reconcileLiveness,
   teardown,
   tmuxSessionControl,
-} from "@teamai/lifecycle";
+} from "@muxeon/lifecycle";
 import {
   AgentState,
   Dispatcher,
@@ -92,9 +92,9 @@ import {
   settleExchangeDir,
   startTokenSampler,
   waitForSessionDown,
-} from "@teamai/orchestrator";
-import { type SchedulerHandle, createFsStateStore, startScheduler } from "@teamai/routines";
-import { WebchatConnector, type WebchatLifecycle, type WebchatPorts } from "@teamai/webchat";
+} from "@muxeon/orchestrator";
+import { type SchedulerHandle, createFsStateStore, startScheduler } from "@muxeon/routines";
+import { WebchatConnector, type WebchatLifecycle, type WebchatPorts } from "@muxeon/webchat";
 import { createBlobsAdmin } from "./admin/blobs";
 import { createChannelsAdmin } from "./admin/channels";
 import {
@@ -163,8 +163,8 @@ export interface AgentRuntime {
   readonly adapter: Adapter;
 }
 
-export interface TeamaiServer {
-  readonly config: TeamaiConfig;
+export interface MuxeonServer {
+  readonly config: MuxeonConfig;
   readonly router: Router;
   readonly agents: ReadonlyMap<string, AgentRuntime>;
   /**
@@ -211,7 +211,7 @@ function retentionPolicy(retain: { age?: string; count?: number } | undefined): 
   };
 }
 
-export async function bootstrap(options: BootstrapOptions = {}): Promise<TeamaiServer> {
+export async function bootstrap(options: BootstrapOptions = {}): Promise<MuxeonServer> {
   // 1. config (§7): discover → load → validate with the registry's known types.
   const discoverOptions: { explicitPath?: string; startDir?: string } = {};
   if (options.configFile !== undefined) discoverOptions.explicitPath = options.configFile;
@@ -283,7 +283,7 @@ export async function bootstrap(options: BootstrapOptions = {}): Promise<TeamaiS
   );
   for (const name of droppedPauses) {
     process.stderr.write(
-      `teamai: warning: dropping the persisted pause of "${name}" — no such agent or user in the config (§16.4)\n`,
+      `muxeon: warning: dropping the persisted pause of "${name}" — no such agent or user in the config (§16.4)\n`,
     );
   }
   const isPaused = (name: string): boolean => pauseRegistry.has(name);
@@ -426,7 +426,7 @@ export async function bootstrap(options: BootstrapOptions = {}): Promise<TeamaiS
               configDir: location.configDir,
               onError: (error) =>
                 process.stderr.write(
-                  `teamai: warning: auto-provision of "${agent.name}" failed: ${
+                  `muxeon: warning: auto-provision of "${agent.name}" failed: ${
                     error instanceof Error ? error.message : String(error)
                   }\n`,
                 ),
@@ -439,7 +439,7 @@ export async function bootstrap(options: BootstrapOptions = {}): Promise<TeamaiS
     if (!up && agent.provision?.auto === true && reviver !== undefined) {
       await reviver.revive();
     }
-    // File exchange (§13.1): explicit exchangeDir → <cwd>/.teamai → <root>/<session>/exchange,
+    // File exchange (§13.1): explicit exchangeDir → <cwd>/.muxeon → <root>/<session>/exchange,
     // settled to its realpath (FR-83) — the §13.2 hint must match the agent's view.
     const exchange = createExchange({
       dir: await settleExchangeDir({
@@ -452,7 +452,7 @@ export async function bootstrap(options: BootstrapOptions = {}): Promise<TeamaiS
       // file-detect (FR-53) polls on the same cadence as output detection (NFR-10)
       ...(cadence.outputPollMs !== undefined ? { pollIntervalMs: cadence.outputPollMs } : {}),
       // T239: the sweep's "an undelivered answer just died" line, named by agent.
-      warn: (text) => void process.stderr.write(`teamai: warning: ${agent.name}: ${text}\n`),
+      warn: (text) => void process.stderr.write(`muxeon: warning: ${agent.name}: ${text}\n`),
     });
     exchanges.set(agent.name, exchange);
     // Cleanup discipline (T75, live finding): the turn dir is removed only after
@@ -721,7 +721,7 @@ export async function bootstrap(options: BootstrapOptions = {}): Promise<TeamaiS
             // of a duplicate-name misconfiguration — always surfaced.
             onEviction: (name, oldSession) =>
               process.stderr.write(
-                `teamai: warning: identity "${name}" taken over by a new session (evicted ${oldSession}, FR-44b)\n`,
+                `muxeon: warning: identity "${name}" taken over by a new session (evicted ${oldSession}, FR-44b)\n`,
               ),
           })
         : undefined;
@@ -991,14 +991,14 @@ export async function bootstrap(options: BootstrapOptions = {}): Promise<TeamaiS
     const userRuntimes = usersHandle.users;
     // Channel bindings (§17.2, FR-125): which users a channel serves, and the
     // alias↔user maps that give an inbound event its sender (§17.6).
-    const bindingsOf = (channel: TeamaiConfig["channels"][number]): UserRuntime[] => {
+    const bindingsOf = (channel: MuxeonConfig["channels"][number]): UserRuntime[] => {
       const key = channelName(channel);
       return userConfigs.flatMap((user) => {
         const runtime = userRuntimes.get(user.name);
         return runtime !== undefined && Object.hasOwn(user.channels ?? {}, key) ? [runtime] : [];
       });
     };
-    const identityOf = (channel: TeamaiConfig["channels"][number]): ChannelIdentity | undefined => {
+    const identityOf = (channel: MuxeonConfig["channels"][number]): ChannelIdentity | undefined => {
       const key = channelName(channel);
       if (channel.type === "webchat") return undefined; // identity IS the login (§17.6)
       const userByAlias = new Map<string, string>();
@@ -1305,7 +1305,7 @@ export async function bootstrap(options: BootstrapOptions = {}): Promise<TeamaiS
               // down cycle, not a one-way shutdown.
               reviver?.reset();
               process.stderr.write(
-                `teamai: "${runtime.name}" idle with no transport activity (${idleMs}ms) — auto-teardown (FR-92)\n`,
+                `muxeon: "${runtime.name}" idle with no transport activity (${idleMs}ms) — auto-teardown (FR-92)\n`,
               );
             }),
         },
@@ -1384,7 +1384,7 @@ export async function bootstrap(options: BootstrapOptions = {}): Promise<TeamaiS
     //     queue and drain when it is up (§5.1).
     if (options.startRoutines ?? true) {
       // cwd-side discovery (FR-21b, §6.2): agents with a declared cwd also load
-      // <cwd>/.teamai/routines/*.md; central overrides by id.
+      // <cwd>/.muxeon/routines/*.md; central overrides by id.
       const agentCwds = new Map<string, string>(
         config.agents.flatMap((agent) =>
           agent.cwd !== undefined ? [[agent.name, agent.cwd] as const] : [],

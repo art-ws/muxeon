@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdtempSync, readdirSync, rmSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { Message } from "@teamai/core";
+import type { Message } from "@muxeon/core";
 import { ensureBlobDirs, writeBlob } from "../src/blobs";
 import { gcBlobs } from "../src/gc";
 import { complete, dequeue, enqueue, ensureQueueDirs, queuePaths } from "../src/index";
@@ -16,7 +16,7 @@ let paths: QueuePaths;
 let seq: number;
 
 beforeEach(async () => {
-  root = mkdtempSync(join(tmpdir(), "teamai-retain-"));
+  root = mkdtempSync(join(tmpdir(), "muxeon-retain-"));
   paths = queuePaths(root, "s");
   await ensureQueueDirs(paths);
   await ensureBlobDirs(root);

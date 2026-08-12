@@ -28,7 +28,7 @@ interface PrefStorage {
   setItem(key: string, value: string): void;
 }
 
-const keyOf = (pref: BoolPref): string => `teamai-pref:${pref}`;
+const keyOf = (pref: BoolPref): string => `muxeon-pref:${pref}`;
 
 /** Only the exact strings "true"/"false" count; anything else = the default. */
 export function loadPref(
@@ -59,7 +59,7 @@ export function savePref(
   }
 }
 
-const EXPANDED_KEY = "teamai-pref:tree-expanded";
+const EXPANDED_KEY = "muxeon-pref:tree-expanded";
 
 /**
  * The EXPANDED group names of the sidebar tree (§15). Persisted as a JSON array

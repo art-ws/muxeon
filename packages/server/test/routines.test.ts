@@ -7,8 +7,8 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { SessionDriver } from "@teamai/orchestrator";
-import { type TeamaiServer, bootstrap } from "../src/bootstrap";
+import type { SessionDriver } from "@muxeon/orchestrator";
+import { type MuxeonServer, bootstrap } from "../src/bootstrap";
 
 const noopDriver = (): SessionDriver => ({
   inject: async () => undefined,
@@ -25,10 +25,10 @@ async function waitFor(predicate: () => boolean, timeoutMs = 5000): Promise<void
 
 describe("routine scheduler wired into the server (§6, §8.2)", () => {
   let dir: string;
-  let server: TeamaiServer;
+  let server: MuxeonServer;
 
   beforeEach(() => {
-    dir = mkdtempSync(join(tmpdir(), "teamai-routsrv-"));
+    dir = mkdtempSync(join(tmpdir(), "muxeon-routsrv-"));
   });
 
   afterEach(async () => {
@@ -38,7 +38,7 @@ describe("routine scheduler wired into the server (§6, §8.2)", () => {
 
   test("a once routine fires on boot and lands in the owner's queue", async () => {
     writeFileSync(
-      join(dir, "teamai.config.json"),
+      join(dir, "muxeon.config.json"),
       JSON.stringify({
         server: { port: 0, queueDir: "./queue", mcp: false },
         agents: [{ name: "researcher", type: "claude", tmux: "researcher" }],
@@ -52,7 +52,7 @@ describe("routine scheduler wired into the server (§6, §8.2)", () => {
     );
 
     server = await bootstrap({
-      configFile: join(dir, "teamai.config.json"),
+      configFile: join(dir, "muxeon.config.json"),
       probe: async () => false, // agent down — the signal still queues for its return (§5.1)
       makeDriver: noopDriver,
       autoStart: false, // no dispatcher draining; we inspect pending/ directly

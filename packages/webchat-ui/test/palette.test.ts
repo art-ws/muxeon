@@ -11,7 +11,7 @@ describe("agentColor (FR-73)", () => {
   });
 
   test("the pick comes from the palette", () => {
-    for (const name of ["aims", "ceo", "cto", "dev", "devops", "sherlock", "teamai"]) {
+    for (const name of ["aims", "ceo", "cto", "dev", "devops", "sherlock", "muxeon"]) {
       expect(AGENT_PALETTE).toContain(agentColor(name));
     }
   });
@@ -22,7 +22,7 @@ describe("agentColor (FR-73)", () => {
   });
 
   test("different names spread across the palette (not all one bucket)", () => {
-    const names = ["aims", "ceo", "cto", "dev", "devops", "sherlock", "teamai", "test", "tl"];
+    const names = ["aims", "ceo", "cto", "dev", "devops", "sherlock", "muxeon", "test", "tl"];
     const distinct = new Set(names.map((name) => agentColor(name)));
     expect(distinct.size).toBeGreaterThan(names.length / 2);
   });

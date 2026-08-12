@@ -21,7 +21,7 @@ const memoryStorage = (initial: Record<string, string> = {}) => {
   };
 };
 
-const KEY = "teamai-pref:visible-agents";
+const KEY = "muxeon-pref:visible-agents";
 
 describe("agent visibility (FR-76)", () => {
   test("default is show-all; save/load round-trips the picks", () => {

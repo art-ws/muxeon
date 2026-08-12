@@ -7,8 +7,8 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdtempSync, readdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { type Message, Topology } from "@teamai/core";
-import { ensureQueueDirs, queuePaths } from "@teamai/queue";
+import { type Message, Topology } from "@muxeon/core";
+import { ensureQueueDirs, queuePaths } from "@muxeon/queue";
 import { Router } from "../src/router";
 
 const KEYS = new Map([
@@ -32,7 +32,7 @@ function makeRouter(): Router {
 }
 
 beforeEach(async () => {
-  root = mkdtempSync(join(tmpdir(), "teamai-dnd-"));
+  root = mkdtempSync(join(tmpdir(), "muxeon-dnd-"));
   for (const key of KEYS.values()) await ensureQueueDirs(queuePaths(root, key));
   paused.clear();
 });

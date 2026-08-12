@@ -82,9 +82,9 @@ describe("path normalization (FR-82, §7.1)", () => {
   });
 
   test("with baseFile, relative cwd and provision.cwd resolve from config_dir", () => {
-    const { config } = loadConfig(withPaths, { baseFile: "/srv/teamai/teamai.config.json" });
+    const { config } = loadConfig(withPaths, { baseFile: "/srv/muxeon/muxeon.config.json" });
     expect(config.agents[0]?.cwd).toBe("/srv/agents/worker");
-    expect(config.agents[0]?.provision?.cwd).toBe("/srv/teamai/workspace");
+    expect(config.agents[0]?.provision?.cwd).toBe("/srv/muxeon/workspace");
     expect(config.agents[1]?.cwd).toBe("/srv/agent-abs"); // absolute passes through
     expect(config.agents[2]?.cwd).toBeUndefined(); // no cwd — nothing invented
   });
@@ -96,8 +96,8 @@ describe("path normalization (FR-82, §7.1)", () => {
 
   test("normalizeConfigPaths is exported and idempotent", () => {
     const { config } = loadConfig(withPaths);
-    const once = normalizeConfigPaths(config, "/srv/teamai");
-    const twice = normalizeConfigPaths(once, "/srv/teamai");
+    const once = normalizeConfigPaths(config, "/srv/muxeon");
+    const twice = normalizeConfigPaths(once, "/srv/muxeon");
     expect(twice).toEqual(once);
     expect(once.agents[0]?.provision?.command).toBe("claude"); // the rest untouched
   });

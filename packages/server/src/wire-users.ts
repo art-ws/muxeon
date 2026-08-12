@@ -13,20 +13,20 @@
 //      a re-send: the history already holds the record and the panel reads the
 //      tail on reconnect (decision §17.10-3 — no per-channel catch-up cursors).
 //
-// The history lives in @teamai/webchat and the queue in @teamai/orchestrator, so
+// The history lives in @muxeon/webchat and the queue in @muxeon/orchestrator, so
 // this sink can only be assembled HERE, in the server layer — exactly like the
 // legacy channel wiring next door (§8).
 
 import { join } from "node:path";
-import type { UserConfig } from "@teamai/config";
-import type { Signal } from "@teamai/core";
+import type { UserConfig } from "@muxeon/config";
+import type { Signal } from "@muxeon/core";
 import {
   EgressDispatcher,
   loadSessionDoneIds,
   parseRetainAge,
   sessionPaths,
-} from "@teamai/orchestrator";
-import { HistoryStore } from "@teamai/webchat";
+} from "@muxeon/orchestrator";
+import { HistoryStore } from "@muxeon/webchat";
 
 /** One bound channel a user's egress pushes into (§17.5). */
 export interface UserPushTarget {
@@ -74,7 +74,7 @@ export interface UsersHandle {
 const warn = (user: string, channel: string, error: unknown): void => {
   const reason = error instanceof Error ? error.message : String(error);
   process.stderr.write(
-    `teamai: warning: push to "${user}" over channel "${channel}" failed: ${reason} (§17.5 best-effort)\n`,
+    `muxeon: warning: push to "${user}" over channel "${channel}" failed: ${reason} (§17.5 best-effort)\n`,
   );
 };
 

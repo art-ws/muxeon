@@ -15,7 +15,7 @@
 // scrapes. The nudge stays operator-only: nudging an agent for every unanswered
 // peer message would FORCE a reply to every reply — the ack ping-pong §8.2 forbids.
 
-import type { Signal } from "@teamai/core";
+import type { Signal } from "@muxeon/core";
 
 export interface NudgerOptions {
   /** Operator nodes (§7.5) — only operator-origin messages expect a reply. */
@@ -31,7 +31,7 @@ export function nudgePayload(message: Signal): string {
   return [
     `You received message ${message.id} from ${message.from} and finished your turn without replying.`,
     "Text printed to the terminal does NOT reach the sender.",
-    `Reply NOW via the teamai MCP tool: send(to="${message.from}", replyTo="${message.id}") with your answer as plain-text payload.`,
+    `Reply NOW via the muxeon MCP tool: send(to="${message.from}", replyTo="${message.id}") with your answer as plain-text payload.`,
   ].join(" ");
 }
 

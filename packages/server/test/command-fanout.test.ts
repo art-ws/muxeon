@@ -1,17 +1,17 @@
 // Operator slash-command to a group/tag/agent INTERSECTION (§15.8, FR-115,
 // invariant §10.18). Two layers: the pure `commandFanout` orchestration (aggregate
 // shape, partial failure, empty/unknown handling) and the end-to-end wiring
-// (bootstrap → admin route `POST /admin/agents/command` + the `teamai command`
+// (bootstrap → admin route `POST /admin/agents/command` + the `muxeon command`
 // CLI), proving the intersection reaches real agent consoles via the control-lane.
 
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { type Adapter, AdapterRegistry } from "@teamai/adapters";
-import type { SessionControl } from "@teamai/lifecycle";
-import { buildBroadcastResolver, commandFanout } from "@teamai/orchestrator";
-import { type TeamaiServer, bootstrap } from "../src/bootstrap";
+import { type Adapter, AdapterRegistry } from "@muxeon/adapters";
+import type { SessionControl } from "@muxeon/lifecycle";
+import { buildBroadcastResolver, commandFanout } from "@muxeon/orchestrator";
+import { type MuxeonServer, bootstrap } from "../src/bootstrap";
 import { runCli } from "../src/cli/cli";
 
 // ── unit: the pure orchestration (no server) ───────────────────────────────
@@ -129,15 +129,15 @@ class FakeSessions implements SessionControl {
 
 describe("admin /agents/command + CLI (§15.8, end-to-end)", () => {
   let dir: string;
-  let server: TeamaiServer;
+  let server: MuxeonServer;
   let out: string[];
   let err: string[];
 
   beforeEach(async () => {
-    dir = mkdtempSync(join(tmpdir(), "teamai-cmdfan-"));
+    dir = mkdtempSync(join(tmpdir(), "muxeon-cmdfan-"));
     out = [];
     err = [];
-    const configFile = join(dir, "teamai.config.json");
+    const configFile = join(dir, "muxeon.config.json");
     writeFileSync(
       configFile,
       JSON.stringify({
@@ -236,7 +236,7 @@ describe("admin /agents/command + CLI (§15.8, end-to-end)", () => {
     expect(noSlash.status).toBe(400);
   });
 
-  test("teamai command <slash> <selector…> prints targets + per-agent results", async () => {
+  test("muxeon command <slash> <selector…> prints targets + per-agent results", async () => {
     const code = await runCli(["--url", server.adminUrl, "command", "ping", "devs", "backend"], {
       stdout: (l) => out.push(l),
       stderr: (l) => err.push(l),

@@ -1,4 +1,4 @@
-# Contributing to TEAMAI
+# Contributing to MUXEON
 
 Thanks for taking the time. This document covers what the project expects from
 a change and how to get it verified.
@@ -62,7 +62,7 @@ Environment notes:
 
 - Tests that exercise tmux **skip** when no `tmux` binary is present; they do
   not fail. Install tmux to run them.
-- Tests that bind loopback ports (8080/8091) fail with `EADDRINUSE` if a TEAMAI
+- Tests that bind loopback ports (8080/8091) fail with `EADDRINUSE` if a MUXEON
   instance is already running locally — stop it first.
 - If your shell exports `HTTP_PROXY`, run the suite as `env -u HTTP_PROXY bun
   test` so loopback requests are not intercepted by the proxy.
@@ -96,7 +96,7 @@ a title. Housekeeping types (`chore`, `ci`, `test`, `style`, `build`) stay out
 unless the commit carries a `BREAKING CHANGE:` note, which is never hidden.
 Write the body accordingly: the opening paragraph is what your users read.
 
-The npm package is the **root** package: `bin/teamai.js` (a Node shim that
+The npm package is the **root** package: `bin/muxeon.js` (a Node shim that
 re-execs `bun`) plus `dist/` (the bundled server and the panel under `dist/ui`).
 `files` in `package.json` is the allowlist — nothing under `packages/` ships.
 

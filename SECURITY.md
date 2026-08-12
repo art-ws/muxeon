@@ -2,7 +2,7 @@
 
 ## Trust model — read this before deploying
 
-TEAMAI coordinates **mutually trusted local agents on one machine**. That
+MUXEON coordinates **mutually trusted local agents on one machine**. That
 assumption is load-bearing; the following are properties of the design, not
 oversights:
 
@@ -32,7 +32,7 @@ oversights:
   Both flags (`publish` on the satellite, `relay` on the hub's accept) default
   to false; relay is for hubs the satellites trust.
 
-In short: run TEAMAI on a machine whose local processes you trust, and keep its
+In short: run MUXEON on a machine whose local processes you trust, and keep its
 ports off the network.
 
 ## What *is* defended
@@ -54,7 +54,7 @@ each with a negative test in the suite:
 ## Reporting a vulnerability
 
 Please do **not** open a public issue. Report privately via GitHub's
-[security advisory form](https://github.com/art-ws/teamai/security/advisories/new).
+[security advisory form](https://github.com/art-ws/muxeon/security/advisories/new).
 
 Include what you can reproduce, the impact you believe it has, and the version
 or commit you tested. You will get an acknowledgement, and a fix or an

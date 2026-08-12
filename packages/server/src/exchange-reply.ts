@@ -6,8 +6,8 @@
 // after complete() — a crash here loses at most the reply, never the turn.
 
 import { readFile } from "node:fs/promises";
-import type { Signal } from "@teamai/core";
-import type { BlobStore, Exchange } from "@teamai/orchestrator";
+import type { Signal } from "@muxeon/core";
+import type { BlobStore, Exchange } from "@muxeon/orchestrator";
 
 /** Extension → mime for §12.5 refs; unknown → octet-stream (FR-46). */
 export const MIME_BY_EXT: Record<string, string> = {
@@ -72,7 +72,7 @@ export async function routeExchangeReply(
     }
     if (bytes.length > ARTIFACT_CAP_BYTES) {
       warn(
-        `teamai: warning: exchange artifact "${file.name}" of ${deps.agent} exceeds ${ARTIFACT_CAP_BYTES} bytes — skipped (FR-46)`,
+        `muxeon: warning: exchange artifact "${file.name}" of ${deps.agent} exceeds ${ARTIFACT_CAP_BYTES} bytes — skipped (FR-46)`,
       );
       continue;
     }
@@ -104,7 +104,7 @@ export async function routeExchangeReply(
     // and under the recipient's pause (§16.2, FR-117). It was produced but not
     // delivered — never drop it silently; warn so the refusal is visible.
     warn(
-      `teamai: warning: reply from ${deps.agent} to "${message.from}" refused (${result.code}${
+      `muxeon: warning: reply from ${deps.agent} to "${message.from}" refused (${result.code}${
         result.code === "WIP_LIMIT" ? `, limit ${result.limit}, ${result.depth} in flight` : ""
       }) — not delivered (${result.code === "AGENT_PAUSED" ? "§16.2" : "FR-104"})`,
     );

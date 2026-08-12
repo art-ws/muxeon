@@ -3,8 +3,8 @@
 // CLI agents (claude/openclaude) declare their own clientInfo.name (`claude-code`) and
 // cannot be told to declare the agent's identity — so the agent's OWNER registers this
 // shim as a stdio MCP server (e.g. in the workspace .mcp.json) and the shim performs the
-// upstream `initialize` with clientInfo.name = TEAMAI_AGENT_NAME. Registration is the
-// owner's action in the agent's own config — TEAMAI itself never touches agent
+// upstream `initialize` with clientInfo.name = MUXEON_AGENT_NAME. Registration is the
+// owner's action in the agent's own config — MUXEON itself never touches agent
 // configuration (FR-11b).
 //
 // DURABILITY (FR-89). The agent's stdio link to the shim is the stable contract; the
@@ -12,14 +12,14 @@
 // hostage: it connects to the agent-plane LAZILY and, on ANY upstream failure — a server
 // restart invalidates our session id (→ 404 "unknown session"); a server still booting
 // refuses the connection — it drops the dead client and RE-INITIALIZES on the next call.
-// So a TEAMAI server restart no longer severs agents: no `teamai restart <agent>` needed.
+// So a MUXEON server restart no longer severs agents: no `muxeon restart <agent>` needed.
 // A shim that started BEFORE the server keeps retrying in the background and, on the first
 // connect, emits tools/list_changed so the agent's client lists the §8.6 tools once they
 // appear. The proxy stays transparent: tools/list and tools/call are forwarded verbatim,
 // so the agent sees exactly the §8.6 set and nothing here changes when the plane evolves.
 //
-// Run: TEAMAI_AGENT_NAME=<topology-name> bun packages/server/src/mcp/shim.ts
-// Env: TEAMAI_MCP_URL — agent-plane endpoint (default http://127.0.0.1:8080/mcp).
+// Run: MUXEON_AGENT_NAME=<topology-name> bun packages/server/src/mcp/shim.ts
+// Env: MUXEON_MCP_URL — agent-plane endpoint (default http://127.0.0.1:8080/mcp).
 
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
@@ -38,9 +38,9 @@ const PROXY_VARS = ["HTTP_PROXY", "http_proxy", "HTTPS_PROXY", "https_proxy"];
 if (
   import.meta.main &&
   PROXY_VARS.some((key) => process.env[key] !== undefined) &&
-  process.env.TEAMAI_SHIM_REEXEC !== "1"
+  process.env.MUXEON_SHIM_REEXEC !== "1"
 ) {
-  const env: Record<string, string | undefined> = { ...process.env, TEAMAI_SHIM_REEXEC: "1" };
+  const env: Record<string, string | undefined> = { ...process.env, MUXEON_SHIM_REEXEC: "1" };
   for (const key of PROXY_VARS) delete env[key];
   const child = Bun.spawn({
     cmd: [process.execPath, ...process.argv.slice(1)],
@@ -159,7 +159,7 @@ function unreachable(url: string, error: unknown): CallToolResult {
     content: [
       {
         type: "text",
-        text: `${UNREACHABLE}: teamai agent-plane unreachable at ${url} (${reason}); it reconnects automatically — retry.`,
+        text: `${UNREACHABLE}: muxeon agent-plane unreachable at ${url} (${reason}); it reconnects automatically — retry.`,
       },
     ],
     structuredContent: { error: UNREACHABLE },
@@ -180,7 +180,7 @@ export function buildShim(
 ): { server: Server; warmUp: () => Promise<void> } {
   // Advertise tools.listChanged so we can prompt the agent's client to re-list on (re)connect.
   const server = new Server(
-    { name: "teamai-shim", version: "0" },
+    { name: "muxeon-shim", version: "0" },
     { capabilities: { tools: { listChanged: true } } },
   );
   let lastError: string | null = null;
@@ -193,7 +193,7 @@ export function buildShim(
       // Dedup: a down server retries forever; log only when the reason changes.
       if (reason === lastError) return;
       lastError = reason;
-      process.stderr.write(`teamai-shim: upstream connect failed — ${reason}\n`);
+      process.stderr.write(`muxeon-shim: upstream connect failed — ${reason}\n`);
     },
   });
 
@@ -249,10 +249,10 @@ async function main(agentName: string, url: string): Promise<void> {
 }
 
 if (import.meta.main) {
-  const name = process.env.TEAMAI_AGENT_NAME;
-  const url = process.env.TEAMAI_MCP_URL ?? "http://127.0.0.1:8080/mcp";
+  const name = process.env.MUXEON_AGENT_NAME;
+  const url = process.env.MUXEON_MCP_URL ?? "http://127.0.0.1:8080/mcp";
   if (name === undefined || name === "") {
-    process.stderr.write("teamai-shim: TEAMAI_AGENT_NAME is required (the topology name, §8.6)\n");
+    process.stderr.write("muxeon-shim: MUXEON_AGENT_NAME is required (the topology name, §8.6)\n");
     process.exit(1);
   }
   await main(name, url);

@@ -9,7 +9,7 @@ import { type EnvSource, joinPointer, processEnv, resolveEnv } from "./env";
 import { ConfigError } from "./error";
 import { resolveRefs } from "./ref";
 import {
-  type TeamaiConfig,
+  type MuxeonConfig,
   assertChannelSecretsAreEnvRefs,
   assertFederationTokensAreEnvRefs,
   inlineUserPasswords,
@@ -29,7 +29,7 @@ export interface LoadOptions {
 }
 
 export interface LoadResult {
-  readonly config: TeamaiConfig;
+  readonly config: MuxeonConfig;
   /** JSON Pointer paths resolved from `$env` (secrets); pass to `redact` for logs. */
   readonly secretPaths: readonly string[];
   /** Non-fatal §7.5 advisories (e.g. an operator with no topology edges). */
@@ -86,7 +86,7 @@ export function loadConfig(text: string, options: LoadOptions = {}): LoadResult 
  * already resolves from at wiring. Absolute paths pass through unchanged;
  * loadConfig applies this automatically when the config's location is known.
  */
-export function normalizeConfigPaths(config: TeamaiConfig, configDir: string): TeamaiConfig {
+export function normalizeConfigPaths(config: MuxeonConfig, configDir: string): MuxeonConfig {
   return {
     ...config,
     agents: config.agents.map((agent) => ({

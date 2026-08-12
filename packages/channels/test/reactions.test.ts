@@ -7,8 +7,8 @@ import { describe, expect, test } from "bun:test";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { Signal } from "@teamai/core";
-import { createBlobStore } from "@teamai/orchestrator";
+import type { Signal } from "@muxeon/core";
+import { createBlobStore } from "@muxeon/orchestrator";
 import { SlackConnector } from "../src/slack";
 import { TelegramConnector, type TelegramIncoming } from "../src/telegram";
 
@@ -22,7 +22,7 @@ async function makeTelegram(): Promise<{
   stop: () => Promise<void>;
 }> {
   const texts: string[] = [];
-  const blobs = await createBlobStore(mkdtempSync(join(tmpdir(), "teamai-reactions-")));
+  const blobs = await createBlobStore(mkdtempSync(join(tmpdir(), "muxeon-reactions-")));
   const connector = new TelegramConnector({
     bindOperator: "operator",
     api: {
@@ -76,7 +76,7 @@ describe("reaction kind across connectors (FR-25b)", () => {
 
   test("slack renders a reaction and ignores unknown kinds the same way", async () => {
     const texts: string[] = [];
-    const blobs = await createBlobStore(mkdtempSync(join(tmpdir(), "teamai-reactions-")));
+    const blobs = await createBlobStore(mkdtempSync(join(tmpdir(), "muxeon-reactions-")));
     const connector = new SlackConnector({
       bindOperator: "operator",
       api: {

@@ -1,5 +1,5 @@
 // Server build info (FR-91): the version plus the deployed commit and its date,
-// shown on the panel's Settings page. TEAMAI runs from SOURCE (no build step, R1),
+// shown on the panel's Settings page. MUXEON runs from SOURCE (no build step, R1),
 // so "build time" is the HEAD commit's committer date — the honest marker of when
 // the running code was produced. Captured once at boot (git is cheap and cached);
 // a non-git deployment (tarball) degrades gracefully to version-only.

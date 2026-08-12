@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import { Topology } from "@teamai/core";
-import { Router } from "@teamai/orchestrator";
+import { Topology } from "@muxeon/core";
+import { Router } from "@muxeon/orchestrator";
 import { AGENT_TOOLS, AGENT_TOOL_NAMES, createAgentServer, startAgentPlane } from "../src/mcp";
 import { LOOPBACK_DIRECT, connectClient } from "./mcp-helpers";
 
@@ -60,7 +60,7 @@ describe("plane isolation — agent-plane is exactly the closed set, no ungated 
   describe.skipIf(!LOOPBACK_DIRECT)("over the wire", () => {
     test("a connected client's tools/list returns exactly the closed set", async () => {
       const topology = new Topology({ a: ["b"], b: ["a"] });
-      const router = new Router({ topology, root: "/tmp/teamai-unused", queueKeyOf: () => null });
+      const router = new Router({ topology, root: "/tmp/muxeon-unused", queueKeyOf: () => null });
       const plane = startAgentPlane({
         port: 0,
         isKnownIdentity: (n) => n === "a" || n === "b",

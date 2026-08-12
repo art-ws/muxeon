@@ -152,7 +152,7 @@ function scanOwnerDir(ownerDir: string, owner: string): DiscoveryResult {
 export interface MergedDiscoverOptions extends DiscoverOptions {
   /**
    * agent → its cwd (§7.1) for the cwd-side discovery (FR-21b, §6.2):
-   * <cwd>/.teamai/routines/*.md, versioned with the agent's repo. An agent with
+   * <cwd>/.muxeon/routines/*.md, versioned with the agent's repo. An agent with
    * no cwd (attach-only) gets central routines only.
    */
   readonly agentCwds?: ReadonlyMap<string, string>;
@@ -171,7 +171,7 @@ export function discoverRoutines(options: MergedDiscoverOptions): DiscoveryResul
   const key = (routine: Routine): string => `${routine.owner}\x00${routine.id}`;
 
   for (const [owner, cwd] of options.agentCwds ?? []) {
-    const scanned = scanOwnerDir(join(cwd, ".teamai", "routines"), owner);
+    const scanned = scanOwnerDir(join(cwd, ".muxeon", "routines"), owner);
     for (const routine of scanned.routines) merged.set(key(routine), routine);
     skipped.push(...scanned.skipped);
   }

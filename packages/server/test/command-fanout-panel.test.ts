@@ -9,9 +9,9 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { type Adapter, AdapterRegistry } from "@teamai/adapters";
-import type { SessionControl } from "@teamai/lifecycle";
-import { type TeamaiServer, bootstrap } from "../src/bootstrap";
+import { type Adapter, AdapterRegistry } from "@muxeon/adapters";
+import type { SessionControl } from "@muxeon/lifecycle";
+import { type MuxeonServer, bootstrap } from "../src/bootstrap";
 
 const PANEL_PORT = 19000 + Math.floor(Math.random() * 1500);
 let dir: string;
@@ -39,8 +39,8 @@ class FakeSessions implements SessionControl {
   }
 }
 
-async function boot(): Promise<TeamaiServer> {
-  const configFile = join(dir, "teamai.config.json");
+async function boot(): Promise<MuxeonServer> {
+  const configFile = join(dir, "muxeon.config.json");
   writeFileSync(
     configFile,
     JSON.stringify({
@@ -72,14 +72,14 @@ async function boot(): Promise<TeamaiServer> {
           type: "webchat",
           bindOperator: "operator-web",
           port: PANEL_PORT,
-          auth: { password: { $env: "TEAMAI_WEB_PASSWORD" } },
+          auth: { password: { $env: "MUXEON_WEB_PASSWORD" } },
         },
       ],
     }),
   );
   return bootstrap({
     configFile,
-    env: (name) => (name === "TEAMAI_WEB_PASSWORD" ? "hunter2" : undefined),
+    env: (name) => (name === "MUXEON_WEB_PASSWORD" ? "hunter2" : undefined),
     registry: dummyRegistry(),
     probe: async () => true,
     sessionControl: new FakeSessions(),
@@ -108,10 +108,10 @@ async function command(cookie: string, slash: string, selectors: string[]): Prom
 }
 
 describe("panel /api/agents/command (§15.8, FR-115)", () => {
-  let server: TeamaiServer;
+  let server: MuxeonServer;
 
   beforeEach(async () => {
-    dir = mkdtempSync(join(tmpdir(), "teamai-cmdfan-panel-"));
+    dir = mkdtempSync(join(tmpdir(), "muxeon-cmdfan-panel-"));
     server = await boot();
   });
   afterEach(async () => {

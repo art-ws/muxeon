@@ -4,7 +4,7 @@
 // lane, wired in bootstrap). Never reconciles a busy agent (FR-16b owns busy→down).
 
 import { describe, expect, test } from "bun:test";
-import type { AgentStatus } from "@teamai/core";
+import type { AgentStatus } from "@muxeon/core";
 import {
   LIVENESS_PROBE_DEFAULT_MS,
   LivenessProbeSweeper,

@@ -3,7 +3,7 @@
 // `origin:"raw"` (so the panel renders it as-is).
 
 import { describe, expect, test } from "bun:test";
-import type { Message, Signal } from "@teamai/core";
+import type { Message, Signal } from "@muxeon/core";
 import { routeRawReply } from "../src/raw-reply";
 
 function msg(id: string): Message {

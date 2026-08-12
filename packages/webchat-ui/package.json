@@ -1,9 +1,9 @@
 {
-  "name": "@teamai/webchat-ui",
+  "name": "@muxeon/webchat-ui",
   "version": "0.0.0",
   "private": true,
   "type": "module",
-  "description": "Operator web panel SPA (SPEC.md §12.7): React + TypeScript, bundled by `bun build` into dist/ and served as statics by @teamai/webchat. Build-time only — not part of the §8 runtime dependency graph.",
+  "description": "Operator web panel SPA (SPEC.md §12.7): React + TypeScript, bundled by `bun build` into dist/ and served as statics by @muxeon/webchat. Build-time only — not part of the §8 runtime dependency graph.",
   "scripts": {
     "build": "bun run build.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit"

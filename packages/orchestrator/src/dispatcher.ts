@@ -8,7 +8,7 @@
 // turn is injected and detected (TmuxSessionDriver is the real one). Per-session
 // detection state lives in the driver, not here.
 
-import type { Signal } from "@teamai/core";
+import type { Signal } from "@muxeon/core";
 import {
   type DequeuedItem,
   type QueuePaths,
@@ -16,7 +16,7 @@ import {
   dequeue,
   listPendingOrdered,
   readCur,
-} from "@teamai/queue";
+} from "@muxeon/queue";
 import { ControlLane } from "./control";
 import type { AgentState } from "./status";
 
@@ -87,7 +87,7 @@ export interface DispatcherOptions {
   /**
    * Lazy auto-revive (FR-51, §5.1): called by run() when the session is down WITH
    * work queued (cur/ or pending/ non-empty). The hook owns the attempt budget
-   * ("once per down-episode, with a stop" — Reviver in @teamai/lifecycle), so the
+   * ("once per down-episode, with a stop" — Reviver in @muxeon/lifecycle), so the
    * loop may call it every poll tick; a spent budget makes it a cheap no-op.
    * Default: none (operator-only recovery, e.g. attach-only agents or egress).
    */

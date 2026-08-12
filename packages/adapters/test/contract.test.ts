@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import type { Message } from "@teamai/core";
+import type { Message } from "@muxeon/core";
 import { defaultRender, makeDefaultRender, renderAttribution, renderRaw } from "../src/contract";
 
 function msg(overrides: Partial<Message> = {}): Message {
@@ -16,18 +16,18 @@ function msg(overrides: Partial<Message> = {}): Message {
 
 describe("default render / attribution (§8.3, FR-6)", () => {
   test("attribution carries from + id so the agent can reply", () => {
-    expect(renderAttribution(msg())).toBe("[teamai] from=researcher id=abc-123");
+    expect(renderAttribution(msg())).toBe("[muxeon] from=researcher id=abc-123");
   });
 
   test("attribution includes replyTo when present", () => {
     expect(renderAttribution(msg({ replyTo: "xyz" }))).toBe(
-      "[teamai] from=researcher id=abc-123 replyTo=xyz",
+      "[muxeon] from=researcher id=abc-123 replyTo=xyz",
     );
   });
 
   test("defaultRender is attribution + reply hint + payload (T57)", () => {
     const text = defaultRender(msg({ payload: "do the thing" }));
-    expect(text).toContain("[teamai] from=researcher id=abc-123");
+    expect(text).toContain("[muxeon] from=researcher id=abc-123");
     expect(text).toContain("do the thing");
     expect(text).toMatch(/from=researcher/);
     // The reply hint names the EXACT call — live finding: bare attribution is
@@ -47,7 +47,7 @@ describe("renderRaw (FR-88, §14.1)", () => {
   test("the payload text reaches the terminal VERBATIM — no preamble/hint", () => {
     const text = renderRaw(msg({ payload: "ls -la", raw: true }));
     expect(text).toBe("ls -la");
-    expect(text).not.toContain("[teamai]"); // no attribution (§14.1)
+    expect(text).not.toContain("[muxeon]"); // no attribution (§14.1)
     expect(text).not.toContain("send("); // no reply hint
   });
 
@@ -63,11 +63,11 @@ describe("renderRaw (FR-88, §14.1)", () => {
 // --- T70 (FR-52, §13.2): the hybrid file-contract instruction ------------------
 
 describe("exchange render (FR-52, §13.2)", () => {
-  const FILE = "/work/.teamai/inbox/abc-123/message.json";
+  const FILE = "/work/.muxeon/inbox/abc-123/message.json";
 
   test("short payload: inlined text + the file contract LAST (T57)", () => {
     const text = defaultRender(msg({ payload: "привет" }), { messageFile: FILE });
-    expect(text).toContain("[teamai] from=researcher id=abc-123");
+    expect(text).toContain("[muxeon] from=researcher id=abc-123");
     expect(text).toContain("привет"); // readable live chat in tmux
     expect(text).toContain(`full message: ${FILE}`);
     expect(text).toContain("reply.md");

@@ -7,8 +7,8 @@
 // to bytes only under <root>/blobs/ (BlobStore containment, §8.7) and pushed to the
 // last seen chat. The connector never touches the queue (§8, §10.8).
 
-import type { Message, Signal } from "@teamai/core";
-import type { BlobStore } from "@teamai/orchestrator";
+import type { Message, Signal } from "@muxeon/core";
+import type { BlobStore } from "@muxeon/orchestrator";
 import { resolveTarget } from "./address";
 import {
   type BlobRef,
@@ -147,7 +147,7 @@ export class TelegramConnector implements ChannelConnector {
       if (sender === undefined) {
         await this.#reply(
           incoming.chatId,
-          "teamai: this telegram account is not linked to a TEAMAI user — ask the operator to bind it",
+          "muxeon: this telegram account is not linked to a MUXEON user — ask the operator to bind it",
         );
         return;
       }
@@ -163,7 +163,7 @@ export class TelegramConnector implements ChannelConnector {
         // §3.2: no @agent and no defaultTarget → clear error to the operator, not a crash.
         await this.#reply(
           incoming.chatId,
-          "teamai: no recipient — address an agent with @name (no default target is set)",
+          "muxeon: no recipient — address an agent with @name (no default target is set)",
         );
         return;
       }
@@ -174,7 +174,7 @@ export class TelegramConnector implements ChannelConnector {
     try {
       payload = await this.#buildPayload(incoming);
     } catch {
-      await this.#reply(incoming.chatId, "teamai: failed to fetch the attached media");
+      await this.#reply(incoming.chatId, "muxeon: failed to fetch the attached media");
       return;
     }
     if (payload === undefined) return; // nothing deliverable (e.g. a service update)

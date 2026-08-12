@@ -12,7 +12,7 @@
 // idle). Notices carry a deterministic id (`rv:<A>:<B>:<attempt>`) so a duplicate
 // (concurrent tick, redelivery) collapses in the done/ dedup window (§10.9).
 
-import type { AgentStatus, Signal } from "@teamai/core";
+import type { AgentStatus, Signal } from "@muxeon/core";
 import type { RendezvousStore } from "./rendezvous";
 import type { RendezvousStateStore } from "./rendezvous-state";
 
@@ -189,7 +189,7 @@ export class RendezvousCoordinator {
         const res = this.#store.expireFront(from, this.#maxAttempts);
         if (res?.outcome === "dropped") {
           this.#log(
-            `teamai: rendezvous gave up on ${from}→${res.to} after ${this.#maxAttempts} attempts (FR-105)`,
+            `muxeon: rendezvous gave up on ${from}→${res.to} after ${this.#maxAttempts} attempts (FR-105)`,
           );
         }
       }
@@ -214,7 +214,7 @@ export class RendezvousCoordinator {
           // A rendezvous notice only fails on a permanent topology/unknown error →
           // the pair can never be reconnected; drop the intent rather than spin.
           this.#log(
-            `teamai: rendezvous notice ${from}→${to} undeliverable — dropping intent (FR-105)`,
+            `muxeon: rendezvous notice ${from}→${to} undeliverable — dropping intent (FR-105)`,
           );
           this.#store.resolve(from, to);
         }

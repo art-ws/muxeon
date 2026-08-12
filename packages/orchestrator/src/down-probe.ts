@@ -5,7 +5,7 @@
 // silent, so only the probe surfaces the loss. A confirmed absence frees the turn so cur/ is re-sent on
 // restart (at-least-once, §10.9) instead of hanging forever waiting for idle.
 
-import { hasSession as tmuxHasSession } from "@teamai/tmux";
+import { hasSession as tmuxHasSession } from "@muxeon/tmux";
 
 export interface DownProbeOptions {
   /** Session-existence check; default tmux has-session. Injectable for tests. */

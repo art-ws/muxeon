@@ -5,7 +5,7 @@
 
 import { readdir } from "node:fs/promises";
 import { join } from "node:path";
-import type { Signal } from "@teamai/core";
+import type { Signal } from "@muxeon/core";
 import type { QueuePaths } from "./layout";
 import { readMessage } from "./record";
 

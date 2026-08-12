@@ -1,6 +1,6 @@
 // The durable agent-side shim (FR-89): the agent's stdio link stays up while the upstream
 // agent-plane session is disposable — a server restart, or a server that isn't up yet, is
-// ridden out by lazy connect + reconnect-on-failure, with no `teamai restart <agent>`.
+// ridden out by lazy connect + reconnect-on-failure, with no `muxeon restart <agent>`.
 //
 // Two layers: a deterministic suite drives the real shim Server (linked in-memory to a real
 // SDK Client) over an INJECTED fake upstream that models a server epoch (restart) and a down
@@ -196,7 +196,7 @@ describe("Upstream.run reconnect (FR-89)", () => {
 const KNOWN = new Set(["alice"]);
 
 function echoServer(caller: string): Server {
-  const server = new Server({ name: "teamai", version: "0" }, { capabilities: { tools: {} } });
+  const server = new Server({ name: "muxeon", version: "0" }, { capabilities: { tools: {} } });
   server.setRequestHandler(ListToolsRequestSchema, async () => ({
     tools: [
       {

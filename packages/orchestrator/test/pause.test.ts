@@ -73,7 +73,7 @@ describe("createFsPauseStore — state/paused.json (§16.4)", () => {
   let stateDir: string;
 
   beforeEach(() => {
-    stateDir = mkdtempSync(join(tmpdir(), "teamai-pause-"));
+    stateDir = mkdtempSync(join(tmpdir(), "muxeon-pause-"));
   });
 
   afterEach(() => {

@@ -2,10 +2,10 @@
 //
 // Encodes SPEC.md §8's acyclic package layering and verifies the workspace
 // conforms — both at the declared-dependency level (package.json) and at the
-// real-import level (source `from "@teamai/x"`). This is the structural guard
+// real-import level (source `from "@muxeon/x"`). This is the structural guard
 // that makes "обход графа невозможен импортом" (§8) a tested invariant: a
-// dependency edge against the layering, a cycle, or any consumer of @teamai/queue
-// other than @teamai/orchestrator fails the suite.
+// dependency edge against the layering, a cycle, or any consumer of @muxeon/queue
+// other than @muxeon/orchestrator fails the suite.
 
 import { describe, expect, test } from "bun:test";
 import { existsSync, readFileSync, readdirSync } from "node:fs";
@@ -13,14 +13,14 @@ import { join } from "node:path";
 
 const ROOT = join(import.meta.dir, "..");
 const PKG_DIR = join(ROOT, "packages");
-const SCOPE = "@teamai/";
+const SCOPE = "@muxeon/";
 
 // SPEC.md §8 layering (lower index = lower layer). The 13-package set is fixed:
 // core < {config, tmux, queue} < adapters < orchestrator
 //      < {lifecycle, signals, routines, channels, webchat, federation} < server
 // webchat-ui (§12.7) is BUILD-TIME ONLY: bundled browser assets served as
 // statics by webchat — never a runtime import, so it sits outside the layering
-// (it must not depend on any @teamai package and nothing may depend on it).
+// (it must not depend on any @muxeon package and nothing may depend on it).
 const LAYER: Record<string, number> = {
   core: 0,
   config: 1,
@@ -54,7 +54,7 @@ const SAME_LAYER_ALLOWED: Record<string, readonly string[]> = {
 };
 
 // SPEC.md §8 / §10.2: queue's mutating ops are not exported above orchestrator —
-// only orchestrator may depend on @teamai/queue.
+// only orchestrator may depend on @muxeon/queue.
 const QUEUE = "queue";
 const QUEUE_CONSUMER = "orchestrator";
 
@@ -79,17 +79,17 @@ function packageDirs(): string[] {
     .sort();
 }
 
-// Bare (unscoped) names of the @teamai/* workspace dependencies declared by a package.
+// Bare (unscoped) names of the @muxeon/* workspace dependencies declared by a package.
 function declaredDeps(pkg: PkgJson): string[] {
   return Object.keys(pkg.dependencies ?? {})
     .filter((n) => n.startsWith(SCOPE))
     .map((n) => n.slice(SCOPE.length));
 }
 
-// Bare names of @teamai/* packages imported by any source file under packages/<pkg>/src.
+// Bare names of @muxeon/* packages imported by any source file under packages/<pkg>/src.
 function importedDeps(pkg: string): Set<string> {
   const found = new Set<string>();
-  const re = /(?:from|import)\s*\(?\s*["']@teamai\/([\w-]+)["']/g;
+  const re = /(?:from|import)\s*\(?\s*["']@muxeon\/([\w-]+)["']/g;
   for (const rel of new Bun.Glob("src/**/*.{ts,tsx}").scanSync(join(PKG_DIR, pkg))) {
     const src = readFileSync(join(PKG_DIR, pkg, rel), "utf8");
     for (const m of src.matchAll(re)) {
@@ -138,7 +138,7 @@ const graph: Record<string, string[]> = {};
 for (const d of dirs) graph[d] = declaredDeps(readPkg(d));
 
 describe("§8 package layering", () => {
-  test("exactly the 13 spec packages exist, named @teamai/<dir>", () => {
+  test("exactly the 13 spec packages exist, named @muxeon/<dir>", () => {
     expect(dirs).toEqual(EXPECTED_PACKAGES);
     for (const d of dirs) {
       const pkg = readPkg(d);
@@ -159,7 +159,7 @@ describe("§8 package layering", () => {
     }
   });
 
-  test("asset packages are graph-isolated: no @teamai edges either way (§12.7)", () => {
+  test("asset packages are graph-isolated: no @muxeon edges either way (§12.7)", () => {
     for (const d of ASSET_PACKAGES) {
       expect(declaredDeps(readPkg(d))).toEqual([]);
       expect([...importedDeps(d)]).toEqual([]);
@@ -170,7 +170,7 @@ describe("§8 package layering", () => {
     }
   });
 
-  test("declared dependencies are real @teamai packages, no self-edges", () => {
+  test("declared dependencies are real @muxeon packages, no self-edges", () => {
     for (const [pkg, deps] of Object.entries(graph)) {
       for (const dep of deps) {
         expect(EXPECTED_PACKAGES).toContain(dep);
@@ -194,7 +194,7 @@ describe("§8 package layering", () => {
     }
   });
 
-  test("@teamai/queue is consumed only by @teamai/orchestrator (§8, §10.2)", () => {
+  test("@muxeon/queue is consumed only by @muxeon/orchestrator (§8, §10.2)", () => {
     for (const [pkg, deps] of Object.entries(graph)) {
       if (deps.includes(QUEUE)) expect(pkg).toBe(QUEUE_CONSUMER);
     }
