@@ -1,3 +1,27 @@
+## [0.1.8](https://github.com/art-ws/muxeon/compare/v0.1.7...v0.1.8) (2026-08-12)
+
+
+### Changes
+
+* **T239:** the turn dir is the coordinator's, and an undelivered answer is never silent
+
+  Live complaint (operator, exchange 2026-08-09): "the file exchange has not picked up the reply twice in a row — message.json deleted, the folder with reply.md just sits there". ([d42eebe](https://github.com/art-ws/muxeon/commit/d42eebe9b95a79f71429bde7626e36f35af0b117))
+* **T245:** rename the project to muxeon (B6/B7, prepared off the live checkout)
+
+  Stage B6 of docs/spec-muxeon-migration.md, done ahead of the cutover window on a branch in a separate worktree so the live stand keeps running from the old checkout untouched. Nothing here renames data or moves directories — that is B5 and B8-B14, and they still need a stopped stand. ([c17666a](https://github.com/art-ws/muxeon/commit/c17666a05a1f46f515a8a63edcbad021764379b2)), closes [#3](https://github.com/art-ws/muxeon/issues/3)
+* **T246:** release.yml — a temporary NPM_TOKEN for the first publish (C1)
+
+  npm cannot configure a trusted publisher for a package that does not exist yet: the setting lives on the package's own settings page, and publishing an initial ([5de245d](https://github.com/art-ws/muxeon/commit/5de245da8e5c2af6ac3446399db468c2df53a630)), closes [npm/cli#8544](https://github.com/npm/cli/issues/8544)
+* **T248:** C3 — the package is unscoped, so the docs must say so
+
+  The layered rename left one thing wrong in prose. `@art-ws/teamai` became `@art-ws/muxeon` everywhere it appeared as text, which is right for repository ([f37c9bc](https://github.com/art-ws/muxeon/commit/f37c9bcb7a2efd7f48ae5df41aa1f97be1a0b21b)), closes [#3](https://github.com/art-ws/muxeon/issues/3)
+* **T249:** write the name as Muxeon in prose, not MUXEON
+
+  The all-caps spelling was inherited, not chosen: TEAMAI is an acronym-ish compound where caps read as a wordmark, and the rename carried the shape over to a coined word, where it reads as shouting. Operator's call to change it. ([c5b8481](https://github.com/art-ws/muxeon/commit/c5b84812f34de638d044b79414a8b4063dd932ad))
+* **T250:** release — npm reads NODE_AUTH_TOKEN here, not NPM_TOKEN
+
+  Both dry runs failed with `EINVALIDNPMTOKEN Invalid npm token`, which reads like a bad secret and is not one. The runner log shows what actually happens: setup-node's `registry-url` writes an .npmrc holding `_authToken=${NODE_AUTH_TOKEN}` and points NPM_CONFIG_USERCONFIG at it, then exports NODE_AUTH_TOKEN with its own… ([525b6f2](https://github.com/art-ws/muxeon/commit/525b6f22376f1f7971027e208e107e1e04bdad05))
+
 ## [0.1.7](https://github.com/art-ws/muxeon/compare/v0.1.6...v0.1.7) (2026-08-02)
 
 
