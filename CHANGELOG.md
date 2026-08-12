@@ -1,3 +1,12 @@
+## [0.1.9](https://github.com/art-ws/muxeon/compare/v0.1.8...v0.1.9) (2026-08-12)
+
+
+### Changes
+
+* **T252:** provenance lives in publishConfig, not in the plugin options
+
+  0.1.8 published cleanly and without an attestation. The cause is a line that has been wrong since it was written: `.releaserc.cjs` passed `provenance: true` as an option to @semantic-release/npm, and that plugin has no such option — it wraps `npm publish`, so provenance must be configured where npm itself reads it, in… ([c5b4ee9](https://github.com/art-ws/muxeon/commit/c5b4ee96a7643d1f90c9fa81e528148e8ac7a9af))
+
 ## [0.1.8](https://github.com/art-ws/muxeon/compare/v0.1.7...v0.1.8) (2026-08-12)
 
 
