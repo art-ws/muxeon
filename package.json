@@ -1,6 +1,6 @@
 {
   "name": "muxeon",
-  "version": "0.1.8",
+  "version": "0.1.7",
   "type": "module",
   "description": "Muxeon — transport and coordinator for local CLI agents running in tmux sessions.",
   "keywords": [
