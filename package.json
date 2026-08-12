@@ -40,7 +40,8 @@
     "bun": ">=1.2"
   },
   "publishConfig": {
-    "access": "public"
+    "access": "public",
+    "provenance": true
   },
   "workspaces": [
     "packages/*"

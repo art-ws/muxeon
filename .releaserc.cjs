@@ -101,7 +101,13 @@ module.exports = {
     ],
     ["@semantic-release/release-notes-generator", { writerOpts: { transform } }],
     ["@semantic-release/changelog", { changelogFile: "CHANGELOG.md" }],
-    ["@semantic-release/npm", { npmPublish: true, provenance: true }],
+    // Provenance is NOT configurable here: this plugin wraps `npm publish` and
+    // exposes no such option, so a `provenance: true` written at this level is
+    // silently ignored — which is what shipped 0.1.8 without an attestation.
+    // It lives in package.json `publishConfig.provenance`, which npm itself
+    // reads. Under trusted publishing npm attests automatically and the missing
+    // flag never showed; on token auth it does.
+    ["@semantic-release/npm", { npmPublish: true }],
     "@semantic-release/github",
     [
       "@semantic-release/git",
