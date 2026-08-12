@@ -59,15 +59,26 @@ jobs:
           test -f dist/index.js
           test -f dist/ui/index.html
 
-      # No NPM_TOKEN on purpose: @semantic-release/npm (>=13) detects the Actions
-      # OIDC context and exchanges it for a short-lived registry credential, so
+      # NPM_TOKEN is TEMPORARY and exists for exactly one release — the first
+      # publish of `muxeon`. npm cannot configure a trusted publisher for a
+      # package that does not exist yet (the setting lives on the package's own
+      # settings page, npm/cli#8544), so the first version cannot come from OIDC.
+      # Provenance is unaffected: the SLSA attestation is produced by the cloud
+      # runner, not by the auth method, and npm's own docs publish with a token.
+      # Publishing this from a laptop instead WOULD lose the badge, permanently
+      # for that version — attestations cannot be added after the fact.
+      #
+      # AFTER the first release: configure the trusted publisher on npmjs.com —
+      # it must name THIS repository and THIS workflow file (release.yml)
+      # exactly, the filename is part of the match — then delete the NPM_TOKEN
+      # secret and this env line. @semantic-release/npm (>=13) then detects the
+      # Actions OIDC context and exchanges it for a short-lived credential, so
       # there is no long-lived secret to store or rotate. It falls back to token
       # auth when no OIDC context is established — so an EINVALIDNPMTOKEN failure
-      # here means the trusted publisher did not match, NOT a missing secret.
-      #
-      # The trusted publisher on npmjs.com must name THIS repository and THIS
-      # workflow file (release.yml) exactly — the filename is part of the match.
+      # once the token is gone means the trusted publisher did not match, NOT a
+      # missing secret.
       - name: semantic-release
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }} # temporary — remove with the trusted publisher (C1a)
         run: npx semantic-release ${{ inputs.dry_run && '--dry-run' || '' }}
