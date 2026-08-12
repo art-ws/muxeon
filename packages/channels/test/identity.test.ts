@@ -131,7 +131,7 @@ describe("telegram in users mode (§17.6, FR-125/FR-126)", () => {
     api.push(incoming({ text: "@dev hi", sender: { username: "stranger" } }));
     await waitFor(() => api.sent.length > 0);
     expect(routed).toEqual([]);
-    expect(api.sent[0]?.text).toMatch(/not linked to a MUXEON user/);
+    expect(api.sent[0]?.text).toMatch(/not linked to a Muxeon user/);
   });
 
   test("a bound sender is attributed to their user, target from the mention", async () => {

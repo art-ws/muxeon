@@ -2,7 +2,7 @@
   "name": "muxeon",
   "version": "0.1.7",
   "type": "module",
-  "description": "MUXEON — transport and coordinator for local CLI agents running in tmux sessions.",
+  "description": "Muxeon — transport and coordinator for local CLI agents running in tmux sessions.",
   "keywords": [
     "ai-agents",
     "multi-agent",

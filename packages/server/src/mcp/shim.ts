@@ -4,7 +4,7 @@
 // cannot be told to declare the agent's identity — so the agent's OWNER registers this
 // shim as a stdio MCP server (e.g. in the workspace .mcp.json) and the shim performs the
 // upstream `initialize` with clientInfo.name = MUXEON_AGENT_NAME. Registration is the
-// owner's action in the agent's own config — MUXEON itself never touches agent
+// owner's action in the agent's own config — Muxeon itself never touches agent
 // configuration (FR-11b).
 //
 // DURABILITY (FR-89). The agent's stdio link to the shim is the stable contract; the
@@ -12,7 +12,7 @@
 // hostage: it connects to the agent-plane LAZILY and, on ANY upstream failure — a server
 // restart invalidates our session id (→ 404 "unknown session"); a server still booting
 // refuses the connection — it drops the dead client and RE-INITIALIZES on the next call.
-// So a MUXEON server restart no longer severs agents: no `muxeon restart <agent>` needed.
+// So a Muxeon server restart no longer severs agents: no `muxeon restart <agent>` needed.
 // A shim that started BEFORE the server keeps retrying in the background and, on the first
 // connect, emits tools/list_changed so the agent's client lists the §8.6 tools once they
 // appear. The proxy stays transparent: tools/list and tools/call are forwarded verbatim,

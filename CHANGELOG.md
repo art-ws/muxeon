@@ -53,7 +53,7 @@
 
 * **T217:** federation of servers
 
-  A MUXEON server can now export its actors and import a neighbour's — agents and users on different instances interact as if they shared one machine, addressed by email-style FQNs (`dev@hq`, chains grow right, resolve by the LAST `@` — decision §18.10-8). ([ff81829](https://github.com/art-ws/muxeon/commit/ff81829327447ef2fd736e79f83e63e9c4386f71))
+  A Muxeon server can now export its actors and import a neighbour's — agents and users on different instances interact as if they shared one machine, addressed by email-style FQNs (`dev@hq`, chains grow right, resolve by the LAST `@` — decision §18.10-8). ([ff81829](https://github.com/art-ws/muxeon/commit/ff81829327447ef2fd736e79f83e63e9c4386f71))
 * **T219:** LLM.md learns federation (§18) — the runbook can now join stands
 
   The agent runbook stops at a single server; the product no longer does. New step 11 "Federation — joining stands (only if asked)": both sides of a link (exporter's federation{} + exported actors, importer's imports[] + the edge on the import node), the FQN naming rule, the debugging-cycle notes ($env-only tokens in bot… ([97b46ec](https://github.com/art-ws/muxeon/commit/97b46ec5562273cecb6ae33797d5647e85b6708e))

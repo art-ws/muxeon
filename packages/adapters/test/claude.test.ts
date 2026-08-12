@@ -12,7 +12,7 @@ function msg(): Message {
 // Pane fixtures captured from a LIVE claude session (2026-06-04, T53). The input
 // box (`❯`) is visible in BOTH states — only the spinner line distinguishes them.
 const PANE_IDLE = [
-  "⏺ Got it. I can see the MUXEON smoke check message.",
+  "⏺ Got it. I can see the Muxeon smoke check message.",
   "──────────────",
   "❯ ",
   "──────────────",
@@ -44,14 +44,14 @@ const PANE_IDLE_QUOTING_SPINNER = [
 // spinner label is the multi-word task name; tmux capture racing the redraw can
 // drop characters, including the `(` of the stats tail. Both are BUSY.
 const PANE_BUSY_TASK_SPINNER = [
-  "✳ Playing Bulls and Cows via MUXEON… (10s · ↓ 148 tokens)",
+  "✳ Playing Bulls and Cows via Muxeon… (10s · ↓ 148 tokens)",
   "──────────────",
   "❯ ",
   "  ⏵⏵ bypass permissions on (shift+tab to cycle)",
 ].join("\n");
 
 const PANE_BUSY_TORN_CAPTURE = [
-  "· Playin  Bulls and Cows iia MUXEON… 34s)", // redraw race ate chars and the "("
+  "· Playin  Bulls and Cows iia Muxeon… 34s)", // redraw race ate chars and the "("
   "❯ ",
 ].join("\n");
 
@@ -59,7 +59,7 @@ const PANE_BUSY_TORN_CAPTURE = [
 const PANE_IDLE_TASK_WIDGET = [
   "⏺ Ход принят, жду следующий.",
   "  1 tasks (0 done, 1 in progress, 0 open)",
-  "  ◼ Play Bulls and Cows via MUXEON",
+  "  ◼ Play Bulls and Cows via Muxeon",
   "❯ ",
   "  ⏵⏵ bypass permissions on (shift+tab to cycle)",
 ].join("\n");

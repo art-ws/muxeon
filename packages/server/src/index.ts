@@ -16,7 +16,7 @@ export * from "./redact";
 export * from "./shutdown";
 
 async function launch(argv: readonly string[]): Promise<void> {
-  // Last-resort safety net (R2, §10): MUXEON is a transport for many agents — a stray
+  // Last-resort safety net (R2, §10): Muxeon is a transport for many agents — a stray
   // async fault touching ONE agent (e.g. a background dispatcher loop capturing a
   // vanished tmux session) must never terminate the whole coordinator and drop every
   // agent's transport with it. Under Bun an unhandled rejection is fatal by default;

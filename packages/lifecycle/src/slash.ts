@@ -1,5 +1,5 @@
 // Send a slash/stop command to an agent (§4, FR-9). The command text is rendered by
-// the agent type's adapter (§8.3) — MUXEON does not know any agent's command syntax —
+// the agent type's adapter (§8.3) — Muxeon does not know any agent's command syntax —
 // then injected literally and submitted with Enter, the same two-step the dispatcher
 // uses for messages (§5.2). This is a control action, not a queued message: it goes
 // straight to the session, bypassing the queue.

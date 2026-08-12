@@ -2,7 +2,7 @@
 
 ## Trust model — read this before deploying
 
-MUXEON coordinates **mutually trusted local agents on one machine**. That
+Muxeon coordinates **mutually trusted local agents on one machine**. That
 assumption is load-bearing; the following are properties of the design, not
 oversights:
 
@@ -32,7 +32,7 @@ oversights:
   Both flags (`publish` on the satellite, `relay` on the hub's accept) default
   to false; relay is for hubs the satellites trust.
 
-In short: run MUXEON on a machine whose local processes you trust, and keep its
+In short: run Muxeon on a machine whose local processes you trust, and keep its
 ports off the network.
 
 ## What *is* defended

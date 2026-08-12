@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // npx / `npm i -g` entry point.
 //
-// MUXEON is a Bun application, not a Node one: the four HTTP surfaces are
+// Muxeon is a Bun application, not a Node one: the four HTTP surfaces are
 // Bun.serve (with its WebSocket upgrade), process control is Bun.spawn, and the
 // panel statics are Bun.file. None of that has a Node equivalent here, so this
 // shim does exactly one thing — locate a bun runtime and hand over to it.
@@ -39,7 +39,7 @@ child.on("error", (error) => {
     process.stderr.write(
       `muxeon: bun not found (tried "${bun}").
 
-MUXEON runs on Bun. Install it, then re-run:
+Muxeon runs on Bun. Install it, then re-run:
   curl -fsSL https://bun.sh/install | bash
 
 Already installed elsewhere? Point MUXEON_BUN at it:

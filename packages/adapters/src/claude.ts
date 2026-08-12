@@ -1,7 +1,7 @@
 // The claude adapter (§5.2, §8.3, FR-11/FR-11b). Output detection is the reliable
-// path — MUXEON never modifies agent configuration, so the native status file is
+// path — Muxeon never modifies agent configuration, so the native status file is
 // only an opportunistic accelerator IF the agent's owner pre-installed (outside
-// MUXEON) a Stop-hook writing { status, turn } to the convention path the
+// Muxeon) a Stop-hook writing { status, turn } to the convention path the
 // dispatcher reads. Stateless; the stateDir is immutable configuration, not
 // per-session state.
 
@@ -26,7 +26,7 @@ export interface ClaudeAdapterOptions {
 // a running turn (§10.1), so the busy match is kept deliberately broad.
 //
 // T65 live finding: with an active TODO task the spinner label is the MULTI-WORD
-// task name (`✳ Playing Bulls and Cows via MUXEON… (10s · ↓ 148 tokens)`) — the
+// task name (`✳ Playing Bulls and Cows via Muxeon… (10s · ↓ 148 tokens)`) — the
 // old single-word `\S+…` never matched, sawBusy never armed (driver.ts edge), and
 // the turn hung forever. Also: tmux capture races the spinner redraw and drops
 // characters (`… 34s)` without the `(`), so the `(…)` tail must NOT be required —

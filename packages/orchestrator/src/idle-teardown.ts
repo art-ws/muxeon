@@ -1,7 +1,7 @@
 // Idle auto-teardown (FR-92, §5.1) — retire an agent the system raised once it
 // has been inactive long enough. "Inactive" = continuously idle (§5.1) with no
 // messages routed to or from it (the transport, §8.2) for the configured window.
-// Only SYSTEM-RAISED sessions (provisioned by MUXEON, AgentState.origin, §5.1) are
+// Only SYSTEM-RAISED sessions (provisioned by Muxeon, AgentState.origin, §5.1) are
 // reaped: a hand-started / attach-only agent is left alone — we retire what we
 // raised. New queued work later lazy-revives the agent (FR-51), so this is a
 // bring-up/idle-down cycle, not a permanent shutdown.

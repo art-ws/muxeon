@@ -34,7 +34,7 @@ export interface OutboxMonitorOptions {
   readonly blobs: BlobStore;
   /**
    * Admin users (§17.11, FR-135): the fan-out set of an outbox file WITHOUT `to` —
-   * the human "behind the console" is resolved through MUXEON as the `admin` role,
+   * the human "behind the console" is resolved through Muxeon as the `admin` role,
    * no separate entity. Returns the CURRENT admins (config is fixed at boot, so a
    * plain closure over the config is enough). Empty / absent ⇒ `to` stays mandatory
    * and a file without it is rejected exactly as before.

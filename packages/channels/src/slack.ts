@@ -132,7 +132,7 @@ export class SlackConnector implements ChannelConnector {
         (event.sender?.userId !== undefined ? identity.userOf(event.sender.userId) : undefined);
       if (sender === undefined) {
         await this.#reply(
-          "muxeon: this slack account is not linked to a MUXEON user — ask the operator to bind it",
+          "muxeon: this slack account is not linked to a Muxeon user — ask the operator to bind it",
         );
         return;
       }

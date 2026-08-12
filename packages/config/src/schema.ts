@@ -148,7 +148,7 @@ export interface TeardownConfig {
   readonly graceMs?: number;
   /**
    * Idle auto-teardown (FR-92, §5.1): retire a SYSTEM-RAISED session (provisioned
-   * by MUXEON, not attached) after this much transport inactivity — no messages
+   * by Muxeon, not attached) after this much transport inactivity — no messages
    * routed to/from it while it stays idle. A duration string (`retain.age` grammar
    * §7.1, e.g. "1h"/"30m") or `true` (the 1h default); absent / `false` ⇒ off. The
    * resolved teardown strategy (this block) does the graceful close; new queued
@@ -193,7 +193,7 @@ export interface RawModeConfig {
 }
 
 /**
- * Names reserved for INTERNAL slash commands (FR-67): executed by MUXEON
+ * Names reserved for INTERNAL slash commands (FR-67): executed by Muxeon
  * itself, never typed into the agent's console — available on every agent
  * without configuration. A configured command may not shadow one (validation
  * rejects it, §7.5); the implementations live in @muxeon/lifecycle, which

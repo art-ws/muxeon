@@ -1,4 +1,4 @@
-// Internal slash commands (T90, FR-67, §8.5): commands EXECUTED BY MUXEON, not
+// Internal slash commands (T90, FR-67, §8.5): commands EXECUTED BY Muxeon, not
 // typed into the agent's console — available on every agent without any config.
 // They share the operator surface of configured commands (FR-66: same endpoints,
 // same dropdown, same as-is output) but not the execution discipline: an internal

@@ -20,7 +20,7 @@ export function canTransition(from: AgentStatus, to: AgentStatus): boolean {
 }
 
 /**
- * How the LIVE session came up (§5.1, FR-92): `system` — MUXEON provisioned it
+ * How the LIVE session came up (§5.1, FR-92): `system` — Muxeon provisioned it
  * (provision/restart/reload/auto-revive); `external` — we attached to a session
  * the operator started, or none is up yet. Idle auto-teardown only retires what
  * we raised (`system`), so a hand-started agent is never reaped. Every come-up
@@ -42,7 +42,7 @@ export class AgentState {
     return this.#status;
   }
 
-  /** Whether the live session was raised by MUXEON vs attached (§5.1, FR-92). */
+  /** Whether the live session was raised by Muxeon vs attached (§5.1, FR-92). */
   get origin(): SessionOrigin {
     return this.#origin;
   }

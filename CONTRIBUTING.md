@@ -1,4 +1,4 @@
-# Contributing to MUXEON
+# Contributing to Muxeon
 
 Thanks for taking the time. This document covers what the project expects from
 a change and how to get it verified.
@@ -62,7 +62,7 @@ Environment notes:
 
 - Tests that exercise tmux **skip** when no `tmux` binary is present; they do
   not fail. Install tmux to run them.
-- Tests that bind loopback ports (8080/8091) fail with `EADDRINUSE` if a MUXEON
+- Tests that bind loopback ports (8080/8091) fail with `EADDRINUSE` if a Muxeon
   instance is already running locally — stop it first.
 - If your shell exports `HTTP_PROXY`, run the suite as `env -u HTTP_PROXY bun
   test` so loopback requests are not intercepted by the proxy.

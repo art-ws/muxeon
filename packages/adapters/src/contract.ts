@@ -7,10 +7,10 @@ import { join } from "node:path";
 import type { Session, Signal } from "@muxeon/core";
 
 // Detection (§5.2, FR-11/FR-11b): readyPrompt is ALWAYS declared — output (front)
-// detection needs zero agent cooperation, and MUXEON never touches agent
+// detection needs zero agent cooperation, and Muxeon never touches agent
 // configuration, so it is the only path that can be relied on. statusFile is an
 // OPPORTUNISTIC native accelerator: IF the agent's owner pre-installed (outside
-// MUXEON) a mechanism writing { status, turn } to the convention path, the
+// Muxeon) a mechanism writing { status, turn } to the convention path, the
 // dispatcher takes the faster edge. The dispatcher watches BOTH paths in parallel
 // and the first to fire wins; an absent/stale status file never blocks a turn.
 export interface Detect {

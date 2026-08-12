@@ -1,10 +1,10 @@
-# MUXEON operator guide
+# Muxeon operator guide
 
 How to run a team, talk to it, and keep it healthy.
 
 > `§`/`FR-` markers in parentheses are traceability labels pointing into the
 > project's internal specification, which is not part of this repository. This
-> guide is self-contained — you never need the spec to operate MUXEON.
+> guide is self-contained — you never need the spec to operate Muxeon.
 
 ## 1. Launching
 
@@ -205,7 +205,7 @@ The MCP client is **no longer required** for replies (before §13 an agent
 without one was receive-only). It remains useful for mid-turn
 reactions/progress, `get_status`, `get_screen` (read a neighbour's console as
 text — see below) and tool-style sends. Connecting it is the **owner's
-deliberate action** — MUXEON never touches agent configuration (FR-11b). Step by
+deliberate action** — Muxeon never touches agent configuration (FR-11b). Step by
 step:
 
 1. **Prerequisites.** `server.mcp` must not be `false` in `muxeon.config.json`
@@ -259,7 +259,7 @@ now means.
 
 **Durable across server restarts (FR-89).** The shim is a self-healing stdio
 interface: it connects to the agent-plane lazily and reconnects on any upstream
-failure, so a MUXEON **server** restart (a deploy) no longer severs agents — you
+failure, so a Muxeon **server** restart (a deploy) no longer severs agents — you
 do NOT need to `muxeon restart <name>` afterwards. The next tool call simply
 re-initializes (the old session 404s, the shim re-handshakes); during the blip
 `get_status`/`send` return a retryable `UPSTREAM_UNAVAILABLE`, and `tools/list`
@@ -554,7 +554,7 @@ Checklist before exposing it:
 
 ## 9. Federation (§18)
 
-Federation joins several MUXEON servers so agents and users on different
+Federation joins several Muxeon servers so agents and users on different
 instances interact as if they shared one machine. Names are email-style FQNs:
 `dev@hq` is "the actor exported as `dev` by the server I import as `hq`";
 chains grow on the right (`bob@c@b`) and resolve by the last `@`.

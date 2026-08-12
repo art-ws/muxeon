@@ -2,9 +2,9 @@
   <img src="assets/logo/muxeon-mark.png" alt="" width="110" />
 </p>
 
-<h1 align="center">MUXEON</h1>
+<h1 align="center">Muxeon</h1>
 
-MUXEON is a **transport and coordinator** for local CLI agents (`claude`,
+Muxeon is a **transport and coordinator** for local CLI agents (`claude`,
 `codex`, …) running in **tmux sessions**. It is not an agent itself: it
 connects agents, tracks their lifecycle, routes messages between them along a
 declared topology, and lets **people** reach them through channels (a web panel
@@ -16,7 +16,7 @@ TypeScript monorepo on [bun](https://bun.sh). MIT licensed.
 
 ## Requirements
 
-- **[Bun](https://bun.sh) ≥ 1.2** — MUXEON is a Bun application (the HTTP
+- **[Bun](https://bun.sh) ≥ 1.2** — Muxeon is a Bun application (the HTTP
   surfaces, process control and static serving are all Bun APIs). The `npx`
   entry point is a thin Node shim that hands over to `bun`; it will tell you so
   if bun is missing. Set `MUXEON_BUN` to use a bun outside `PATH`.
@@ -172,7 +172,7 @@ vulnerability.
 > `§10.2` or `FR-93`. They point into the project's internal specification and
 > requirement register, which are not part of this repository. Treat them as
 > stable traceability labels — the code and the operator guide are
-> self-contained; you never need the spec to read, build, or extend MUXEON.
+> self-contained; you never need the spec to read, build, or extend Muxeon.
 
 ## License
 

@@ -1,4 +1,4 @@
-# MUXEON — install and configure on a clean machine (agent runbook)
+# Muxeon — install and configure on a clean machine (agent runbook)
 
 **You are an agent. This document is your task input.** It is written to be
 executed, not skimmed: every step has a command and a check, and the checks are
@@ -23,10 +23,10 @@ Rules for this task:
 
 ## 0. What you are building
 
-MUXEON is a **coordinator**, not an agent. It connects CLI agents that run in
+Muxeon is a **coordinator**, not an agent. It connects CLI agents that run in
 **tmux sessions**, routes messages between them along a declared topology, and
 exposes them to a human through channels. Optionally, it **federates**: two or
-more MUXEON servers can join so actors on one talk to exported actors on
+more Muxeon servers can join so actors on one talk to exported actors on
 another (step 11) — a single-server deployment ignores all of that.
 
 The finished deployment is:
@@ -54,7 +54,7 @@ agent-plane share `server.port`; each channel that needs a port declares its own
 
 ## 1. Check the prerequisites
 
-MUXEON needs three things on the machine. Check all three before installing
+Muxeon needs three things on the machine. Check all three before installing
 anything.
 
 ```bash
@@ -72,7 +72,7 @@ curl -fsSL https://bun.sh/install | bash
 ```
 
 Then re-open the shell (or source the profile the installer names) and re-check.
-MUXEON is a Bun application — `Bun.serve`, `Bun.spawn`, `Bun.file`. It does not
+Muxeon is a Bun application — `Bun.serve`, `Bun.spawn`, `Bun.file`. It does not
 run on Node, and the `npx` entry point is only a shim that hands over to `bun`.
 
 If `tmux` is missing, install it with the system package manager
@@ -85,7 +85,7 @@ are tmux sessions; without it the coordinator has nothing to coordinate.
 
 ---
 
-## 2. Install MUXEON
+## 2. Install Muxeon
 
 Pick **one** of these. Prefer the first unless told otherwise.
 
@@ -124,7 +124,7 @@ mkdir -p <ROOT>
 cd <ROOT>
 ```
 
-**Run MUXEON from `<ROOT>` from now on.** This matters more than it looks:
+**Run Muxeon from `<ROOT>` from now on.** This matters more than it looks:
 
 - the config is discovered from the current directory upward, and
 - **`bun` loads `.env` from the current working directory**, not from the config
@@ -243,7 +243,7 @@ binds. A name that resolves to none of those aborts the boot.
     "name": "researcher", "type": "claude", "tmux": "researcher",
     "title": "Researcher",              // panel label only; `name` stays the address
     "cwd": "/path/to/project",
-    "provision": {                      // how MUXEON starts the agent itself
+    "provision": {                      // how Muxeon starts the agent itself
       "command": ["claude"],            // argv array — never a shell string
       "cwd": "/path/to/project",
       "env": {},
@@ -338,7 +338,7 @@ tmux new-session -d -s researcher -c /path/to/project 'claude'
 tmux has-session -t researcher && echo present
 ```
 
-**b) MUXEON starts them** (config has `provision`): nothing to do here — with
+**b) Muxeon starts them** (config has `provision`): nothing to do here — with
 `"auto": true` the server provisions at boot, and a message to a `down` agent
 that has a `provision` block revives it.
 
@@ -534,7 +534,7 @@ http://localhost:8091/team/` returns `200`.
 
 ## 11. Federation — joining stands (only if asked)
 
-Federation connects two or more MUXEON servers so actors on one reach actors
+Federation connects two or more Muxeon servers so actors on one reach actors
 on another. **Do not add it unless the human asked to join stands** — a config
 without `imports`/`federation` behaves exactly as before, and nothing below
 applies to a single server.
@@ -774,7 +774,7 @@ re-probes them. Queues live on disk and survive it.
 Do not deploy this quietly. The trust model is deliberate and the human must
 know it:
 
-- MUXEON coordinates **mutually trusted local agents on one machine**.
+- Muxeon coordinates **mutually trusted local agents on one machine**.
 - The **admin plane is loopback-only and unauthenticated**. Any local process
   that reaches it can drive the whole system. **Never expose `server.port`**, and
   never put it behind a public reverse proxy.
@@ -819,7 +819,7 @@ outside this design and needs an explicit decision.
 | Login answers `invalid credentials` | Wrong name **or** wrong password | The two are deliberately indistinguishable; check both |
 | Boot warns `inline auth.password` | A literal user password | Allowed (§17.2), but move it to `$env` or `passwordHash` |
 | Boot warns `no user bound to it` | users-mode channel with no binding | Nobody can log in — add `users[].channels` |
-| Telegram replies "not linked to a MUXEON user" | Sender's alias is not bound | Add that account to some `users[].channels.<channel>.alias` |
+| Telegram replies "not linked to a Muxeon user" | Sender's alias is not bound | Add that account to some `users[].channels.<channel>.alias` |
 | A person sees no peers | No topology edges for that user | Their self-chat still works; add the edges |
 | Boot dies on a name with `@` | `@` is the FQN separator (federation) | Rename the local entity; only federated names carry `@` |
 | Send to `dev@hq` refused `TOPOLOGY_DENIED` | Sender has no edge on the import node | Add `"<sender>": ["hq"]` to the topology |
@@ -835,7 +835,7 @@ outside this design and needs an explicit decision.
 
 When you finish, report exactly this:
 
-1. **Versions**: bun, tmux, node, and the MUXEON version you installed.
+1. **Versions**: bun, tmux, node, and the Muxeon version you installed.
 2. **`<ROOT>`** and the install method you used (a, b or c from step 2).
 3. **The config**: agent names, their types and tmux sessions, the topology
    edges, the channels, and **who can log in** — the `users[]` names with their

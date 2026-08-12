@@ -147,7 +147,7 @@ export class TelegramConnector implements ChannelConnector {
       if (sender === undefined) {
         await this.#reply(
           incoming.chatId,
-          "muxeon: this telegram account is not linked to a MUXEON user — ask the operator to bind it",
+          "muxeon: this telegram account is not linked to a Muxeon user — ask the operator to bind it",
         );
         return;
       }
