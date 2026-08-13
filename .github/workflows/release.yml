@@ -59,35 +59,18 @@ jobs:
           test -f dist/index.js
           test -f dist/ui/index.html
 
-      # NPM_TOKEN is TEMPORARY and exists for exactly one release — the first
-      # publish of `muxeon`. npm cannot configure a trusted publisher for a
-      # package that does not exist yet (the setting lives on the package's own
-      # settings page, npm/cli#8544), so the first version cannot come from OIDC.
-      # Provenance is unaffected: the SLSA attestation is produced by the cloud
-      # runner, not by the auth method, and npm's own docs publish with a token.
-      # Publishing this from a laptop instead WOULD lose the badge, permanently
-      # for that version — attestations cannot be added after the fact.
+      # No NPM_TOKEN here on purpose: @semantic-release/npm (>=13) detects the
+      # Actions OIDC context and exchanges it for a short-lived registry
+      # credential, so there is no long-lived secret to store or rotate. The
+      # trusted publisher on npmjs.com must name THIS repository and THIS
+      # workflow file (release.yml) exactly — the filename is part of the match —
+      # so an EINVALIDNPMTOKEN failure here means the trusted publisher did not
+      # match, NOT a missing secret.
       #
-      # AFTER the first release: configure the trusted publisher on npmjs.com —
-      # it must name THIS repository and THIS workflow file (release.yml)
-      # exactly, the filename is part of the match — then delete the NPM_TOKEN
-      # secret and this env line. @semantic-release/npm (>=13) then detects the
-      # Actions OIDC context and exchanges it for a short-lived credential, so
-      # there is no long-lived secret to store or rotate. It falls back to token
-      # auth when no OIDC context is established — so an EINVALIDNPMTOKEN failure
-      # once the token is gone means the trusted publisher did not match, NOT a
-      # missing secret.
+      # 0.1.8/0.1.9 needed a temporary token because npm cannot configure a
+      # trusted publisher for a package that does not exist yet (npm/cli#8544).
+      # The package exists now, the publisher is configured, the token is gone.
       - name: semantic-release
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          # BOTH names are required, and NODE_AUTH_TOKEN is the one npm actually
-          # reads here: setup-node's `registry-url` writes an .npmrc containing
-          # `_authToken=${NODE_AUTH_TOKEN}` and points NPM_CONFIG_USERCONFIG at
-          # it. Because that file already declares auth, @semantic-release/npm
-          # leaves it alone instead of injecting NPM_TOKEN — so with NPM_TOKEN
-          # set alone, npm authenticates with setup-node's literal placeholder
-          # (`XXXXX-XXXXX-XXXXX-XXXXX`) and the registry answers 401, which
-          # surfaces as the misleading `EINVALIDNPMTOKEN Invalid npm token`.
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }} # temporary — remove with the trusted publisher (C1a)
-          NPM_TOKEN: ${{ secrets.NPM_TOKEN }} # temporary — remove with the trusted publisher (C1a)
         run: npx semantic-release ${{ inputs.dry_run && '--dry-run' || '' }}
