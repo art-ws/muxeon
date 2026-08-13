@@ -4,6 +4,10 @@
 
 <h1 align="center">Muxeon</h1>
 
+<p align="center"><em><strong>mux</strong> — from <strong>tmux</strong>, the terminal multiplexer<br>
+<strong>eon</strong> — from Ancient Greek <strong>αἰών</strong> (aiōn): an age, a lifetime, an eternity<br>
+literally, the place where tmux sessions live</em></p>
+
 Muxeon is a **transport and coordinator** for local CLI agents (`claude`,
 `codex`, …) running in **tmux sessions**. It is not an agent itself: it
 connects agents, tracks their lifecycle, routes messages between them along a
