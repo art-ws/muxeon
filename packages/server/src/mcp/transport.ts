@@ -33,6 +33,15 @@ export interface AgentPlaneOptions extends AgentPlaneCoreOptions {
  *  surface, §8.1) decides where it lives. */
 export interface AgentPlaneCore {
   fetch(req: Request): Promise<Response>;
+  /**
+   * Does this agent hold a live agent-plane session right now (§13.6, FR-156)?
+   * The injection path reads it per message to choose the reply contract — the
+   * answer is truth at THAT instant and nothing more: a shim can die, or lose its
+   * name to a reconnecting client (takeover, FR-44b), while the turn runs. That
+   * is why the compact contract is an accelerator over a universal default and
+   * never a requirement (§13.5).
+   */
+  hasLiveSession(name: string): boolean;
   /** Drop all sessions (listener teardown). */
   dispose(): void;
 }
@@ -120,6 +129,7 @@ export function createAgentPlaneCore(options: AgentPlaneCoreOptions): AgentPlane
       if (transport === undefined) return new Response("unknown session", { status: 404 });
       return transport.handleRequest(req);
     },
+    hasLiveSession: (name) => registry.hasLiveSession(name),
     // We deliberately do NOT call transport.close() per session — on the WebStandard
     // transport it awaits the SSE stream lifecycle and hangs at teardown. Normal
     // per-session cleanup runs via onsessionclosed when a client disconnects.

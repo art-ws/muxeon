@@ -103,6 +103,33 @@ describe("base schema validation (§7.1)", () => {
     ).toBe("/agents/0/exchangeDir");
   });
 
+  test("agent.replyVia is an optional closed enum, default absent (§13.6, FR-156)", () => {
+    const cfg = validateStructure({
+      server: { port: 1 },
+      agents: [
+        { name: "a", type: "claude", tmux: "a", replyVia: "mcp" },
+        { name: "b", type: "claude", tmux: "b", replyVia: "exchange" },
+        { name: "c", type: "claude", tmux: "c" },
+      ],
+      topology: {},
+    });
+    expect(cfg.agents[0]?.replyVia).toBe("mcp");
+    expect(cfg.agents[1]?.replyVia).toBe("exchange");
+    // Absent, NOT defaulted to "auto" here: the default belongs to the resolver
+    // that reads the live agent plane, so the config stays a record of what the
+    // operator actually wrote.
+    expect(cfg.agents[2]?.replyVia).toBeUndefined();
+    const bad = grab(() =>
+      validateStructure({
+        server: { port: 1 },
+        agents: [{ name: "a", type: "claude", tmux: "a", replyVia: "smtp" }],
+        topology: {},
+      }),
+    );
+    expect(bad.path).toBe("/agents/0/replyVia");
+    expect(bad.message).toContain("auto/exchange/mcp");
+  });
+
   test("provision.auto is an optional boolean (FR-50)", () => {
     const cfg = validateStructure({
       server: { port: 1 },

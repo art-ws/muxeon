@@ -29,6 +29,7 @@
       "name": "writer",
       "type": "codex",
       "tmux": "writer",
+      "replyVia": "auto",
       "wipLimit": 3,
       "group": "workers",
       "tags": ["docs"]

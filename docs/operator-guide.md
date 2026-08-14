@@ -199,14 +199,56 @@ The system picks it up (cadence `outboxPollMs`), validates the topology edge and
 file containment, and routes it as the folder's owner. A refused message comes
 back as `<name>.rejected.json` in the same folder with a logged reason.
 
+#### The compact form for agents with MCP (§13.6, FR-156/FR-157)
+
+The file contract costs the agent **two extra model round-trips** at the end of
+every turn (write `reply.md`, then a second call to delete `message.json`), and
+the answer only leaves once the turn has ended. So when an agent has a **live**
+agent-plane session (§3.2), Muxeon injects a shorter instruction instead: reply
+with **one** `send(to, replyTo)` call, which delivers the answer *and* ends the
+turn. Nothing else changes — `message.json` is still materialized, and a long
+payload still lives only in that file.
+
+You configure nothing for this. The choice is made **per message, at injection
+time**, from whether that agent's MCP session is connected *right now*: unplug
+the shim and the next message arrives with the file contract again, with no
+config edit and no restart. A merely *configured* MCP server does not count —
+only one that actually connected.
+
+The two forms are never mixed. An instruction offering a fallback path gets both
+used, and the sender receives every answer twice (this happened in production);
+so the compact form forbids `reply.md` outright, and a turn closed by `send` is
+not collected from the exchange at all.
+
+Override per agent when you need to:
+
+```jsonc
+{ "name": "researcher", "type": "claude", "tmux": "researcher-s",
+  "replyVia": "auto" }   // "auto" (default) | "exchange" | "mcp"
+```
+
+`"exchange"` is the safe pin — it keeps an agent on the universal path even with
+MCP up, which is what you want if that agent's shim is flaky: the liveness signal
+is only true at injection time, and a client that dies mid-turn leaves the compact
+form with nowhere to answer. `"mcp"` forces the compact form for a client the
+server cannot observe.
+
+Two things worth knowing about `send` as a turn-ender: it closes the turn only
+after the message was actually **accepted** (a WIP-limit or paused-recipient
+refusal leaves the agent holding the floor, so it can retry), and it closes only
+the **caller's own** turn. The receipt carries `turnClosed` whenever the call had
+a `replyTo`.
+
 ### 3.2 Optional acceleration: connecting an agent to the agent-plane MCP (§8.6, FR-44)
 
 The MCP client is **no longer required** for replies (before §13 an agent
 without one was receive-only). It remains useful for mid-turn
 reactions/progress, `get_status`, `get_screen` (read a neighbour's console as
-text — see below) and tool-style sends. Connecting it is the **owner's
-deliberate action** — Muxeon never touches agent configuration (FR-11b). Step by
-step:
+text — see below) and tool-style sends — and it is what earns an agent the
+compact reply contract above, which is the cheapest way to shorten the gap
+between "the agent finished thinking" and "the sender has the answer".
+Connecting it is the **owner's deliberate action** — Muxeon never touches agent
+configuration (FR-11b). Step by step:
 
 1. **Prerequisites.** `server.mcp` must not be `false` in `muxeon.config.json`
    (default `true`); know the agent's **topology name** (`agents[].name`) and
@@ -222,7 +264,7 @@ step:
      "mcpServers": {
        "muxeon": {
          "command": "bun",
-         "args": ["/path/to/team-ai/packages/server/src/mcp/shim.ts"],
+         "args": ["/path/to/muxeon/packages/server/src/mcp/shim.ts"],
          "env": {
            "MUXEON_AGENT_NAME": "researcher",            // agents[].name, EXACTLY
            "MUXEON_MCP_URL": "http://127.0.0.1:8080/mcp" // server.port

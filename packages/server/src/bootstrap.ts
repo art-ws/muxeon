@@ -12,6 +12,7 @@ import { join, resolve } from "node:path";
 import {
   type Adapter,
   type AdapterRegistry,
+  type ReplyVia,
   createDefaultRegistry,
   renderAttribution,
   renderRaw,
@@ -109,7 +110,12 @@ import { type QueueRuntime, createQueuesAdmin } from "./admin/queues";
 import { createRoutinesAdmin } from "./admin/routines";
 import { createSignalsAdmin } from "./admin/signals";
 import { routeExchangeReply } from "./exchange-reply";
-import { type AgentPlaneHandle, createAgentPlaneCore, createAgentServer } from "./mcp";
+import {
+  type AgentPlaneCore,
+  type AgentPlaneHandle,
+  createAgentPlaneCore,
+  createAgentServer,
+} from "./mcp";
 import { OutboxMonitor } from "./outbox";
 import { routeRawReply } from "./raw-reply";
 import { createTextRedactor } from "./redact";
@@ -408,6 +414,21 @@ export async function bootstrap(options: BootstrapOptions = {}): Promise<MuxeonS
   const revivers = new Map<string, Reviver>();
   // File exchange (§13, FR-52): one per agent — the universal agent-side protocol.
   const exchanges = new Map<string, Exchange>();
+  // Reply-contract selection (§13.6, FR-156). The agent plane comes up in step 7,
+  // AFTER these dispatchers are built, so the liveness probe is forward-wired the
+  // way commandPort/sessionPort are: a closure that reads `mcpCore` lazily. Before
+  // the plane exists (and with server.mcp off) it answers false — the file
+  // contract, which needs no agent cooperation, is the right thing to fall back to.
+  let mcpCore: AgentPlaneCore | undefined;
+  const hasAgentPlane = (name: string): boolean => mcpCore?.hasLiveSession(name) === true;
+  /**
+   * Turns closed by the agent's own `send` this tick (§13.6, FR-157): agent name →
+   * the message id whose turn it closed. Set by the closeTurn hook, read once at
+   * turn end to suppress THAT turn's file collection and clean its dir, then
+   * dropped. One dispatcher per session (§10.8) ⇒ turns are sequential ⇒ a single
+   * entry per agent is race-free, exactly like the collectedThisTurn flag below.
+   */
+  const mcpClosedTurn = new Map<string, string>();
 
   // NFR-10 cadences (T41-calibrated defaults, overridable via server.cadence §7.1).
   const cadence = config.server.cadence ?? {};
@@ -462,6 +483,14 @@ export async function bootstrap(options: BootstrapOptions = {}): Promise<MuxeonS
     // Uncollected dirs go to the orphan sweep instead (§5.4). One dispatcher per
     // session (§10.8) → turns are sequential → a plain flag is race-free.
     let collectedThisTurn = false;
+    // Which reply contract this agent's next injection states (§13.6, FR-156): the
+    // config pin when set, otherwise the live agent-plane signal. Evaluated per
+    // message — never cached — because the signal is only true at that instant.
+    const resolveReplyVia = (): ReplyVia => {
+      const mode = agent.replyVia ?? "auto";
+      if (mode === "auto") return hasAgentPlane(agent.name) ? "mcp" : "exchange";
+      return mode;
+    };
     // Raw mode (FR-88, §14): the resolved capture rule (agent.raw ?? type.raw,
     // default stabilize-and-capture) and the lifecycle target captureConsole
     // needs. A raw turn skips the exchange and the nudge entirely (below).
@@ -483,8 +512,16 @@ export async function bootstrap(options: BootstrapOptions = {}): Promise<MuxeonS
       isPaused: () => isPaused(agent.name),
       // Raw mode (FR-88, §14.1): the operator's text reaches the terminal
       // verbatim — no attribution/exchange wrapping; otherwise the normal render.
+      // The reply contract is resolved per message (§13.6, FR-156): `auto` follows
+      // the agent plane as it is RIGHT NOW, so unplugging a shim changes the next
+      // injection with no config edit and no restart.
       render: (message, ctx) =>
-        message.raw === true ? renderRaw(message) : adapter.render(message, ctx),
+        message.raw === true
+          ? renderRaw(message)
+          : adapter.render(
+              message,
+              ctx === undefined ? ctx : { ...ctx, replyVia: resolveReplyVia() },
+            ),
       state,
       doneIds: await loadSessionDoneIds(root, agent.tmux),
       ...(cadence.outputPollMs !== undefined ? { pollIntervalMs: cadence.outputPollMs } : {}),
@@ -516,14 +553,33 @@ export async function bootstrap(options: BootstrapOptions = {}): Promise<MuxeonS
           });
           return;
         }
-        // File-borne reply FIRST (FR-54, §13.3): a routed reply closes the
-        // nudge window, so the scrape/nudge chain below stays silent.
-        collectedThisTurn = await routeExchangeReply(message, {
-          agent: agent.name,
-          exchange,
-          blobs,
-          route: (reply) => router.route(reply),
-        });
+        // A turn the agent closed with its own `send` has ALREADY answered
+        // (§13.6, FR-157) — skip the file collection entirely. This is the
+        // structural half of "exactly one answer per turn" (§10.29): the compact
+        // contract forbids reply.md, but an agent that writes one anyway (T239
+        // showed they do, when they suspect the first path failed) would otherwise
+        // have BOTH delivered. The dir is cleaned here because nothing in it is
+        // wanted — the T75 hold applies to answers we still owe a collection, and
+        // this turn's answer already went out through the router.
+        const mcpClosed = mcpClosedTurn.get(agent.name) === message.id;
+        mcpClosedTurn.delete(agent.name);
+        if (mcpClosed) {
+          await exchange.cleanup(message).catch(() => undefined);
+        } else {
+          // File-borne reply FIRST (FR-54, §13.3): a routed reply closes the
+          // nudge window, so the scrape/nudge chain below stays silent.
+          collectedThisTurn = await routeExchangeReply(message, {
+            agent: agent.name,
+            exchange,
+            blobs,
+            route: (reply) => router.route(reply),
+          });
+        }
+        // The nudge chain runs either way (FR-45/FR-47) — and needs no special
+        // case for an MCP-closed turn: the `send` went through the router, which
+        // records it, so the window is already satisfied and this resolves to a
+        // silent no-op. A send aimed at someone OTHER than the sender still earns
+        // the scrape/nudge it would have earned before, which is correct.
         return nudger.afterTurn(
           agent.name,
           message,
@@ -550,6 +606,7 @@ export async function bootstrap(options: BootstrapOptions = {}): Promise<MuxeonS
       exchange: {
         materialize: (message) => {
           collectedThisTurn = false; // a fresh turn
+          mcpClosedTurn.delete(agent.name); // …which nothing has closed yet (FR-157)
           // Raw mode (FR-88): no inbox projection — the dispatcher renders
           // verbatim and skips file-detect (null ⇒ no message.json this turn).
           if (message.raw === true) return Promise.resolve(null);
@@ -651,7 +708,7 @@ export async function bootstrap(options: BootstrapOptions = {}): Promise<MuxeonS
     // 7. agent-plane core (§8.1): MCP, identity-bound (§8.6). Gated by server.mcp;
     //    mcp:false → no /mcp mount, only operator-plane/channels. No listener yet —
     //    both planes share the surface started in step 9 (§8.1).
-    const mcpCore =
+    mcpCore =
       (options.startMcp ?? config.server.mcp)
         ? createAgentPlaneCore({
             isKnownIdentity,
@@ -716,6 +773,17 @@ export async function bootstrap(options: BootstrapOptions = {}): Promise<MuxeonS
                     : topology
                         .neighbors(caller)
                         .flatMap((node) => federationHandle?.peersOf(node) ?? []),
+                // The compact reply contract's other half (§13.6, FR-157): a
+                // delivered `send` that answers the caller's OWN running turn also
+                // ends it — the server deletes the message.json the file contract
+                // would have had the agent delete, so file-detect (FR-53) closes
+                // the turn at once. Scoped to the caller's own exchange: an agent
+                // can only ever close its own turn, never a peer's (§10.10).
+                closeTurn: async (callerName, replyTo) => {
+                  const closed = (await exchanges.get(callerName)?.declareDone(replyTo)) === true;
+                  if (closed) mcpClosedTurn.set(callerName, replyTo);
+                  return closed;
+                },
               }),
             // Takeover (FR-44b) is normal after an agent restart but also the trace
             // of a duplicate-name misconfiguration — always surfaced.
@@ -1156,10 +1224,13 @@ export async function bootstrap(options: BootstrapOptions = {}): Promise<MuxeonS
         router,
       }),
     });
+    // Captured into a const: mcpCore is forward-declared (`let`, see FR-156's
+    // liveness probe), so the closure below cannot narrow it on its own.
+    const mcp = mcpCore;
     surface = startSurface({
       port: config.server.port,
       admin: adminHandler,
-      ...(mcpCore !== undefined ? { mcp: (req) => mcpCore.fetch(req) } : {}),
+      ...(mcp !== undefined ? { mcp: (req) => mcp.fetch(req) } : {}),
     });
 
     // 10. retention sweep (§5.4, FR-34): per-session double cap on done/ +

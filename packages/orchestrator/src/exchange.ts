@@ -114,6 +114,15 @@ export interface Exchange {
   /** Remove the message's inbox dir (after collection / a failed turn). */
   cleanup(message: Signal): Promise<void>;
   /**
+   * Close the turn of `messageId` on the agent's behalf (§13.6, FR-157): remove
+   * its message.json, which is the very signal file-detect (FR-53) watches. Used
+   * by the MCP `send` path — an agent on the compact contract (§13.6) answers
+   * with one tool call and never touches the file, so the server performs the
+   * declaration that call stands for. true ⇒ a live turn was closed; false ⇒
+   * nothing matched (already closed, or a replyTo naming another message).
+   */
+  declareDone(messageId: string): Promise<boolean>;
+  /**
    * File-detect (FR-53, §13.3): resolves when the message's message.json is gone
    * — the agent's explicit "processing complete". Edge-triggered by construction
    * (the file lives exactly one turn). Only raced when materialization succeeded
@@ -343,6 +352,23 @@ export function createExchange(options: ExchangeOptions): Exchange {
 
     async cleanup(message: Signal): Promise<void> {
       await rm(messageDir(message), { recursive: true, force: true });
+    },
+
+    async declareDone(messageId: string): Promise<boolean> {
+      // Deleting message.json is EXACTLY what the agent does by hand in the file
+      // contract (§13.3) — the same file-detect racer sees it, so the turn closes
+      // through one code path regardless of who removed the file. Keyed by id
+      // rather than Signal: the caller (the send tool) knows only `replyTo`.
+      const file = join(inboxDir, sanitizeFileId(messageId), "message.json");
+      try {
+        await rm(file);
+        return true;
+      } catch {
+        // Not this agent's live turn (a stale/foreign replyTo, or the turn already
+        // closed). Nothing to close — never an error: `send` is a legal call on any
+        // edge and must not fail because its replyTo names something else (§10.2).
+        return false;
+      }
     },
 
     async awaitDone(message: Signal, signal: AbortSignal): Promise<void> {

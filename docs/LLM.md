@@ -360,6 +360,17 @@ instructions file:
 - To start a conversation, it drops `{"to": "...", "payload": "..."}` as a JSON
   file into `.muxeon/outbox/`.
 
+If the agent also has a live MCP session (step 11), Muxeon injects a shorter
+contract instead: reply with one `send(to, replyTo)` call, which delivers the
+answer **and** ends the turn — no `reply.md`, no deletion. That is chosen per
+message from whether the session is connected at that moment; nothing to
+configure. Pin it with `agents[].replyVia`: `"auto"` (default), `"exchange"`
+(always files, the safe pin if the agent's MCP client is unreliable), `"mcp"`.
+
+Write only the form you actually want into the agent's instructions file. Do not
+document both as alternatives "just in case" — agents that are told two ways to
+answer use both, and the sender receives the answer twice.
+
 ---
 
 ## 7. Validate the config before starting

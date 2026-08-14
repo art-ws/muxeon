@@ -104,6 +104,21 @@ export interface AgentPlaneDeps {
    * CONTROL_FAILED. Absent ⇒ control_session answers CONTROL_DENIED.
    */
   controlSession?(name: string, action: SessionAction): Promise<AgentStatus>;
+  /**
+   * Close the caller's own running turn after a DELIVERED reply (§13.6, FR-157).
+   * Called only when `send` carried a `replyTo` and the router accepted it: the
+   * compact reply contract tells the agent that this one call also ends its turn,
+   * and this is what makes that true — the server removes the message.json the
+   * agent would otherwise have deleted by hand, so file-detect (FR-53) fires at
+   * once instead of the turn waiting out the slower output detector.
+   *
+   * Ordering matters: closing only AFTER a successful route means a refused send
+   * (WIP cap FR-104, recipient paused §16.2) leaves the turn open, so the agent
+   * still holds the floor and can retry or fall back. Resolves true when a live
+   * turn was actually closed — the caller suppresses that turn's file collection
+   * on the strength of it (§10.29). Absent ⇒ send never closes turns (tests).
+   */
+  closeTurn?(caller: string, replyTo: string): Promise<boolean>;
   /** Clock for message ts; default Date.now. Injectable for tests. */
   readonly now?: () => number;
   /** Idempotency-id generator when send omits one (§5.3/§10.9); default randomUUID. */
@@ -518,12 +533,25 @@ async function dispatch(
         }
         return fail(result.code, `delivery to "${to}" not permitted`);
       }
+      // The reply is out — close the caller's own turn if this send answered it
+      // (§13.6, FR-157). Best-effort and non-fatal: the delivery already happened,
+      // so a failure here costs a slower turn end (the output detector still wins
+      // the race, §5.2), never the answer. `turnClosed` is echoed so an agent —
+      // and a test — can see that the call was understood as ending the turn.
+      // The field is present ONLY on a reply (a send carrying replyTo) — that is
+      // where it carries information. A plain send keeps its historical receipt
+      // shape exactly: no agent should have to re-learn a wire it never uses.
+      const answersATurn = typeof replyTo === "string" && replyTo.length > 0;
+      const closed =
+        answersATurn && deps.closeTurn !== undefined
+          ? { turnClosed: await deps.closeTurn(caller, replyTo).catch(() => false) }
+          : {};
       // Broadcast receipt (§15.5, FR-111): the per-member fan-out aggregate. Partial
       // WIP refusals are per-member, never a failure of the whole broadcast.
       if ("kind" in result && result.kind === "broadcast") {
-        return ok({ id: message.id, queued: true, fanout: result.fanout });
+        return ok({ id: message.id, queued: true, fanout: result.fanout, ...closed });
       }
-      return ok({ id: message.id, queued: true });
+      return ok({ id: message.id, queued: true, ...closed });
     }
 
     case "list_commands": {

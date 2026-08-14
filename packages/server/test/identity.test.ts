@@ -55,6 +55,33 @@ describe("SessionRegistry (§8.6)", () => {
     r.reserve("alice"); // reserved, never bound (e.g. handshake in flight)
     expect(r.reserve("alice")).toEqual({}); // no session to evict yet
   });
+
+  // FR-156 (T261): the signal that picks the compact reply contract (§13.6).
+  test("hasLiveSession follows bind/drop and is false for a bare reservation", () => {
+    const r = new SessionRegistry(known);
+    expect(r.hasLiveSession("alice")).toBe(false);
+    r.reserve("alice");
+    // Reserved but not bound — the handshake is in flight. It reads as NOT live
+    // on purpose: guessing wrong here must fall back to the file contract, which
+    // any agent can follow, never to an MCP instruction nobody can act on.
+    expect(r.hasLiveSession("alice")).toBe(false);
+    r.bind("sid-1", "alice");
+    expect(r.hasLiveSession("alice")).toBe(true);
+    expect(r.hasLiveSession("bob")).toBe(false);
+    r.drop("sid-1");
+    expect(r.hasLiveSession("alice")).toBe(false);
+  });
+
+  test("hasLiveSession survives a takeover — the name stays live on the newcomer", () => {
+    const r = new SessionRegistry(known);
+    r.reserve("bob");
+    r.bind("sid-old", "bob");
+    r.reserve("bob"); // takeover (FR-44b): reserved again, briefly unbound
+    r.bind("sid-new", "bob");
+    expect(r.hasLiveSession("bob")).toBe(true);
+    r.drop("sid-old"); // the loser's late close must not free the winner's name
+    expect(r.hasLiveSession("bob")).toBe(true);
+  });
 });
 
 describe("parseInitialize (§8.6)", () => {

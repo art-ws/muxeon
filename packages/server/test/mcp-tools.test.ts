@@ -39,9 +39,14 @@ describe.skipIf(!LOOPBACK_DIRECT)("agent-plane tools (§8.6, §3.1)", () => {
   let plane: AgentPlaneHandle;
   let alice: Client;
   let seedTransport: (record: import("@muxeon/core").Signal) => Promise<boolean>;
+  // FR-157 (T261): the turn-closing hook `send` calls after a delivered reply.
+  let closeTurnCalls: { caller: string; replyTo: string }[];
+  let openTurns: Set<string>;
 
   beforeEach(async () => {
     root = mkdtempSync(join(tmpdir(), "muxeon-tools-"));
+    closeTurnCalls = [];
+    openTurns = new Set(["turn-1"]);
     for (const key of Object.values(KEY)) await ensureSessionQueue(root, key);
     const topology = new Topology(TOPOLOGY);
     const router = new Router({ topology, root, queueKeyOf: (n) => KEY[n] ?? null });
@@ -57,6 +62,10 @@ describe.skipIf(!LOOPBACK_DIRECT)("agent-plane tools (§8.6, §3.1)", () => {
           router,
           peerStatus,
           pairHistory: (me, peer, limit) => transportLog.pair(me, peer, limit),
+          closeTurn: async (caller, replyTo) => {
+            closeTurnCalls.push({ caller, replyTo });
+            return openTurns.delete(replyTo);
+          },
         }),
     });
     seedTransport = (record) => transportLog.append(record);
@@ -161,6 +170,46 @@ describe.skipIf(!LOOPBACK_DIRECT)("agent-plane tools (§8.6, §3.1)", () => {
     expect(enqueued.to).toBe("bob");
     expect(enqueued.payload).toBe("hi");
     expect(enqueued.kind).toBe("message");
+  });
+
+  // --- T261 (FR-157, §13.6): a delivered reply also ends the caller's turn ------
+
+  test("a reply closes the caller's own turn and says so in the receipt", async () => {
+    const result = await alice.callTool({
+      name: "send",
+      arguments: { to: "op", payload: "the answer", id: "r1", replyTo: "turn-1" },
+    });
+    expect(sc(result)).toEqual({ id: "r1", queued: true, turnClosed: true });
+    // scoped to the CALLER — an agent can only ever close its own turn (§10.10)
+    expect(closeTurnCalls).toEqual([{ caller: "alice", replyTo: "turn-1" }]);
+  });
+
+  test("a replyTo that names no live turn is reported, not an error", async () => {
+    const result = await alice.callTool({
+      name: "send",
+      arguments: { to: "op", payload: "late", id: "r2", replyTo: "already-closed" },
+    });
+    expect(result.isError).toBeFalsy(); // the message WAS delivered
+    expect(sc(result)).toEqual({ id: "r2", queued: true, turnClosed: false });
+  });
+
+  test("a send without replyTo never closes a turn and keeps its receipt shape", async () => {
+    expect(
+      sc(await alice.callTool({ name: "send", arguments: { to: "bob", payload: "hi", id: "m2" } })),
+    ).toEqual({ id: "m2", queued: true });
+    expect(closeTurnCalls).toEqual([]);
+  });
+
+  test("a REFUSED send leaves the turn open — the agent still holds the floor", async () => {
+    // dave is not alice's neighbour → TOPOLOGY_DENIED before any delivery. The
+    // turn must survive: closing it on a failed send would strand the answer.
+    const result = await alice.callTool({
+      name: "send",
+      arguments: { to: "dave", payload: "nope", id: "r3", replyTo: "turn-1" },
+    });
+    expect(result.isError).toBe(true);
+    expect(closeTurnCalls).toEqual([]);
+    expect(openTurns.has("turn-1")).toBe(true);
   });
 
   test("send to an operator peer lands in its pseudo-session (ready for channels, §8.6)", async () => {

@@ -42,6 +42,11 @@ router, the dispatcher or the queue:
   exists only when the satellite's `publish` meets the hub's `relay`; without
   either flag the link behaves exactly as base federation, and the dial
   direction alone never adds visibility.
+- **Exactly one answer per turn**: the injected instruction names one reply path
+  — the file contract or the compact `send` — never one with the other as a
+  fallback, and a turn closed by `send` is not collected from the exchange at
+  all. Offering both is not a harmless belt-and-braces: agents use both, and the
+  sender gets the answer twice.
 
 ## Working on a change
 

@@ -242,6 +242,16 @@ export interface AgentConfig {
   readonly cwd?: string;
   /** File-exchange dir override (§13.1); default <cwd>/.muxeon → <root>/<session>/exchange. */
   readonly exchangeDir?: string;
+  /**
+   * Which reply contract this agent is instructed with (§13.6, FR-156). Default
+   * `auto`: the compact MCP form while the agent holds a live agent-plane session,
+   * the file contract otherwise — re-decided per message, so removing a shim needs
+   * no config change. The pins exist because the auto signal is truth at injection
+   * time only: `exchange` keeps an agent on the universal path even when its MCP
+   * is up (the safe pin — a shim dying mid-turn cannot strand an answer), `mcp`
+   * forces the compact form for an agent whose client the server cannot observe.
+   */
+  readonly replyVia?: "auto" | "exchange" | "mcp";
   readonly provision?: ProvisionConfig;
   /** Per-agent retention override (§5.4/§7.1); falls back to server.retain. */
   readonly retain?: RetainConfig;
@@ -327,6 +337,10 @@ export interface UserAuthConfig {
  * (the identity inside that channel — unique within the channel).
  */
 export type UserChannelBinding = true | { readonly alias: string };
+
+/** Reply-contract modes (§13.6, FR-156) — see AgentConfig.replyVia. */
+export const REPLY_VIA_MODES = ["auto", "exchange", "mcp"] as const;
+export type ReplyViaConfig = (typeof REPLY_VIA_MODES)[number];
 
 /** Roles (§17.2, FR-121): panel-surface coarse role; NO transport ACL (§17.8). */
 export const USER_ROLES = ["admin", "user"] as const;
@@ -1050,6 +1064,7 @@ function validateAgent(value: unknown, path: string): AgentConfig {
   const tmux = requireNonEmptyString(obj.tmux, joinPointer(path, "tmux"));
   const cwd = optionalField(obj, "cwd", path, requireNonEmptyString);
   const exchangeDir = optionalField(obj, "exchangeDir", path, requireNonEmptyString);
+  const replyVia = optionalField(obj, "replyVia", path, validateReplyVia);
   const provision =
     obj.provision === undefined
       ? undefined
@@ -1074,6 +1089,7 @@ function validateAgent(value: unknown, path: string): AgentConfig {
     tmux: string;
     cwd?: string;
     exchangeDir?: string;
+    replyVia?: ReplyViaConfig;
     provision?: ProvisionConfig;
     retain?: RetainConfig;
     commands?: CommandConfig[];
@@ -1091,6 +1107,7 @@ function validateAgent(value: unknown, path: string): AgentConfig {
   if (title !== undefined) agent.title = title;
   if (cwd !== undefined) agent.cwd = cwd;
   if (exchangeDir !== undefined) agent.exchangeDir = exchangeDir;
+  if (replyVia !== undefined) agent.replyVia = replyVia;
   if (provision !== undefined) agent.provision = provision;
   if (retain !== undefined) agent.retain = retain;
   if (commands !== undefined) agent.commands = commands;
@@ -1283,6 +1300,16 @@ function validateUsers(value: unknown, path: string): UserConfig[] {
       ...(exported !== undefined ? { exported } : {}),
     };
   });
+}
+
+function validateReplyVia(value: unknown, path: string): ReplyViaConfig {
+  const text = requireNonEmptyString(value, path);
+  if (!(REPLY_VIA_MODES as readonly string[]).includes(text)) {
+    throw new ConfigError(`replyVia must be one of ${REPLY_VIA_MODES.join("/")}, got "${text}"`, {
+      path,
+    });
+  }
+  return text as ReplyViaConfig;
 }
 
 function validateUserRole(value: unknown, path: string): UserRole {

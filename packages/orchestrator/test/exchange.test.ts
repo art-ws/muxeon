@@ -197,6 +197,51 @@ describe("file-detect awaitDone (FR-53, §13.3)", () => {
   });
 });
 
+// --- T261 (FR-157, §13.6): the server closes the turn on the agent's behalf ----
+
+describe("declareDone (FR-157, §13.6)", () => {
+  test("closes a live turn through the SAME file-detect the agent would trip", async () => {
+    const exchange = createExchange({ dir: join(base, ".muxeon"), pollIntervalMs: 5 });
+    const { messageFile } = await exchange.materialize(msg("m1"));
+    const abort = new AbortController();
+    const wait = exchange.awaitDone(msg("m1"), abort.signal);
+    expect(await exchange.declareDone("m1")).toBe(true);
+    await wait; // the racer fired — one code path, whoever removed the file
+    expect(existsSync(messageFile)).toBe(false);
+  });
+
+  test("keeps the dir and its files — only the turn signal is removed", async () => {
+    const exchange = createExchange({ dir: join(base, ".muxeon") });
+    await exchange.materialize(msg("m1"));
+    const dir = join(base, ".muxeon", "inbox", "m1");
+    await writeFile(join(dir, "artifact.txt"), "kept");
+    await exchange.declareDone("m1");
+    expect(existsSync(dir)).toBe(true);
+    expect(existsSync(join(dir, "artifact.txt"))).toBe(true);
+    // the FR-74 sidecar survives too — the harvest still knows who asked
+    expect(existsSync(join(dir, ".signal.json"))).toBe(true);
+  });
+
+  test("an unknown or already-closed id is false, never an error", async () => {
+    const exchange = createExchange({ dir: join(base, ".muxeon") });
+    await exchange.materialize(msg("m1"));
+    // `send` is legal on any edge — a replyTo naming another message must not
+    // make the call fail, it simply closes nothing.
+    expect(await exchange.declareDone("nope")).toBe(false);
+    expect(await exchange.declareDone("m1")).toBe(true);
+    expect(await exchange.declareDone("m1")).toBe(false); // idempotent
+  });
+
+  test("cannot escape the inbox via a path-shaped id (§8.7)", async () => {
+    const exchange = createExchange({ dir: join(base, ".muxeon") });
+    await exchange.materialize(msg("m1"));
+    const outside = join(base, "message.json");
+    await writeFile(outside, "not yours");
+    expect(await exchange.declareDone("../../message.json")).toBe(false);
+    expect(existsSync(outside)).toBe(true);
+  });
+});
+
 describe("reply collection (FR-54, §13.3)", () => {
   test("reply.md text + artifacts; hidden files, subdirs and message.json ignored", async () => {
     const exchange = createExchange({ dir: join(base, ".muxeon") });

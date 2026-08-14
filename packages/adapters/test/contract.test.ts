@@ -123,6 +123,63 @@ describe("exchange render (FR-52, §13.2)", () => {
   });
 });
 
+// --- T261 (FR-156/FR-157, §13.6): the compact MCP reply contract ---------------
+
+describe("compact MCP reply contract (§13.6, FR-156)", () => {
+  const FILE = "/work/.muxeon/inbox/abc-123/message.json";
+
+  test("replyVia mcp: one send call, and it is stated to end the turn", () => {
+    const text = defaultRender(msg({ payload: "привет" }), {
+      messageFile: FILE,
+      replyVia: "mcp",
+    });
+    expect(text).toContain("[muxeon] from=researcher id=abc-123");
+    expect(text).toContain("привет");
+    // The file is still named: message.json is materialized in BOTH forms, and a
+    // long payload lives only there (the hybrid rule §13.2).
+    expect(text).toContain(`full message: ${FILE}`);
+    expect(text).toContain('send(to="researcher", replyTo="abc-123")');
+    expect(text).toContain("ENDS YOUR TURN");
+    // T76 holds in both forms — the wrapper is EN, the answer mirrors the request.
+    expect(text).toContain("SAME LANGUAGE as the message");
+    // the action contract is still the TAIL of the input (T57)
+    expect(text.trim().endsWith("]")).toBe(true);
+    expect(text.indexOf("привет")).toBeLessThan(text.indexOf("full message:"));
+  });
+
+  test("exactly ONE reply path is named — the file steps are forbidden, not offered", () => {
+    const text = defaultRender(msg(), { messageFile: FILE, replyVia: "mcp" });
+    // T239: an instruction offering a fallback gets both paths used and the
+    // sender receives the answer twice (§10.29). reply.md and the deletion may
+    // appear ONLY as prohibitions.
+    expect(text).toContain("Do NOT write reply.md");
+    expect(text).toContain("do NOT delete message.json");
+    expect(text).not.toContain("FIRST write your answer");
+    expect(text).not.toContain("VERY LAST action");
+  });
+
+  test("the compact form is materially shorter than the file contract", () => {
+    const mcp = defaultRender(msg(), { messageFile: FILE, replyVia: "mcp" });
+    const file = defaultRender(msg(), { messageFile: FILE });
+    expect(mcp.length).toBeLessThan(file.length);
+  });
+
+  test("a long payload still gets the read-the-file marker", () => {
+    const text = defaultRender(msg({ payload: "х".repeat(2000) }), {
+      messageFile: FILE,
+      replyVia: "mcp",
+    });
+    expect(text).toContain("READ the message file first");
+    expect(text).toContain('send(to="researcher"');
+  });
+
+  test("absent or explicit exchange ⇒ the file contract, unchanged", () => {
+    for (const ctx of [{ messageFile: FILE }, { messageFile: FILE, replyVia: "exchange" as const }])
+      expect(defaultRender(msg(), ctx)).toBe(defaultRender(msg(), { messageFile: FILE }));
+    expect(defaultRender(msg(), { messageFile: FILE })).toContain("DELETE message.json");
+  });
+});
+
 // --- T48 (FR-43, §12.5): blob refs render as local paths -----------------------
 
 describe("blob attachment rendering (T48, FR-43, §12.5)", () => {

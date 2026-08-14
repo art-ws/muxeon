@@ -31,6 +31,16 @@ export interface NativeStatus {
 }
 
 /**
+ * Which reply contract the instruction states (§13.6, FR-156). "exchange" — the
+ * self-sufficient file contract: works for ANY agent that can read and write
+ * files (FR-56) and is the default. "mcp" — the compact one-call form, chosen
+ * only when the agent has a LIVE agent-plane session right now. Exactly one of
+ * them is ever rendered: naming both paths in one instruction is what produced
+ * the duplicated answer of T239 (§10.29).
+ */
+export type ReplyVia = "exchange" | "mcp";
+
+/**
  * Render context (§13.2): when the dispatcher materialized the message into the
  * agent's exchange inbox (FR-52), messageFile is the absolute message.json path
  * and the render emits the SELF-SUFFICIENT file-contract instruction. Absent
@@ -38,6 +48,8 @@ export interface NativeStatus {
  */
 export interface RenderContext {
   readonly messageFile?: string;
+  /** The reply contract to state (§13.6, FR-156); absent ⇒ "exchange". */
+  readonly replyVia?: ReplyVia;
 }
 
 export interface Adapter {
@@ -125,6 +137,40 @@ export function renderExchangeHint(messageFile: string, payloadInlined: boolean)
 }
 
 /**
+ * The compact MCP reply contract (§13.6, FR-156/FR-157) — rendered INSTEAD of the
+ * file contract when the agent has a live agent-plane session. It costs the agent
+ * ONE tool call where the file form costs two model round-trips (write reply.md,
+ * then delete message.json), and `send` delivers mid-turn instead of at turn end
+ * — that gap, not the 100ms file-detect poll, is where the file path's latency
+ * actually lives.
+ *
+ * The message file is still named: message.json is materialized in BOTH forms
+ * (the hybrid size rule §13.2 puts long payloads only there), so the agent must
+ * be told where to read. What changes is the ANSWER path, not delivery.
+ *
+ * The prohibitions are explicit and the alternative path is deliberately NOT
+ * offered as a fallback: an instruction naming two ways to answer gets both used
+ * (T239 — the operator received every answer twice), and the server suppresses
+ * the file collection of an MCP-closed turn anyway (§10.29).
+ */
+export function renderMcpExchangeHint(
+  message: Signal,
+  messageFile: string,
+  payloadInlined: boolean,
+): string {
+  // English by the same invariant as the file contract (§13.2, T76); the ANSWER
+  // still mirrors the request language, so that clause is repeated here — it is
+  // a property of the answer, not of the transport that carries it.
+  return [
+    ...(payloadInlined
+      ? []
+      : ["[the payload is too long for the console — READ the message file first]"]),
+    `[muxeon exchange] full message: ${messageFile}`,
+    `[reply contract: answer with the muxeon MCP tool — send(to="${message.from}", replyTo="${message.id}"), your answer as the plain-text payload, in the SAME LANGUAGE as the message itself. That ONE call both delivers the answer and ENDS YOUR TURN, so make it your last action. Do NOT write reply.md, do NOT delete message.json, and do NOT repeat the answer through any other channel.]`,
+  ].join("\n");
+}
+
+/**
  * Builds the default render. With an exchange context (§13.2): attribution +
  * inlined payload text (when short — the hybrid rule) + attachment lines + the
  * file-contract instruction LAST. Without one (legacy/no-exchange): attribution +
@@ -144,11 +190,16 @@ export function makeDefaultRender(
     }
     const { text, attachments } = splitPayload(message.payload, options.blobsDir);
     const inline = text !== undefined && text.length <= inlineMax;
+    const payloadInlined = inline || text === undefined;
     const parts = [
       renderAttribution(message),
       ...(inline && text !== undefined ? [text] : []),
       ...attachments, // resolved paths render ONLY here — message.json has opaque refs
-      renderExchangeHint(ctx.messageFile, inline || text === undefined),
+      // Exactly one reply contract (§10.29): the compact MCP form only when the
+      // caller resolved a live agent plane for this agent (FR-156).
+      ctx.replyVia === "mcp"
+        ? renderMcpExchangeHint(message, ctx.messageFile, payloadInlined)
+        : renderExchangeHint(ctx.messageFile, payloadInlined),
     ];
     return parts.join("\n");
   };

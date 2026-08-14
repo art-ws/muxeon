@@ -72,6 +72,23 @@ export class SessionRegistry {
   nameOf(sessionId: string): string | undefined {
     return this.#nameBySession.get(sessionId);
   }
+
+  /**
+   * Does `name` hold a LIVE agent-plane session right now (§13.6, FR-156)? This is
+   * the signal that picks the compact MCP reply contract over the file one — and
+   * it is deliberately the only signal used: an agent's `.mcp.json` on disk says
+   * what was CONFIGURED, not what connected (T260 — the whole park carried a
+   * syntactically valid MCP config pointing at a shim path that no longer existed,
+   * and nothing ever came up).
+   *
+   * A reservation not yet bound (value null — initialize in flight) reads as NOT
+   * live: the wrong answer here must be the one that degrades to the file contract,
+   * which every agent can follow.
+   */
+  hasLiveSession(name: string): boolean {
+    const bound = this.#sessionByName.get(name);
+    return bound !== undefined && bound !== null;
+  }
 }
 
 /** The clientInfo.name + request id extracted from a raw initialize body. */
