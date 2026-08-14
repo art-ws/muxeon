@@ -43,10 +43,11 @@ router, the dispatcher or the queue:
   either flag the link behaves exactly as base federation, and the dial
   direction alone never adds visibility.
 - **Exactly one answer per turn**: the injected instruction names one reply path
-  — the file contract or the compact `send` — never one with the other as a
-  fallback, and a turn closed by `send` is not collected from the exchange at
-  all. Offering both is not a harmless belt-and-braces: agents use both, and the
-  sender gets the answer twice.
+  — the file contract or the compact `send` — and never mentions the other, not
+  even as a prohibition (a ban teaches the path it bans). A turn closed by `send`
+  is not collected from the exchange at all, which is what makes the guarantee
+  structural rather than a matter of wording. Offering both is not a harmless
+  belt-and-braces: agents use both, and the sender gets the answer twice.
 
 ## Working on a change
 

@@ -147,15 +147,31 @@ describe("compact MCP reply contract (§13.6, FR-156)", () => {
     expect(text.indexOf("привет")).toBeLessThan(text.indexOf("full message:"));
   });
 
-  test("exactly ONE reply path is named — the file steps are forbidden, not offered", () => {
+  test("the other path is never named — not even to forbid it (T267)", () => {
     const text = defaultRender(msg(), { messageFile: FILE, replyVia: "mcp" });
-    // T239: an instruction offering a fallback gets both paths used and the
-    // sender receives the answer twice (§10.29). reply.md and the deletion may
-    // appear ONLY as prohibitions.
-    expect(text).toContain("Do NOT write reply.md");
-    expect(text).toContain("do NOT delete message.json");
+    // A prohibition still teaches the alternative, and since T262 stripped the file
+    // contract from the agents' own CLAUDE.md this instruction would be the ONLY
+    // place a compact-contract agent could learn reply.md exists. So it appears
+    // nowhere — not as a step, not as a ban.
+    expect(text).not.toContain("reply.md");
+    expect(text).not.toMatch(/delete/i); // no deletion instruction, positive or negative
     expect(text).not.toContain("FIRST write your answer");
     expect(text).not.toContain("VERY LAST action");
+    // …and the single positive clause that replaces all three prohibitions covers
+    // writing AND deleting without naming either.
+    expect(text).toContain("leave the message folder untouched");
+  });
+
+  test("the message file is still named — reading it is not the same as answering in it", () => {
+    // Dropping the prohibitions must not drop the PATH: a long payload lives only
+    // in message.json (the hybrid rule §13.2), so the agent still has to be told
+    // where to read. Only the ANSWER path is single.
+    const text = defaultRender(msg({ payload: "х".repeat(2000) }), {
+      messageFile: FILE,
+      replyVia: "mcp",
+    });
+    expect(text).toContain(`full message: ${FILE}`);
+    expect(text).toContain("READ the message file first");
   });
 
   test("the compact form is materially shorter than the file contract", () => {

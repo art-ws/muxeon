@@ -148,10 +148,16 @@ export function renderExchangeHint(messageFile: string, payloadInlined: boolean)
  * (the hybrid size rule §13.2 puts long payloads only there), so the agent must
  * be told where to read. What changes is the ANSWER path, not delivery.
  *
- * The prohibitions are explicit and the alternative path is deliberately NOT
- * offered as a fallback: an instruction naming two ways to answer gets both used
- * (T239 — the operator received every answer twice), and the server suppresses
- * the file collection of an MCP-closed turn anyway (§10.29).
+ * The other path is NEVER named here — not even to forbid it (T267). Spelling out
+ * "do not write reply.md, do not delete message.json" was the original shape, and
+ * it backfired twice over: a prohibition still TEACHES the alternative (this
+ * instruction became the only place a compact-contract agent could learn the file
+ * path exists at all, once T262 removed it from the agents' own CLAUDE.md), and
+ * models follow positive constraints more reliably than negative ones. The single
+ * clause "leave the message folder untouched" covers writing AND deleting while
+ * naming neither. The T239 hazard it guarded against — an instruction offering two
+ * ways to answer gets both used — is now carried structurally: the server does not
+ * collect the exchange of an MCP-closed turn at all (§10.29).
  */
 export function renderMcpExchangeHint(
   message: Signal,
@@ -166,7 +172,7 @@ export function renderMcpExchangeHint(
       ? []
       : ["[the payload is too long for the console — READ the message file first]"]),
     `[muxeon exchange] full message: ${messageFile}`,
-    `[reply contract: answer with the muxeon MCP tool — send(to="${message.from}", replyTo="${message.id}"), your answer as the plain-text payload, in the SAME LANGUAGE as the message itself. That ONE call both delivers the answer and ENDS YOUR TURN, so make it your last action. Do NOT write reply.md, do NOT delete message.json, and do NOT repeat the answer through any other channel.]`,
+    `[reply contract: answer with the muxeon MCP tool — send(to="${message.from}", replyTo="${message.id}"), your answer as the plain-text payload, in the SAME LANGUAGE as the message itself. That ONE call both delivers the answer and ENDS YOUR TURN, so make it your last action and leave the message folder untouched.]`,
   ].join("\n");
 }
 

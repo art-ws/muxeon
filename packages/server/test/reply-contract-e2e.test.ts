@@ -143,7 +143,8 @@ test.skipIf(!LOOPBACK_DIRECT)(
     await waitFor(() => injected.length === 2);
     expect(injected[1]).toContain('send(to="writer", replyTo="m2")');
     expect(injected[1]).toContain("ENDS YOUR TURN");
-    expect(injected[1]).toContain("Do NOT write reply.md");
+    expect(injected[1]).toContain("leave the message folder untouched");
+    expect(injected[1]).not.toContain("reply.md"); // the other path is never named (T267)
     // the message file is still named — a long payload lives only there (§13.2)
     expect(injected[1]).toContain("full message:");
     // and the compact form is the cheaper one to follow

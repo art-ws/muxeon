@@ -219,9 +219,13 @@ config edit and no restart. A merely *configured* MCP server does not count —
 only one that actually connected.
 
 The two forms are never mixed. An instruction offering a fallback path gets both
-used, and the sender receives every answer twice (this happened in production);
-so the compact form forbids `reply.md` outright, and a turn closed by `send` is
-not collected from the exchange at all.
+used, and the sender receives every answer twice (this happened in production).
+So the compact form does not mention the file path **at all — not even to forbid
+it**: a prohibition still teaches the alternative, and it would be the only place
+an agent on the compact contract could hear that `reply.md` exists. It says
+"leave the message folder untouched" instead, which covers writing and deleting
+without naming either. What actually guarantees the single answer is structural:
+a turn closed by `send` is not collected from the exchange at all.
 
 Override per agent when you need to:
 
