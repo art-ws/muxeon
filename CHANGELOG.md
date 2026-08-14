@@ -1,3 +1,21 @@
+## [0.1.10](https://github.com/art-ws/muxeon/compare/v0.1.9...v0.1.10) (2026-08-14)
+
+
+### Changes
+
+* **T256:** README — where the name comes from
+
+  Operator's request: the front page should say what "Muxeon" means, because the name is coined and reads as arbitrary until someone explains it. ([bdd901a](https://github.com/art-ws/muxeon/commit/bdd901a342ea3a3b7e968260938ae80b43a83d1f))
+* **T258:** drop the temporary token — the trusted publisher is configured
+
+  The token existed for exactly the window npm forces open: a trusted publisher ([d92bf66](https://github.com/art-ws/muxeon/commit/d92bf66e24e67f2192922b8ba2ddc5c1b1c343b0)), closes [npm/cli#8544](https://github.com/npm/cli/issues/8544)
+* **T261:** the reply contract follows the live MCP session, and send ends the turn
+
+  The file contract (§13.2) is self-sufficient but costs the agent two extra model round-trips at the end of every turn — write reply.md, then a second call to delete message.json — and the answer only leaves after the turn ends. MCP send delivers at the moment of the call and costs one. ([ed05514](https://github.com/art-ws/muxeon/commit/ed05514147280b4ca1f6aebd2e27235d3b2ad4e7))
+* **T265:** the shim supervises its session instead of repairing it on demand
+
+  Reconnecting on the next tool call stopped being enough the moment session liveness became a signal: since T261 the coordinator hands the compact reply contract only to agents holding a live agent-plane session. ([ff8b40a](https://github.com/art-ws/muxeon/commit/ff8b40aa5d3b7e5d09c6d764fa75458aafc75327))
+
 ## [0.1.9](https://github.com/art-ws/muxeon/compare/v0.1.8...v0.1.9) (2026-08-12)
 
 
