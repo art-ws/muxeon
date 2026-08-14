@@ -8,6 +8,7 @@ import {
   healthColor,
   healthRatio,
   hourZoneWidth,
+  orbText,
 } from "../src/token-meter";
 import type { TokenSeries } from "../src/types";
 
@@ -208,5 +209,36 @@ describe("buildBars (§12.8, FR-103)", () => {
       expect(b.w).toBeGreaterThanOrEqual(MINUTE_SLOT_MIN - 1e-9); // flush ⇒ bar w == slot ≥ floor
     }
     for (const b of bars) expect(b.x + b.w).toBeLessThanOrEqual(HIST_VBW + 1e-6);
+  });
+});
+
+// ── T266: the header shows the percentage; the count moved into the tooltip ──
+
+describe("orb caption vs tooltip (§12.8, FR-103)", () => {
+  test("caption is the percentage ALONE — no token count on the header", () => {
+    const { label } = orbText(226_813, 1_000_000, "tok");
+    expect(label).toBe("23%");
+    expect(label).not.toContain("tok");
+    expect(label).not.toMatch(/\d{4}/); // no long number competing for the header's width
+  });
+
+  test("the tooltip carries the exact count AND the ceiling it is a percentage of", () => {
+    const { title } = orbText(226_813, 1_000_000, "tok");
+    expect(title).toBe("226\u2009813 tok / 1\u2009000\u2009000 (23%)");
+  });
+
+  test("no usable ceiling ⇒ the count itself, never a meaningless 0%", () => {
+    for (const ceiling of [0, -1]) {
+      const { label, title } = orbText(1234, ceiling, "tok");
+      expect(label).toBe("1\u2009234 tok");
+      expect(title).toBe("1\u2009234 tok");
+      expect(label).not.toContain("%");
+    }
+  });
+
+  test("percentage is rounded and pins at 100% over the ceiling", () => {
+    expect(orbText(0, 1000, "tok").label).toBe("0%");
+    expect(orbText(504, 1000, "tok").label).toBe("50%");
+    expect(orbText(1500, 1000, "tok").label).toBe("150%"); // honest: over budget is visible
   });
 });

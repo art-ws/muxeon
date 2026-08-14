@@ -69,6 +69,9 @@ itself (bring-up stays `provision`/auto-revive/operator territory).
       "retain": { "age": "3d" }   // optional per-agent retention override
     }
   ],
+  "types": {                      // optional per-adapter-type defaults
+    "claude": { "tokens": { "enabled": true } }   // context meter in the panel — see §8.1b
+  },
   "topology": {                   // undirected: an edge = permission to talk
     "researcher": ["writer", "operator"]
   },
@@ -565,6 +568,62 @@ are.
 no `to` is fanned out to every `role:"admin"` user — one addressed copy each.
 With no admins configured, `to` stays mandatory and such a file is rejected as
 before.
+
+### 8.1b Token accounting: the context meter in the chat header (§12.8, FR-103)
+
+The header of an agent chat can show how loaded that agent's context is: a spend
+histogram across the last 24h, and — pinned right — a health orb with the
+percentage of the ceiling. **Hover the orb for the exact count and the ceiling it
+is a percentage of**; the header itself stays short so the histogram gets the
+width.
+
+**Where the number comes from — and what that implies.** Muxeon does not talk to
+any vendor API and counts nothing itself. It periodically captures the agent's
+tmux pane and reads the context gauge **the CLI already prints in its own
+terminal**. Two dialects are recognised:
+
+| CLI | What the pane must show | Example |
+|---|---|---|
+| Claude Code | `<n> tokens` | `61245 tokens` |
+| Codex | `<n>[.d][K\|M] used` | `230.4K used` |
+
+Both print this natively, so usually nothing extra is needed. But the rule that
+matters is: **if the number is not on screen, it is not counted.** Two practical
+consequences —
+
+- A CLI (or version, or theme) that hides the gauge yields no data. If yours
+  does, a custom status line that prints the count in either dialect is enough —
+  the parser only looks for the shape above, not for who wrote it.
+- A `down` agent has no pane and is skipped. Gaps in the histogram are honest:
+  they mean "not observed", not "spent nothing".
+
+**Switching it on** — per agent *type*, in `types.<type>.tokens`. There is no
+per-agent switch: the gauge format is a property of the CLI, not of the agent.
+
+```jsonc
+"types": {
+  "claude": {
+    "tokens": {
+      "enabled": true,          // default true when the block is present
+      "sampleEvery": "60s",     // pane capture cadence
+      "minuteSpan": "60m",      // per-minute detail depth; older folds into hourly maxima
+      "maxThreshold": 1000000   // the ceiling = 100% / red on the orb
+    }
+  }
+}
+```
+
+**No `tokens` block ⇒ the type is not tracked** and the meter simply does not
+render for its agents — that is the default, not a misconfiguration.
+
+`maxThreshold` is yours to set: it is the denominator of the percentage and the
+red end of the colour scale, not a limit Muxeon enforces. Nothing is throttled or
+refused when it is crossed — the orb just goes red and the percentage passes
+100%. Set it to the context window you actually want to stay under.
+
+Cost is one `capture-pane` per tracked agent per `sampleEvery`, and the series is
+persisted (two small JSON files per session) so a restart does not lose history;
+a 24h window is retained.
 
 ### 8.2 Building the UI
 

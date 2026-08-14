@@ -1186,12 +1186,15 @@ body,
   display: block;
 }
 
-/* orb + count: a horizontal pair, vertically centred, pinned right (last in row) */
+/* orb + percentage: a horizontal pair, vertically centred, pinned right (last in
+   row). `help` cursor because the exact token count now lives in the title —
+   without the hint nothing suggests there is more to see here. */
 .token-orb-wrap {
   flex: 0 0 auto;
   display: flex;
   align-items: center;
   gap: 8px;
+  cursor: help;
 }
 
 /* the mental-health orb: colour set inline (green→yellow→red), a slow calm pulse */

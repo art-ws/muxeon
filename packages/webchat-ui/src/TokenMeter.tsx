@@ -16,11 +16,11 @@ import {
   HIST_VBW,
   type HistBar,
   buildBars,
-  fmtPercent,
   fmtTokens,
   healthColor,
   healthRatio,
   hourZoneWidth,
+  orbText,
 } from "./token-meter";
 import type { TokenSeries } from "./types";
 
@@ -91,8 +91,8 @@ export function TokenMeter({ peer }: { peer: string }): React.JSX.Element | null
 
   const unit = t("tok");
   const color = healthColor(healthRatio(series.current, series.maxThreshold));
-  const pct = fmtPercent(series.current, series.maxThreshold);
-  const label = `${fmtTokens(series.current)} ${unit} (${pct}%)`;
+  // Percentage on the header, exact count in the tooltip (operator request).
+  const { label, title } = orbText(series.current, series.maxThreshold, unit);
   const bars = buildBars(series, HIST_H);
   const hoursW = hourZoneWidth(series);
 
@@ -123,7 +123,7 @@ export function TokenMeter({ peer }: { peer: string }): React.JSX.Element | null
           </svg>
         )}
       </div>
-      <div className="token-orb-wrap">
+      <div className="token-orb-wrap" title={title}>
         <span
           className="token-orb"
           style={{ background: color, boxShadow: `0 0 5px ${color}` }}

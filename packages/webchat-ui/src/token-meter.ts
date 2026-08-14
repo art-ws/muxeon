@@ -29,10 +29,31 @@ export function fmtTokens(n: number): string {
     .replace(/\B(?=(\d{3})+(?!\d))/g, "\u2009");
 }
 
-/** current as an integer percentage of the ceiling — the "(36%)" in the label. */
+/** current as an integer percentage of the ceiling — the "36%" the orb shows. */
 export function fmtPercent(current: number, maxThreshold: number): number {
   if (maxThreshold <= 0) return 0;
   return Math.round((current / maxThreshold) * 100);
+}
+
+/**
+ * The orb's caption and its tooltip (§12.8, FR-103). The caption is the PERCENTAGE
+ * ALONE: the absolute count is long, changes on every sample and competes with the
+ * histogram for the header's width, while the number a reader acts on is "how close
+ * to the ceiling". The exact count stays one hover away, together with the ceiling
+ * it is a percentage OF — a bare "23%" is unreadable without it.
+ *
+ * With no usable ceiling there is no percentage to state, so the caption degrades to
+ * the count itself rather than claiming a meaningless "0%".
+ */
+export function orbText(
+  current: number,
+  maxThreshold: number,
+  unit: string,
+): { readonly label: string; readonly title: string } {
+  const count = `${fmtTokens(current)} ${unit}`;
+  if (maxThreshold <= 0) return { label: count, title: count };
+  const pct = fmtPercent(current, maxThreshold);
+  return { label: `${pct}%`, title: `${count} / ${fmtTokens(maxThreshold)} (${pct}%)` };
 }
 
 /** One histogram bar (viewBox units): geometry, health colour, and tooltip data. */
