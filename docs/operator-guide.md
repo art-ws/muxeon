@@ -592,14 +592,53 @@ terminal**. Two dialects are recognised:
 | Codex | `<n>[.d][K\|M] used` | `230.4K used` |
 
 Both print this natively, so usually nothing extra is needed. But the rule that
-matters is: **if the number is not on screen, it is not counted.** Two practical
-consequences —
+matters is: **if the number is not on screen, it is not counted.** A `down` agent
+has no pane and is skipped, so gaps in the histogram are honest — they mean "not
+observed", not "spent nothing".
 
-- A CLI (or version, or theme) that hides the gauge yields no data. If yours
-  does, a custom status line that prints the count in either dialect is enough —
-  the parser only looks for the shape above, not for who wrote it.
-- A `down` agent has no pane and is skipped. Gaps in the histogram are honest:
-  they mean "not observed", not "spent nothing".
+#### Making sure the gauge is actually on screen
+
+**First, check.** One line tells you whether an agent is countable at all — run it
+against the agent's tmux session and look for a match:
+
+```sh
+tmux capture-pane -t <session> -p | grep -oE '[0-9][0-9, ]*[[:space:]]*tokens|[0-9.]+[KM]?[[:space:]]*used' | tail -1
+# claude → "61245 tokens"      codex → "202K used"      no output → nothing to count
+```
+
+**The exact shape the parser accepts** — worth knowing before you write your own
+status line, because two details are easy to get wrong:
+
+- **Claude dialect — `<n> tokens`:** a **plain integer** right before the word
+  `tokens` (thousands separators are fine). A fractional or `k`-suffixed number is
+  **deliberately ignored**: `↓ 7.1k tokens` is the streaming counter of one
+  response, not the context gauge, and counting it would be wrong.
+- **Codex dialect — `<n>[.d][K|M] used`:** here the `K`/`M` suffix **is** part of
+  the gauge and scales the number; a decimal point is fine (`23.4K used`). The
+  distinct word `used` is what keeps the two dialects from colliding.
+- **The bottom-most match wins.** Both dialects are scanned across the whole pane
+  and the lowest match on screen is taken — that is the live gauge. So a custom
+  status line must sit at the bottom, and nothing below it may accidentally match.
+
+**If your CLI does not print it,** add a status line that does; the parser looks at
+the shape, not at who wrote it. For Claude Code that is `statusLine` in the agent's
+`settings.json` — the command receives a JSON blob on stdin and whatever it prints
+becomes the bottom line:
+
+```jsonc
+// ~/.claude/settings.json (or the agent's project-level settings)
+"statusLine": { "type": "command", "command": "bash ~/.claude/statusline-command.sh" }
+```
+
+The only requirement is that the output contains the count in one of the shapes
+above — e.g. ending the line with `… 61245 tokens`. Print a plain integer: a `k`
+suffix would put you in the ignored streaming form.
+
+**The type selects the config block, not the dialect.** Both dialects are always
+scanned, whatever `agents[].type` says — so an agent declared `auto` that happens
+to run Codex is counted correctly, as long as its type has a `tokens` block.
+Verified on the live stand: `sherlock` (`type: "claude"`) reports `61245 tokens`,
+`dev1` (`type: "auto"`, running Codex) reports `202K used`.
 
 **Switching it on** — per agent *type*, in `types.<type>.tokens`. There is no
 per-agent switch: the gauge format is a property of the CLI, not of the agent.
