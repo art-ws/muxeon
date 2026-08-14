@@ -1,3 +1,12 @@
+## [0.1.11](https://github.com/art-ws/muxeon/compare/v0.1.10...v0.1.11) (2026-08-14)
+
+
+### Changes
+
+* **T266:** the token orb shows the percentage; the count moves into its tooltip
+
+  Operator request. The header caption was "226 813 tok (23%)" — the longest, fastest-changing part of the chat header, competing with the histogram for width, while the number a reader acts on is how close to the ceiling the agent is. The caption is now the percentage alone. ([32ad877](https://github.com/art-ws/muxeon/commit/32ad877b63adf89be507c5b33fada0c61a8aff04))
+
 ## [0.1.10](https://github.com/art-ws/muxeon/compare/v0.1.9...v0.1.10) (2026-08-14)
 
 
