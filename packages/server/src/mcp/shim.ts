@@ -9,17 +9,28 @@
 //
 // DURABILITY (FR-89). The agent's stdio link to the shim is the stable contract; the
 // upstream HTTP session is disposable. The shim NEVER holds a single long-lived session
-// hostage: it connects to the agent-plane LAZILY and, on ANY upstream failure — a server
-// restart invalidates our session id (→ 404 "unknown session"); a server still booting
-// refuses the connection — it drops the dead client and RE-INITIALIZES on the next call.
-// So a Muxeon server restart no longer severs agents: no `muxeon restart <agent>` needed.
-// A shim that started BEFORE the server keeps retrying in the background and, on the first
-// connect, emits tools/list_changed so the agent's client lists the §8.6 tools once they
-// appear. The proxy stays transparent: tools/list and tools/call are forwarded verbatim,
-// so the agent sees exactly the §8.6 set and nothing here changes when the plane evolves.
+// hostage: on ANY upstream failure — a server restart invalidates our session id (→ 404
+// "unknown session"); a server still booting refuses the connection — it drops the dead
+// client and RE-INITIALIZES. So a Muxeon server restart no longer severs agents: no
+// `muxeon restart <agent>` needed. The proxy stays transparent: tools/list and tools/call
+// are forwarded verbatim, so the agent sees exactly the §8.6 set and nothing here changes
+// when the plane evolves.
+//
+// SUPERVISION (FR-158). Reconnecting on demand is not enough, because the session's
+// liveness is itself a signal now: the coordinator picks the compact reply contract
+// (§13.6, FR-156) only for agents holding a live agent-plane session. Repair driven by
+// the next tool call therefore deadlocks — a server restart kills every session, the
+// agent is handed the FILE contract, the file contract requires no MCP call, so nothing
+// ever reconnects and the agent stays on the file path forever (found live on the T261
+// deploy). Nothing pushes a notification either: the plane answers with plain JSON, so
+// there is no stream whose close could be observed. Hence a background loop that keeps
+// probing after the FIRST success, not only until it: one cheap tools/list per interval,
+// which reconnects through the same path as any other call and re-registers the name.
 //
 // Run: MUXEON_AGENT_NAME=<topology-name> bun packages/server/src/mcp/shim.ts
 // Env: MUXEON_MCP_URL — agent-plane endpoint (default http://127.0.0.1:8080/mcp).
+//      MUXEON_SHIM_PROBE_MS — supervision interval, default 30000; 0 disables probing
+//      (the loop then stops at the first success, the pre-FR-158 warm-up behaviour).
 
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
@@ -167,17 +178,36 @@ function unreachable(url: string, error: unknown): CallToolResult {
   };
 }
 
+/** Supervision knobs (FR-158); all injectable so the loop is testable without real time. */
+export interface SuperviseOptions {
+  /** Probe cadence after a successful connect; 0 ⇒ stop at the first success. */
+  readonly probeMs?: number;
+  /** Stops the loop (process shutdown, tests). */
+  readonly signal?: AbortSignal;
+  readonly sleep?: (ms: number) => Promise<void>;
+}
+
+/** Supervision cadence (FR-158). 30s is far below any human-noticeable gap between a
+ *  coordinator restart and the agent's next message, and costs one tiny request. */
+export const DEFAULT_PROBE_MS = 30_000;
+const RETRY_MIN_MS = 500;
+const RETRY_MAX_MS = 5_000;
+
+const defaultSleep = (ms: number): Promise<void> =>
+  new Promise((resolve) => setTimeout(resolve, ms));
+
 /**
  * Build the shim's stdio Server over a (reconnecting) Upstream. tools/list serves the
  * last-known set during a momentary outage so the agent never sees an empty toolbox;
  * tools/call returns a clean retryable error when even a reconnect fails. Returns the
- * server plus `warmUp` — a background connect loop that keeps trying until the first
- * success (so a shim started before the server eventually surfaces the tools).
+ * server plus `supervise` — the background loop of FR-158: it connects (so a shim started
+ * before the server eventually surfaces the tools) and then KEEPS probing, so a session
+ * killed by a coordinator restart is restored without the agent having to call anything.
  */
 export function buildShim(
   connect: Connect,
   url: string,
-): { server: Server; warmUp: () => Promise<void> } {
+): { server: Server; supervise: (options?: SuperviseOptions) => Promise<void> } {
   // Advertise tools.listChanged so we can prompt the agent's client to re-list on (re)connect.
   const server = new Server(
     { name: "muxeon-shim", version: "0" },
@@ -226,26 +256,48 @@ export function buildShim(
     }
   });
 
-  const warmUp = async (): Promise<void> => {
-    for (let delayMs = 500; ; delayMs = Math.min(delayMs * 2, 5000)) {
+  const supervise = async (options: SuperviseOptions = {}): Promise<void> => {
+    const probeMs = options.probeMs ?? DEFAULT_PROBE_MS;
+    const sleep = options.sleep ?? defaultSleep;
+    let retryMs = RETRY_MIN_MS;
+    while (options.signal?.aborted !== true) {
       try {
+        // The probe IS the repair: refreshTools goes through Upstream.run, which on a
+        // stale session drops the dead client, re-initializes (re-registering the name,
+        // §8.6) and retries — the same path a real tool call takes. A healthy upstream
+        // just answers, so the steady state costs one tools/list per interval.
         await refreshTools();
-        return;
+        if (probeMs <= 0) return; // probing disabled — first success ends the loop
+        retryMs = RETRY_MIN_MS;
+        await sleep(probeMs);
       } catch {
-        await new Promise((resolve) => setTimeout(resolve, delayMs));
+        // Backoff applies only to the unreachable case: a server that is down stays down
+        // for a while, and hammering it changes nothing. The failure was already logged
+        // (deduped) by the Upstream onError hook.
+        await sleep(retryMs);
+        retryMs = Math.min(retryMs * 2, RETRY_MAX_MS);
       }
     }
   };
 
-  return { server, warmUp };
+  return { server, supervise };
 }
 
-async function main(agentName: string, url: string): Promise<void> {
-  const { server, warmUp } = buildShim(httpConnect(agentName, url), url);
+/** MUXEON_SHIM_PROBE_MS → cadence; a non-numeric or negative value falls back to the
+ *  default rather than silently disabling supervision (0 disables it explicitly). */
+export function probeMsFromEnv(raw: string | undefined): number {
+  if (raw === undefined || raw.trim() === "") return DEFAULT_PROBE_MS;
+  const parsed = Number(raw);
+  if (!Number.isFinite(parsed) || parsed < 0) return DEFAULT_PROBE_MS;
+  return parsed;
+}
+
+async function main(agentName: string, url: string, probeMs: number): Promise<void> {
+  const { server, supervise } = buildShim(httpConnect(agentName, url), url);
   // Start serving stdio FIRST so the agent's client always has the server, even when the
-  // agent-plane is down; then warm the upstream up in the background (FR-89).
+  // agent-plane is down; then supervise the upstream in the background (FR-89/FR-158).
   await server.connect(new StdioServerTransport());
-  void warmUp();
+  void supervise({ probeMs });
 }
 
 if (import.meta.main) {
@@ -255,5 +307,5 @@ if (import.meta.main) {
     process.stderr.write("muxeon-shim: MUXEON_AGENT_NAME is required (the topology name, §8.6)\n");
     process.exit(1);
   }
-  await main(name, url);
+  await main(name, url, probeMsFromEnv(process.env.MUXEON_SHIM_PROBE_MS));
 }

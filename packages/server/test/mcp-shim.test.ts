@@ -16,8 +16,8 @@ import {
   ListToolsRequestSchema,
   ToolListChangedNotificationSchema,
 } from "@modelcontextprotocol/sdk/types.js";
-import type { Connect, UpstreamClient } from "../src/mcp/shim";
-import { Upstream, buildShim, httpConnect } from "../src/mcp/shim";
+import type { Connect, SuperviseOptions, UpstreamClient } from "../src/mcp/shim";
+import { Upstream, buildShim, httpConnect, probeMsFromEnv } from "../src/mcp/shim";
 import { type AgentPlaneHandle, startAgentPlane } from "../src/mcp/transport";
 import { LOOPBACK_DIRECT } from "./mcp-helpers";
 
@@ -69,13 +69,13 @@ class FakePlane {
 /** Wire the real shim Server to a real SDK Client over an in-memory pipe. */
 async function linkShim(
   connect: Connect,
-): Promise<{ client: Client; warmUp: () => Promise<void> }> {
-  const { server, warmUp } = buildShim(connect, "http://test/mcp");
+): Promise<{ client: Client; supervise: (options?: SuperviseOptions) => Promise<void> }> {
+  const { server, supervise } = buildShim(connect, "http://test/mcp");
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
   await server.connect(serverTransport);
   const client = new Client({ name: "agent-cli", version: "0" });
   await client.connect(clientTransport);
-  return { client, warmUp };
+  return { client, supervise };
 }
 
 describe("durable shim wiring (FR-89)", () => {
@@ -188,6 +188,107 @@ describe("Upstream.run reconnect (FR-89)", () => {
     plane.restart();
     await upstream.run((c) => c.listTools()); // stale → reconnect → recovery
     expect(ready).toBe(2);
+  });
+});
+
+// ── T265 (FR-158): supervision — the session is restored WITHOUT the agent calling ──
+
+describe("shim supervision (FR-158)", () => {
+  /** A sleep the test drives: every wait is recorded and returns immediately, so the loop
+   *  runs at full speed and its cadence is still observable. It yields through a real
+   *  macrotask rather than a microtask — a resolved-promise await would let the loop spin
+   *  inside the microtask queue and starve the test's own timers (it hangs, silently). */
+  function fakeClock(): { sleep: (ms: number) => Promise<void>; waits: number[] } {
+    const waits: number[] = [];
+    return {
+      waits,
+      sleep: (ms) => {
+        waits.push(ms);
+        return new Promise((resolve) => setTimeout(resolve, 0));
+      },
+    };
+  }
+
+  test("a session killed by a server restart comes back with no tool call at all", async () => {
+    const plane = new FakePlane();
+    const clock = fakeClock();
+    const abort = new AbortController();
+    const { client, supervise } = await linkShim(plane.connect);
+    const loop = supervise({ probeMs: 10, sleep: clock.sleep, signal: abort.signal });
+
+    // Let the loop establish the first connection.
+    while (plane.connects < 1) await new Promise((r) => setTimeout(r, 1));
+    const afterFirst = plane.connects;
+
+    // The coordinator restarts. NOTHING calls a tool — this is the exact deadlock
+    // found on the T261 deploy: the agent is handed the file contract, which never
+    // touches MCP, so before FR-158 the session stayed dead forever.
+    plane.restart();
+    while (plane.connects <= afterFirst) await new Promise((r) => setTimeout(r, 1));
+    expect(plane.connects).toBeGreaterThan(afterFirst); // repaired by the probe alone
+
+    abort.abort();
+    await loop;
+    // and the agent's own path works against the fresh session
+    expect((await client.listTools()).tools.map((t) => t.name)).toEqual(["whoami"]);
+    await client.close();
+  });
+
+  test("keeps probing after the first success — the loop does not end there", async () => {
+    const plane = new FakePlane();
+    const clock = fakeClock();
+    const abort = new AbortController();
+    const { client, supervise } = await linkShim(plane.connect);
+    const loop = supervise({ probeMs: 25, sleep: clock.sleep, signal: abort.signal });
+    // Several probe intervals must elapse: the pre-FR-158 warm-up returned after one
+    // success and slept never again.
+    while (clock.waits.filter((ms) => ms === 25).length < 3) {
+      await new Promise((r) => setTimeout(r, 1));
+    }
+    abort.abort();
+    await loop;
+    expect(clock.waits.filter((ms) => ms === 25).length).toBeGreaterThanOrEqual(3);
+    await client.close();
+  });
+
+  test("probeMs 0 keeps the old warm-up shape: stop at the first success", async () => {
+    const plane = new FakePlane();
+    const clock = fakeClock();
+    const { client, supervise } = await linkShim(plane.connect);
+    await supervise({ probeMs: 0, sleep: clock.sleep }); // resolves — no endless loop
+    expect(plane.connects).toBe(1);
+    expect(clock.waits).toEqual([]); // connected first try, so nothing was ever waited on
+    await client.close();
+  });
+
+  test("an unreachable plane backs off and recovers when it returns", async () => {
+    const plane = new FakePlane();
+    plane.setDown(true);
+    const clock = fakeClock();
+    const abort = new AbortController();
+    const { supervise } = await linkShim(plane.connect);
+    const loop = supervise({ probeMs: 10, sleep: clock.sleep, signal: abort.signal });
+
+    while (clock.waits.length < 4) await new Promise((r) => setTimeout(r, 1));
+    // backoff grows and is capped — a down server is not hammered
+    expect(clock.waits.slice(0, 4)).toEqual([500, 1000, 2000, 4000]);
+
+    plane.setDown(false);
+    while (!clock.waits.includes(10)) await new Promise((r) => setTimeout(r, 1));
+    abort.abort();
+    await loop;
+    expect(clock.waits.at(-1)).toBe(10); // back to the steady cadence, not the backoff
+  });
+
+  test("probeMsFromEnv: default, explicit disable, and junk falls back", () => {
+    expect(probeMsFromEnv(undefined)).toBe(30_000);
+    expect(probeMsFromEnv("")).toBe(30_000);
+    expect(probeMsFromEnv("5000")).toBe(5000);
+    expect(probeMsFromEnv("0")).toBe(0); // explicit opt-out
+    // Junk must NOT read as 0 — silently disabling supervision is the one outcome
+    // that recreates the deadlock this feature exists to prevent.
+    expect(probeMsFromEnv("nonsense")).toBe(30_000);
+    expect(probeMsFromEnv("-1")).toBe(30_000);
   });
 });
 

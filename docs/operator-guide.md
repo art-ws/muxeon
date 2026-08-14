@@ -308,6 +308,24 @@ re-initializes (the old session 404s, the shim re-handshakes); during the blip
 serves the last-known set. A shim started **before** the server warms up in the
 background and surfaces the tools (`tools/list_changed`) once the server appears.
 
+**Supervised, not merely repaired-on-demand (FR-158).** The shim keeps probing
+after that first connect — one cheap `tools/list` every `MUXEON_SHIM_PROBE_MS`
+(default 30s, `0` disables), which travels the same path as a real call and so
+re-handshakes a session the server restart invalidated.
+
+This matters because of the reply contract (§3.1): the compact form is chosen
+only for agents holding a **live** session. Repair driven by the next tool call
+would deadlock — a restart kills every session, each agent is handed the file
+contract, the file contract never touches MCP, so nothing reconnects and the
+whole park silently stays on the file path. We found this on a real deploy; the
+supervision loop is what closes it. There is no event-driven alternative: the
+plane answers with plain JSON, so no stream exists whose close could be noticed.
+
+One consequence to plan for: **the shim only updates when the agent's session
+restarts.** After deploying a Muxeon version that changes the shim, restart the
+agents once (`muxeon restart <name>`); from then on coordinator restarts need no
+intervention at all.
+
 **Operational notes.** A crashed agent/shim does NOT lock its name: a new
 `initialize` under the same name takes the identity over (FR-44b); the same log
 line is your trace of a duplicate-name misconfiguration (two live agents
