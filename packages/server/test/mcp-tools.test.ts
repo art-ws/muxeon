@@ -1,11 +1,18 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { mkdtempSync, readFileSync, readdirSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import type { AgentStatus } from "@muxeon/core";
 import { Topology } from "@muxeon/core";
-import { Router, TransportLog, ensureSessionQueue } from "@muxeon/orchestrator";
+import {
+  type BlobStore,
+  Router,
+  TransportLog,
+  createBlobStore,
+  ensureSessionQueue,
+} from "@muxeon/orchestrator";
+import { ingestAttachments } from "../src/attach";
 import {
   type AgentPlaneHandle,
   SCREEN_MAX_HISTORY_LINES,
@@ -42,11 +49,16 @@ describe.skipIf(!LOOPBACK_DIRECT)("agent-plane tools (§8.6, §3.1)", () => {
   // FR-157 (T261): the turn-closing hook `send` calls after a delivered reply.
   let closeTurnCalls: { caller: string; replyTo: string }[];
   let openTurns: Set<string>;
+  // FR-159 (T269): the dir attachments must stay inside, and a real blob store.
+  let attachRoot: string;
+  let blobs: BlobStore;
 
   beforeEach(async () => {
     root = mkdtempSync(join(tmpdir(), "muxeon-tools-"));
     closeTurnCalls = [];
     openTurns = new Set(["turn-1"]);
+    attachRoot = mkdtempSync(join(tmpdir(), "muxeon-attach-"));
+    blobs = await createBlobStore(join(root, "blobs"));
     for (const key of Object.values(KEY)) await ensureSessionQueue(root, key);
     const topology = new Topology(TOPOLOGY);
     const router = new Router({ topology, root, queueKeyOf: (n) => KEY[n] ?? null });
@@ -66,6 +78,17 @@ describe.skipIf(!LOOPBACK_DIRECT)("agent-plane tools (§8.6, §3.1)", () => {
             closeTurnCalls.push({ caller, replyTo });
             return openTurns.delete(replyTo);
           },
+          // FR-159 (T269): real ingest over a real blob store, contained to a temp
+          // dir — the point of the tests below is the CONTAINMENT, so faking it out
+          // would test nothing.
+          attach: async (_caller, files) => {
+            const refs = await ingestAttachments(files, {
+              containRoots: [attachRoot],
+              filesBase: attachRoot,
+              blobs,
+            });
+            return typeof refs === "string" ? refs : [...refs];
+          },
         }),
     });
     seedTransport = (record) => transportLog.append(record);
@@ -76,6 +99,7 @@ describe.skipIf(!LOOPBACK_DIRECT)("agent-plane tools (§8.6, §3.1)", () => {
     await alice?.close();
     await plane?.stop();
     rmSync(root, { recursive: true, force: true });
+    rmSync(attachRoot, { recursive: true, force: true });
   });
 
   test("whoami echoes the declared identity", async () => {
@@ -210,6 +234,69 @@ describe.skipIf(!LOOPBACK_DIRECT)("agent-plane tools (§8.6, §3.1)", () => {
     expect(result.isError).toBe(true);
     expect(closeTurnCalls).toEqual([]);
     expect(openTurns.has("turn-1")).toBe(true);
+  });
+
+  // --- T269 (FR-159, §12.5): files ride along with `send` -----------------------
+
+  test("files become §12.5 blob refs beside the text, and the bytes are stored", async () => {
+    writeFileSync(join(attachRoot, "report.txt"), "report-bytes");
+    const result = await alice.callTool({
+      name: "send",
+      arguments: { to: "bob", payload: "готово", id: "a1", files: ["report.txt"] },
+    });
+    expect(sc(result)).toMatchObject({ id: "a1", queued: true });
+    const enqueued = readOnly(root, "bob-s");
+    const payload = enqueued.payload as {
+      text: string;
+      blobs: { blob: string; name: string; mime: string; size: number }[];
+    };
+    // the text survives as `text` — the recipient reads the same envelope the
+    // exchange reply and the outbox produce
+    expect(payload.text).toBe("готово");
+    expect(payload.blobs).toHaveLength(1);
+    expect(payload.blobs[0]).toMatchObject({ name: "report.txt", mime: "text/plain", size: 12 });
+    // and the ref points at real bytes in the store, not just a name
+    const stored = await blobs.read(payload.blobs[0]?.blob ?? "");
+    expect(new TextDecoder().decode(stored)).toBe("report-bytes");
+  });
+
+  test("a path outside the containment roots is refused — and nothing is delivered", async () => {
+    const outside = join(root, "secret.txt");
+    writeFileSync(outside, "not yours");
+    const result = await alice.callTool({
+      name: "send",
+      arguments: { to: "bob", payload: "стащу", id: "a2", files: [outside] },
+    });
+    expect(result.isError).toBe(true);
+    expect(sc(result)).toMatchObject({ error: "ATTACH_FAILED" });
+    // Ingest runs BEFORE routing on purpose: a refusal must not leave a delivered
+    // message whose promised attachment is missing.
+    expect(pendingFiles(root, "bob-s")).toHaveLength(0);
+  });
+
+  test("all-or-nothing: one bad path in a list fails the whole send", async () => {
+    writeFileSync(join(attachRoot, "good.txt"), "ok");
+    const result = await alice.callTool({
+      name: "send",
+      arguments: { to: "bob", payload: "два файла", id: "a3", files: ["good.txt", "missing.txt"] },
+    });
+    expect(result.isError).toBe(true);
+    expect(sc(result)).toMatchObject({ error: "ATTACH_FAILED" });
+    expect(pendingFiles(root, "bob-s")).toHaveLength(0); // not even the good one
+  });
+
+  test("files validates its shape, and a send without files is byte-identical to before", async () => {
+    const junk = await alice.callTool({
+      name: "send",
+      arguments: { to: "bob", payload: "x", id: "a4", files: "report.txt" },
+    });
+    expect(sc(junk)).toMatchObject({ error: "INVALID_ARGS" });
+    // no `files` key ⇒ the payload passes through untouched (a plain string)
+    await alice.callTool({
+      name: "send",
+      arguments: { to: "bob", payload: "просто текст", id: "a5" },
+    });
+    expect(readOnly(root, "bob-s").payload).toBe("просто текст");
   });
 
   test("send to an operator peer lands in its pseudo-session (ready for channels, §8.6)", async () => {

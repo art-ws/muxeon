@@ -25,6 +25,7 @@ import type {
 } from "@muxeon/core";
 import { SESSION_ACTIONS, isFqn, isSessionAction } from "@muxeon/core";
 import type { Router } from "@muxeon/orchestrator";
+import type { AttachedRef } from "../attach";
 
 export interface AgentPlaneDeps {
   readonly topology: Topology;
@@ -119,6 +120,17 @@ export interface AgentPlaneDeps {
    * on the strength of it (§10.29). Absent ⇒ send never closes turns (tests).
    */
   closeTurn?(caller: string, replyTo: string): Promise<boolean>;
+  /**
+   * Ingest the caller's `files` into blob refs (§12.5, FR-159) under the SAME
+   * realpath containment the outbox uses (§8.7) — the caller's own cwd and
+   * exchange dir, never anywhere else. Resolves to the refs, or to a reason
+   * string which `send` surfaces as a refusal.
+   *
+   * Absent ⇒ attachments are unavailable and a send carrying `files` is refused
+   * rather than silently delivered without them: an answer missing the report it
+   * announced is worse than an error the agent can act on.
+   */
+  attach?(caller: string, files: readonly string[]): Promise<AttachedRef[] | string>;
   /** Clock for message ts; default Date.now. Injectable for tests. */
   readonly now?: () => number;
   /** Idempotency-id generator when send omits one (§5.3/§10.9); default randomUUID. */
@@ -172,6 +184,28 @@ export const SCREEN_MAX_HISTORY_LINES = 500;
 
 const EMPTY_INPUT = { type: "object", properties: {}, additionalProperties: false } as const;
 
+/**
+ * Fold ingested attachments into the delivered payload as the §12.5 shape
+ * `{ text?, blobs }` — the same envelope the exchange reply and the outbox
+ * produce, so a recipient reads attachments identically whichever path sent
+ * them. No files ⇒ the payload passes through UNTOUCHED, which is what keeps
+ * every existing `send` byte-identical on the wire.
+ */
+export function withAttachments(payload: unknown, refs: readonly AttachedRef[]): unknown {
+  if (refs.length === 0) return payload;
+  if (typeof payload === "string") return { text: payload, blobs: refs };
+  if (payload !== null && typeof payload === "object") {
+    // A structured agent-to-agent payload keeps its own fields; refs APPEND to
+    // any blobs already there rather than replacing them.
+    const existing = (payload as { blobs?: unknown }).blobs;
+    return {
+      ...(payload as Record<string, unknown>),
+      blobs: [...(Array.isArray(existing) ? existing : []), ...refs],
+    };
+  }
+  return { text: String(payload), blobs: refs };
+}
+
 export const AGENT_TOOLS: Tool[] = [
   {
     name: "whoami",
@@ -205,6 +239,14 @@ export const AGENT_TOOLS: Tool[] = [
         replyTo: { type: "string", description: "id of the message being answered" },
         kind: { type: "string", description: 'signal kind; default "message"' },
         id: { type: "string", description: "idempotency key; the server generates one if omitted" },
+        files: {
+          type: "array",
+          items: { type: "string" },
+          description:
+            "paths of files to attach — absolute, or relative to your working " +
+            "directory. They must live inside your working directory or your " +
+            "exchange dir. All or nothing: one bad path fails the whole send.",
+        },
       },
       required: ["to", "payload"],
       additionalProperties: false,
@@ -495,12 +537,26 @@ async function dispatch(
     }
 
     case "send": {
-      const { to, payload, replyTo, id, kind } = args;
+      const { to, payload, replyTo, id, kind, files } = args;
       if (typeof to !== "string") return fail("INVALID_ARGS", "to must be a string");
       if (payload === undefined) return fail("INVALID_ARGS", "payload is required");
       // forward-compat kinds (§5.3/FR-25b): the closed set grows by requirement (R3)
       if (kind !== undefined && kind !== "message" && kind !== "reaction") {
         return fail("INVALID_ARGS", `unsupported kind "${String(kind)}"`);
+      }
+      // Attachments (FR-159, §12.5). Ingested BEFORE routing: a refusal must not
+      // leave a delivered message whose promised files are missing.
+      let refs: readonly AttachedRef[] = [];
+      if (files !== undefined) {
+        if (!Array.isArray(files) || files.some((f) => typeof f !== "string" || f.length === 0)) {
+          return fail("INVALID_ARGS", "files must be an array of non-empty path strings");
+        }
+        if (deps.attach === undefined) {
+          return fail("ATTACH_FAILED", "attachments are not available on this server");
+        }
+        const ingested = await deps.attach(caller, files as string[]);
+        if (typeof ingested === "string") return fail("ATTACH_FAILED", ingested);
+        refs = ingested;
       }
       const message: Signal = {
         id: typeof id === "string" && id.length > 0 ? id : (deps.newId ?? randomUUID)(),
@@ -508,7 +564,7 @@ async function dispatch(
         to,
         kind: kind === "reaction" ? "reaction" : "message",
         ts: (deps.now ?? Date.now)(),
-        payload,
+        payload: withAttachments(payload, refs),
         ...(typeof replyTo === "string" ? { replyTo } : {}),
       };
       // A `to` naming a group/tag fans out in the router (§15.4); an agent/operator

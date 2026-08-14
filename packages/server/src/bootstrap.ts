@@ -109,6 +109,7 @@ import { createAdminHandler } from "./admin/plane";
 import { type QueueRuntime, createQueuesAdmin } from "./admin/queues";
 import { createRoutinesAdmin } from "./admin/routines";
 import { createSignalsAdmin } from "./admin/signals";
+import { ingestAttachments } from "./attach";
 import { routeExchangeReply } from "./exchange-reply";
 import {
   type AgentPlaneCore,
@@ -429,6 +430,13 @@ export async function bootstrap(options: BootstrapOptions = {}): Promise<MuxeonS
    * entry per agent is race-free, exactly like the collectedThisTurn flag below.
    */
   const mcpClosedTurn = new Map<string, string>();
+  /**
+   * Per-agent attachment containment (§8.7, FR-159): the roots a `files` path may
+   * resolve inside, and the base relative paths resolve from. Filled from the SAME
+   * expressions the outbox monitor is built with, so the two attachment paths can
+   * never drift apart on what an agent is allowed to read.
+   */
+  const attachCtx = new Map<string, { containRoots: string[]; filesBase: string }>();
 
   // NFR-10 cadences (T41-calibrated defaults, overridable via server.cadence §7.1).
   const cadence = config.server.cadence ?? {};
@@ -631,11 +639,15 @@ export async function bootstrap(options: BootstrapOptions = {}): Promise<MuxeonS
 
     // Outbox monitor (FR-55, §13.4): agent initiative without MCP — one pickup
     // loop per agent over <exchange>/outbox/, routed as the folder's owner.
+    const containment = {
+      containRoots: [exchange.dir, ...(agent.cwd !== undefined ? [agent.cwd] : [])],
+      filesBase: agent.cwd ?? exchange.dir,
+    };
+    attachCtx.set(agent.name, containment); // the MCP `send` path uses the same (FR-159)
     const outbox = new OutboxMonitor({
       agent: agent.name,
       outboxDir: exchange.outboxDir,
-      containRoots: [exchange.dir, ...(agent.cwd !== undefined ? [agent.cwd] : [])],
-      filesBase: agent.cwd ?? exchange.dir,
+      ...containment,
       blobs,
       // Agent initiative with no recipient (§17.11, FR-135): fan out to the users
       // with `role:"admin"` — the humans who work the consoles directly.
@@ -779,6 +791,17 @@ export async function bootstrap(options: BootstrapOptions = {}): Promise<MuxeonS
                 // would have had the agent delete, so file-detect (FR-53) closes
                 // the turn at once. Scoped to the caller's own exchange: an agent
                 // can only ever close its own turn, never a peer's (§10.10).
+                // Attachments on `send` (FR-159): the compact reply contract has no
+                // folder to leave artifacts in, so the tool carries them — through
+                // the outbox's containment, not a second copy of the rules.
+                attach: async (callerName, files) => {
+                  const ctx = attachCtx.get(callerName);
+                  if (ctx === undefined) {
+                    return `"${callerName}" has no exchange to attach files from`;
+                  }
+                  const refs = await ingestAttachments(files, { ...ctx, blobs });
+                  return typeof refs === "string" ? refs : [...refs];
+                },
                 closeTurn: async (callerName, replyTo) => {
                   const closed = (await exchanges.get(callerName)?.declareDone(replyTo)) === true;
                   if (closed) mcpClosedTurn.set(callerName, replyTo);

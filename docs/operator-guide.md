@@ -246,6 +246,23 @@ refusal leaves the agent holding the floor, so it can retry), and it closes only
 the **caller's own** turn. The receipt carries `turnClosed` whenever the call had
 a `replyTo`.
 
+**Attaching files (FR-159).** The compact form has no folder to leave artifacts
+in, so `send` carries them itself:
+
+```jsonc
+send({ to: "tl", replyTo: "<id>", payload: "готово",
+       files: ["report.pdf", "out/chart.png"] })   // absolute, or relative to the agent's cwd
+```
+
+They arrive exactly as any other attachment — the recipient sees `[attachment]
+name (mime) → <path>` and the bytes land in the blob store. The rules are the
+outbox's, because it is literally the same ingest: a path must resolve **inside
+the agent's own cwd or exchange dir** (§8.7, symlinks resolved), each file is
+capped at 25 MiB, and it is **all-or-nothing** — one bad path fails the whole
+call with `ATTACH_FAILED` and nothing is delivered. That ordering is deliberate:
+an answer that arrives without the report it promised is worse than an error the
+agent can see and retry.
+
 ### 3.2 Optional acceleration: connecting an agent to the agent-plane MCP (§8.6, FR-44)
 
 The MCP client is **no longer required** for replies (before §13 an agent

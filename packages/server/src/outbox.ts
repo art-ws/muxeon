@@ -13,12 +13,12 @@
 // sees the refusal in its own folder.
 
 import { createHash } from "node:crypto";
-import { mkdir, readFile, readdir, realpath, rename, stat, unlink } from "node:fs/promises";
-import { isAbsolute, join, resolve, sep } from "node:path";
+import { mkdir, readFile, readdir, rename, stat, unlink } from "node:fs/promises";
+import { join } from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
 import type { Signal } from "@muxeon/core";
 import type { BlobStore } from "@muxeon/orchestrator";
-import { mimeByName } from "./exchange-reply";
+import { ingestAttachment } from "./attach";
 
 export interface OutboxMonitorOptions {
   /** The owning agent's topology name — every routed message's `from` (§13.4). */
@@ -57,9 +57,6 @@ interface SettleState {
   mtimeMs: number;
   strikes: number;
 }
-
-/** Artifact cap shared with the reply path (FR-46). */
-const FILE_CAP_BYTES = 25 * 1024 * 1024;
 
 export class OutboxMonitor {
   readonly #o: OutboxMonitorOptions;
@@ -274,42 +271,15 @@ export class OutboxMonitor {
     return await this.#o.route(message);
   }
 
-  /** Ingest one `files` entry under realpath-containment (§8.7) → a §12.5 ref. */
+  /** Ingest one `files` entry — the shared containment path (§8.7, see attach.ts). */
   async #ingest(
     file: string,
   ): Promise<{ blob: string; name: string; mime: string; size: number } | string> {
-    const candidate = isAbsolute(file) ? file : resolve(this.#o.filesBase, file);
-    let real: string;
-    try {
-      real = await realpath(candidate);
-    } catch {
-      return `references a missing file: ${file}`;
-    }
-    const roots = await Promise.all(
-      this.#o.containRoots.map((root) => realpath(root).catch(() => null)),
-    );
-    const contained = roots.some(
-      (root) => root !== null && (real === root || real.startsWith(root + sep)),
-    );
-    if (!contained) {
-      return `references a file outside the exchange/cwd containment (§8.7): ${file}`;
-    }
-    let bytes: Uint8Array;
-    try {
-      bytes = new Uint8Array(await readFile(real));
-    } catch {
-      return `references an unreadable file: ${file}`;
-    }
-    if (bytes.length > FILE_CAP_BYTES) {
-      return `references a file over the ${FILE_CAP_BYTES}-byte cap (FR-46): ${file}`;
-    }
-    const base = real.split(sep).pop() ?? "file";
-    return {
-      blob: await this.#o.blobs.write(bytes, { name: base }),
-      name: base,
-      mime: mimeByName(base),
-      size: bytes.length,
-    };
+    return await ingestAttachment(file, {
+      containRoots: this.#o.containRoots,
+      filesBase: this.#o.filesBase,
+      blobs: this.#o.blobs,
+    });
   }
 
   /** Parse/shape failure: wait out the settle window, then reject (§13.4). */
