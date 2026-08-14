@@ -1,3 +1,18 @@
+## [0.1.12](https://github.com/art-ws/muxeon/compare/v0.1.11...v0.1.12) (2026-08-14)
+
+
+### Changes
+
+* **T267:** the compact contract stops naming the path it forbids
+
+  Operator asked whether the trailing "do NOT write reply.md, do NOT delete message.json, do NOT repeat the answer elsewhere" is necessary. It is not, and it was actively working against itself. ([2860d53](https://github.com/art-ws/muxeon/commit/2860d538e5c20e5a168db9cbb82bd815b19fd21f))
+* **T268:** document how to make the token gauge appear, not just how to enable counting
+
+  The guide said which two shapes are recognised but not how to get one on screen — which is the half an operator actually acts on when an agent shows nothing. ([f750854](https://github.com/art-ws/muxeon/commit/f7508547f79f2fd3301c997c9bcec8584ea54284))
+* **T269:** send carries files, so the compact contract stops being the poorer one
+
+  Operator request, from a gap they spotted: agents on the compact reply contract had no way to attach artifacts. The file contract returns anything left beside message.json, but the compact form has no folder to use — its own clause says leave it untouched, and an MCP-closed turn is not collected at all. ([6782c6b](https://github.com/art-ws/muxeon/commit/6782c6b6c4f9163b88f3dc612ea8cf7475806cb1))
+
 ## [0.1.11](https://github.com/art-ws/muxeon/compare/v0.1.10...v0.1.11) (2026-08-14)
 
 
