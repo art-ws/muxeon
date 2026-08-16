@@ -506,14 +506,19 @@ Chat history lives in `<config_dir>/webchat/history/<user>/<agent>.jsonl`
 (append-only; survives restarts; pruned by `history.retain`; its blob
 references keep media alive past the queue's `done/` window).
 
-**Raw mode (§14, FR-88) — driving the terminal directly.** Toggle "Raw mode" on
-the Settings page (`#/settings`). While it is on, what you type is sent to the
-agent's terminal **as-is** (no protocol wrapping) and the **console snapshot**
-comes back as the reply, rendered monospace. Media is disabled in this mode. It
-goes through the normal queue (one turn at a time), so it never collides with a
-running turn. By default the panel stabilizes and captures the visible pane; to
-customize the capture (e.g. navigate a pager before snapping) set a key-DSL rule
-— the SAME grammar as slash-command `keys` (FR-80) — per type or per agent:
+**Raw mode (§14, FR-88) — a terminal turn through the queue.** The panel no
+longer offers it: the **console** (§8.1c) gives you the agent's real terminal, so
+a second, weaker way to type into the same pane was UI with no purpose. The
+transport modifier itself stayed and is reachable from a script:
+`POST /api/send {"to": "<agent>", "id": "<uuid>", "text": "…", "raw": true}` —
+the text reaches the terminal **as-is** (no protocol wrapping) and the **console
+snapshot** comes back as the reply, rendered monospace in the chat. Media is not
+allowed in this mode (the server rejects `blobs`). Unlike the console, it goes
+through the normal queue (one turn at a time), so it never collides with a
+running turn — that is the reason to reach for it instead of typing. By default
+the capture stabilizes and snaps the visible pane; to customize it (e.g. navigate
+a pager before snapping) set a key-DSL rule — the SAME grammar as slash-command
+`keys` (FR-80) — per type or per agent:
 
 ```jsonc
 "types": { "claude": { "raw": { "keys": "capture" } } }   // default = stabilize + capture
@@ -712,7 +717,7 @@ What it is wired to:
 
 Who may open it: the same gate as every other console action — an authenticated
 panel identity plus a **topology edge** to that agent (§10.2). It is exactly the
-authority raw mode (§14) and the lifecycle actions already carry; if you do not
+authority raw mode (§14) carried before it and the lifecycle actions carry; if you do not
 want someone typing into an agent, do not give them the edge.
 
 Two things to keep in mind:

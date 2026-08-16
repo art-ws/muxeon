@@ -186,7 +186,7 @@ export function ChatView(props: {
 // dot, NO "thinking…", NO token meter, NO lifecycle kebab and NO console —
 // a broadcast target has no status or lifecycle. The feed shows the operator's
 // outgoing broadcasts (server history under the target name); the composer
-// (mounted by the parent) sends through the same send path, raw mode disabled.
+// (mounted by the parent) sends through the same send path.
 function BroadcastChatView(props: {
   peer: PeerInfo;
   thread: ChatThread;
@@ -590,9 +590,11 @@ function Bubble(props: {
     props.chatPeer !== undefined
       ? routeHash({ view: "chat", peer: props.chatPeer, message: props.record.id })
       : undefined;
-  // Raw mode (FR-88, §14.3): the operator's verbatim command and the captured
-  // console reply both render AS-IS — monospace, no markdown (origin "raw" marks
-  // the captured reply, the `raw` flag marks the outgoing command).
+  // A raw-mode record (FR-88, §14) renders AS-IS — monospace, no markdown
+  // (origin "raw" marks the captured console, the `raw` flag the command that
+  // asked for it). The panel no longer OFFERS raw (T271), but the transport
+  // modifier and its API stayed: old history and anything sent through
+  // `POST /api/send {raw:true}` must still read as a terminal, not as markdown.
   const asIs = props.record.raw === true || props.record.origin === "raw";
   return (
     <div className={`bubble-row ${props.mine ? "mine" : "theirs"}`}>

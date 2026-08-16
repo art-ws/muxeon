@@ -42,12 +42,6 @@ export function Composer(props: {
   /** Runs a command; resolves to the console output as-is. */
   onCommand?: (slash: string) => Promise<string>;
   /**
-   * Raw transport mode (FR-88, §14.3): the text is sent to the terminal as-is.
-   * Media is disabled — the attach/camera/mic paths hide, file drop/paste is
-   * ignored — and a note explains the mode under the composer.
-   */
-  raw?: boolean;
-  /**
    * The open peer is PAUSED (§16.6, FR-120). The composer is deliberately NOT
    * disabled: the whole point of a pause is that the sender gets an immediate,
    * honest refusal — so the send goes out, comes back rejected and renders as a
@@ -62,7 +56,6 @@ export function Composer(props: {
   dnd?: boolean;
 }): React.JSX.Element {
   const t = useT();
-  const raw = props.raw === true;
   const paused = props.paused === true;
   const dnd = props.dnd === true;
   // peer is mount-constant (the parent remounts per chat via key=) — the lazy
@@ -98,12 +91,6 @@ export function Composer(props: {
     if (peer === undefined) return;
     saveDraft(peer, { text, ...(height !== undefined ? { height } : {}) });
   }, [peer, text, height]);
-
-  // Raw mode disables media (FR-88, §14.3): drop any staged attachments when it
-  // turns on — there is no way to send them and no chip path to remove them.
-  useEffect(() => {
-    if (raw) setBlobs([]);
-  }, [raw]);
 
   // A manual resize drag sets the textarea's INLINE style.height (the browser's
   // doing) — that is the signal to adopt and persist the height; auto-rows
@@ -210,7 +197,7 @@ export function Composer(props: {
   const hasCamera = typeof navigator !== "undefined" && navigator.mediaDevices !== undefined;
   const commands = props.commands ?? [];
   // The "+" always opens the full-screen editor (FR-70), plus attach/camera
-  // (hidden in raw mode, §14.3) and slash commands — so it is always present.
+  // and slash commands — so it is always present.
   const hasMenuItems = true;
 
   // The adaptive corner button (T222): appears once the draft is 4+ lines tall
@@ -226,9 +213,7 @@ export function Composer(props: {
   // does, so it changes what the field promises.
   const placeholder = expanded
     ? t("Message… (Enter for a new line, send with the button)")
-    : raw
-      ? t("Terminal command or prompt… (Enter to send)")
-      : t("Message… (Enter to send, Shift+Enter for a new line)");
+    : t("Message… (Enter to send, Shift+Enter for a new line)");
 
   return (
     <footer
@@ -236,7 +221,6 @@ export function Composer(props: {
       onDragOver={(event) => event.preventDefault()}
       onDrop={(event) => {
         event.preventDefault();
-        if (raw) return; // media disabled in raw mode (§14.3)
         void attach(event.dataTransfer.files);
       }}
     >
@@ -339,25 +323,22 @@ export function Composer(props: {
                   </span>{" "}
                   {expandLabel}
                 </button>
-                {/* media items hide in raw mode (§14.3) */}
-                {!raw && <span className="menu-separator" />}
-                {!raw && (
-                  <button
-                    type="button"
-                    role="menuitem"
-                    className="menu-item"
-                    onClick={() => {
-                      closeMenu();
-                      fileInputRef.current?.click();
-                    }}
-                  >
-                    <span className="menu-icon">
-                      <IconPaperclip size={14} />
-                    </span>{" "}
-                    {t("Attach files")}
-                  </button>
-                )}
-                {!raw && hasCamera && (
+                <span className="menu-separator" />
+                <button
+                  type="button"
+                  role="menuitem"
+                  className="menu-item"
+                  onClick={() => {
+                    closeMenu();
+                    fileInputRef.current?.click();
+                  }}
+                >
+                  <span className="menu-icon">
+                    <IconPaperclip size={14} />
+                  </span>{" "}
+                  {t("Attach files")}
+                </button>
+                {hasCamera && (
                   <button
                     type="button"
                     role="menuitem"
@@ -450,7 +431,6 @@ export function Composer(props: {
           onChange={(event) => setText(event.target.value)}
           onPointerUp={adoptManualHeight}
           onPaste={(event) => {
-            if (raw) return; // media disabled in raw mode (§14.3)
             const files = [...event.clipboardData.files];
             if (files.length > 0) {
               event.preventDefault();
@@ -469,8 +449,7 @@ export function Composer(props: {
             }
           }}
         />
-        {/* the mic is a media source — hidden in raw mode (§14.3) */}
-        {!raw && <MicButton onCaptured={(file) => void attach([file])} onError={setError} />}
+        <MicButton onCaptured={(file) => void attach([file])} onError={setError} />
         <button
           type="button"
           className="send-button"
@@ -507,14 +486,6 @@ export function Composer(props: {
             dnd
               ? "Do not disturb: messages from others are rejected, not queued. Notes to self still land. Turn it off in the actions menu."
               : "This agent is paused: messages to it are rejected, not queued. Resume it from the actions menu.",
-          )}
-        </p>
-      )}
-      {/* the raw-mode note under the composer (FR-88, §14.3) */}
-      {raw && (
-        <p className="composer-note">
-          {t(
-            "Raw mode: your text is sent to the terminal as-is and the console output comes back as the reply. Media is disabled.",
           )}
         </p>
       )}

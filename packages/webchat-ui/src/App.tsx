@@ -103,11 +103,6 @@ export function App(): React.JSX.Element {
   // stick-when-near-bottom behavior. Persisted across reloads (FR-72).
   const [follow, setFollow] = useState(() => loadPref("follow", false));
   useEffect(() => savePref("follow", follow), [follow]);
-  // Raw transport mode (FR-88, §14.3): a GLOBAL composer mode — ON sends typed
-  // text to the agent's terminal as-is and shows its console as the reply; OFF
-  // (the default) is the normal chat. Persisted across reloads (FR-72).
-  const [raw, setRaw] = useState(() => loadPref("raw", false));
-  useEffect(() => savePref("raw", raw), [raw]);
   // Sidebar (FR-68): the logo is the collapse toggle — collapsed shows the icon
   // rail, expanded the text rows; expanded by default, persisted (FR-72).
   const [collapsed, setCollapsed] = useState(() => loadPref("collapsed", false));
@@ -213,8 +208,6 @@ export function App(): React.JSX.Element {
             onTheme={setTheme}
             lang={lang}
             onLang={setLang}
-            raw={raw}
-            onRaw={setRaw}
             flat={flatPeers}
             onFlat={setFlatPeers}
             showTokens={showTokens}
@@ -315,9 +308,6 @@ function Panel(props: {
   onTheme: (theme: Theme) => void;
   lang: Lang;
   onLang: (lang: Lang) => void;
-  /** Raw transport mode (FR-88, §14.3): drives the composer and the send call. */
-  raw: boolean;
-  onRaw: (raw: boolean) => void;
   /** Sidebar layout (§15): true = flat agent list, false = group tree + Tags. */
   flat: boolean;
   onFlat: (flat: boolean) => void;
@@ -475,57 +465,51 @@ function Panel(props: {
     void api.fetchHistory(peer, cursor).then((page) => dispatch({ kind: "page", peer, page }));
   }, []);
 
-  const raw = props.raw;
-  const send = useCallback(
-    async (to: string, draft: Draft): Promise<void> => {
-      const id = api.newMessageId(); // §10.9: the client owns the retry id
-      const blobs = draft.blobs.map((blob) => blob.id);
-      await api.sendMessage({
-        to,
+  const send = useCallback(async (to: string, draft: Draft): Promise<void> => {
+    const id = api.newMessageId(); // §10.9: the client owns the retry id
+    const blobs = draft.blobs.map((blob) => blob.id);
+    await api.sendMessage({
+      to,
+      id,
+      ...(draft.text !== "" ? { text: draft.text } : {}),
+      ...(blobs.length > 0 ? { blobs } : {}),
+    });
+    dispatch({
+      kind: "outgoing",
+      record: {
         id,
-        ...(draft.text !== "" ? { text: draft.text } : {}),
-        ...(blobs.length > 0 ? { blobs } : {}),
-        ...(raw ? { raw: true } : {}), // raw mode: the text reaches the terminal as-is (§14)
-      });
-      dispatch({
-        kind: "outgoing",
-        record: {
-          id,
-          // Our own NAME (T236): the bubble prints its route (FR-148), and the
-          // placeholder used to surface there as a literal "(me) → agent". The
-          // server echoes the same record with the same name — the id dedup keeps
-          // one bubble. A legacy panel (§17.9) has no name and keeps the marker.
-          from: selfName.current ?? "(me)",
-          to,
-          kind: "message",
-          ts: Date.now(),
-          payload:
-            blobs.length === 0
-              ? draft.text
-              : {
-                  ...(draft.text !== "" ? { text: draft.text } : {}),
-                  blobs: draft.blobs.map((blob) => ({
-                    blob: blob.id,
-                    name: blob.name,
-                    mime: blob.mime,
-                    size: blob.size,
-                  })),
-                },
-          ...(raw ? { raw: true } : {}), // the bubble renders raw text as-is (§14.3)
-        },
-      });
-    },
-    [raw],
-  );
+        // Our own NAME (T236): the bubble prints its route (FR-148), and the
+        // placeholder used to surface there as a literal "(me) → agent". The
+        // server echoes the same record with the same name — the id dedup keeps
+        // one bubble. A legacy panel (§17.9) has no name and keeps the marker.
+        from: selfName.current ?? "(me)",
+        to,
+        kind: "message",
+        ts: Date.now(),
+        payload:
+          blobs.length === 0
+            ? draft.text
+            : {
+                ...(draft.text !== "" ? { text: draft.text } : {}),
+                blobs: draft.blobs.map((blob) => ({
+                  blob: blob.id,
+                  name: blob.name,
+                  mime: blob.mime,
+                  size: blob.size,
+                })),
+              },
+      },
+    });
+  }, []);
 
   const openChat = route.view === "chat" ? route.peer : undefined;
   const openPeer =
     openChat !== undefined ? state.peers.find((info) => info.name === openChat) : undefined;
-  // Groups & tags (§15) are input-only broadcast targets: no live status (so no
-  // "thinking" wash) and raw mode is server-rejected — the composer forces it off.
+  // Groups & tags (§15) are input-only broadcast targets: no live status, so no
+  // "thinking" wash.
   const openIsBroadcast = openPeer !== undefined && chatSurface(openPeer) === "broadcast";
-  // Console-backed affordances (raw mode §14, slash commands FR-66, the console
-  // §12.9) exist only behind an AGENT: a person (§17.7) has no terminal, so the
+  // Console-backed affordances (slash commands FR-66, the console §12.9) exist
+  // only behind an AGENT: a person (§17.7) has no terminal, so the
   // server would reject them — the composer must not offer them at all.
   const openHasConsole = hasConsole(openPeer);
   // Command-fanout modal (§15.8, FR-115): launched from a group/tag chat, seeded
@@ -582,8 +566,6 @@ function Panel(props: {
             onLang={props.onLang}
             transport={showTransport}
             onTransport={setShowTransport}
-            raw={props.raw}
-            onRaw={props.onRaw}
             flat={props.flat}
             onFlat={props.onFlat}
             showTokens={props.showTokens}
@@ -632,9 +614,6 @@ function Panel(props: {
             onSend={(draft) => send(openChat, draft)}
             commands={openHasConsole ? (openPeer?.commands ?? []) : []}
             onCommand={(slash) => api.runAgentCommand(openChat, slash)}
-            /* no terminal behind a group/tag (§15) or a person (§17.7) — raw mode
-               is off there (the server rejects it anyway) */
-            raw={openHasConsole ? raw : false}
             /* the pause note (§16.6, FR-120); a group/tag is never paused (§16.1) */
             paused={openIsBroadcast ? false : openPeer?.paused === true}
             /* …but for a person the same flag is their do-not-disturb (§17.8) */

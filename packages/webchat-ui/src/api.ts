@@ -103,8 +103,6 @@ export async function sendMessage(options: {
   id: string;
   text?: string;
   blobs?: readonly string[];
-  /** Raw transport mode (FR-88, §14): the text reaches the terminal as-is. */
-  raw?: boolean;
 }): Promise<void> {
   await jsonOrThrow(
     await fetch("api/send", {

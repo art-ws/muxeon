@@ -23,9 +23,6 @@ export function SettingsView(props: {
   /** The sidebar Transport entry (T115) — shown by default, hideable. */
   transport: boolean;
   onTransport: (show: boolean) => void;
-  /** Raw transport mode (FR-88, §14.3): send text to the terminal as-is. */
-  raw: boolean;
-  onRaw: (raw: boolean) => void;
   /** Sidebar layout (§15): true = flat agent list, false = group tree + Tags. */
   flat: boolean;
   onFlat: (flat: boolean) => void;
@@ -74,12 +71,6 @@ export function SettingsView(props: {
             )}
             checked={props.showTokens}
             onChange={props.onShowTokens}
-          />
-          <SettingSwitch
-            label={t("Raw mode")}
-            hint={t("Send text to the agent's terminal as-is; capture the console as the reply")}
-            checked={props.raw}
-            onChange={props.onRaw}
           />
           {/* the language row (FR-78): native labels, never translated */}
           <div className="settings-row" title={t("The interface language")}>
