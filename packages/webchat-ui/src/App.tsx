@@ -524,8 +524,8 @@ function Panel(props: {
   // Groups & tags (§15) are input-only broadcast targets: no live status (so no
   // "thinking" wash) and raw mode is server-rejected — the composer forces it off.
   const openIsBroadcast = openPeer !== undefined && chatSurface(openPeer) === "broadcast";
-  // Console-backed affordances (raw mode §14, slash commands FR-66, Screen Live
-  // FR-102) exist only behind an AGENT: a person (§17.7) has no terminal, so the
+  // Console-backed affordances (raw mode §14, slash commands FR-66, the console
+  // §12.9) exist only behind an AGENT: a person (§17.7) has no terminal, so the
   // server would reject them — the composer must not offer them at all.
   const openHasConsole = hasConsole(openPeer);
   // Command-fanout modal (§15.8, FR-115): launched from a group/tag chat, seeded

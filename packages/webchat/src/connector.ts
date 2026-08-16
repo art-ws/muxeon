@@ -38,6 +38,7 @@ import {
 } from "./auth";
 import type { HistoryStore } from "./history";
 import type {
+  ConsoleAttachment,
   MessagePhase,
   TransportObservability,
   WebchatLifecycle,
@@ -222,9 +223,71 @@ const json = (body: unknown, status = 200): Response =>
 
 /** The minimal WS client surface the connector needs (Bun's ServerWebSocket). */
 interface WsClient {
-  send(data: string): void;
+  send(data: string | Uint8Array): void;
+  close(code?: number, reason?: string): void;
+  /** Bytes still queued for this socket (Bun) — the console's backpressure valve. */
+  getBufferedAmount?(): number;
   /** Which identity's tabs this socket belongs to (§10.22) — set at upgrade. */
   data?: unknown;
+}
+
+/** Upgrade payload of a console socket (§12.9, FR-160): whose tab, which agent. */
+interface ConsoleSocketData {
+  readonly owner: string;
+  readonly console: string;
+}
+
+/** Server-side state of one open console (§12.9) — one socket, one attachment. */
+interface ConsoleSocketState {
+  attachment: ConsoleAttachment | undefined;
+  closed: boolean;
+  /** Keystrokes typed between the upgrade and the attach — replayed in order. */
+  pending: Uint8Array[];
+}
+
+/** A single input frame is capped: a console is a keyboard, not an upload path. */
+const CONSOLE_INPUT_MAX_BYTES = 64 * 1024;
+
+/**
+ * Output already queued for a browser, beyond which further pane bytes are
+ * DROPPED (§12.9). A runaway pane (`yes`, a cat of a huge file) produces faster
+ * than a tab renders, and the choice is between a torn frame and a coordinator
+ * whose memory grows without bound. A terminal recovers on the next repaint; the
+ * process does not recover from the buffer.
+ */
+const CONSOLE_MAX_BUFFERED_BYTES = 4 * 1024 * 1024;
+
+/**
+ * Last word of a console socket: the frame that explains the ending. The server
+ * does NOT close the socket itself — the browser does, when it sees this frame.
+ * That is not politeness: a `Bun.serve` whose websocket was closed BY THE SERVER
+ * never resolves its `stop()` again (reproduced on a bare 20-line server, bun
+ * 1.2.22), and this connector's stop is on the shutdown path of the whole
+ * process. A socket the client forgets to close costs nothing — its attachment
+ * is already detached, and `stop(true)` drops the connection.
+ */
+function endConsole(ws: WsClient, frame: { readonly t: string; readonly message?: string }): void {
+  ws.send(JSON.stringify(frame));
+}
+
+/**
+ * Why a console could not attach, in the operator's own words. Unlike the REST
+ * surface (`operatorErrorText`, §3.2) this keeps the real text: the panel that
+ * asked is the panel that sees the pane VERBATIM anyway (§12.9), so a tmux
+ * message discloses strictly less than the console it failed to open. Capped —
+ * an error is a line in a dialog, not a log.
+ */
+function consoleErrorText(error: unknown): string {
+  const text = error instanceof Error ? error.message : String(error);
+  return text.length > 200 ? `${text.slice(0, 200)}…` : text;
+}
+
+/** The console socket's upgrade payload; undefined for the panel's push socket. */
+function consoleData(ws: WsClient): ConsoleSocketData | undefined {
+  const data = ws.data as Partial<ConsoleSocketData> | undefined;
+  return typeof data?.console === "string" && typeof data.owner === "string"
+    ? (data as ConsoleSocketData)
+    : undefined;
 }
 
 /**
@@ -271,6 +334,8 @@ export class WebchatConnector implements ChannelConnector {
   readonly #usersMode: boolean;
   readonly #loginLimiter: LoginRateLimiter;
   readonly #clients = new Set<WsClient>();
+  /** Open consoles (§12.9, FR-160) — one live tmux attachment per socket. */
+  readonly #consoles = new Map<WsClient, ConsoleSocketState>();
   /** Outgoing ids being watched for queue progress (per identity, in-memory). */
   readonly #tracked = new Map<
     string,
@@ -370,26 +435,65 @@ export class WebchatConnector implements ChannelConnector {
       port: this.#options.port,
       hostname: this.#options.bind ?? "127.0.0.1",
       fetch: (req, server) => {
+        const path = new URL(req.url).pathname;
         // WS upgrade — behind the same auth gate (§10.12) and only here: the
         // socket is push-only, all input stays on the audited REST surface. The
         // socket is TAGGED with its identity so pushes reach that user's tabs
         // only (§10.22).
-        if (new URL(req.url).pathname === `${this.#base}/api/ws`) {
+        if (path === `${this.#base}/api/ws`) {
           const identity = this.#identify(req);
           if (identity === undefined) return json({ error: "authentication required" }, 401);
           if (server.upgrade(req, { data: { owner: identity.name } })) return undefined;
+          return json({ error: "websocket upgrade required" }, 400);
+        }
+        // The console socket (§12.9, FR-160) is the ONE socket that carries input:
+        // it is a terminal, not the panel's control channel. Its gates are the
+        // gates of every other console action — auth (§10.12) and the structural
+        // neighbour edge (§10.2) — and both are checked BEFORE the upgrade, so an
+        // unauthorized attach never reaches a pane.
+        const agent = this.#consoleTarget(path);
+        if (agent !== undefined) {
+          const identity = this.#identify(req);
+          if (identity === undefined) return json({ error: "authentication required" }, 401);
+          if (identity.lifecycle?.console === undefined) {
+            return json({ error: "console is not wired" }, 503);
+          }
+          if (!(identity.ports?.listPeers() ?? []).includes(agent)) {
+            return json({ error: `unknown agent "${agent}"` }, 404); // not a neighbour
+          }
+          const data: ConsoleSocketData = { owner: identity.name, console: agent };
+          if (server.upgrade(req, { data })) return undefined;
           return json({ error: "websocket upgrade required" }, 400);
         }
         return this.handleRequest(req, server.requestIP(req)?.address);
       },
       websocket: {
         open: (ws) => {
+          if (consoleData(ws) !== undefined) {
+            this.#consoles.set(ws, { attachment: undefined, closed: false, pending: [] });
+            void this.#openConsole(ws);
+            return;
+          }
           this.#clients.add(ws);
         },
         close: (ws) => {
           this.#clients.delete(ws);
+          const state = this.#consoles.get(ws);
+          if (state === undefined) return;
+          state.closed = true;
+          state.attachment?.close(); // closing the popup detaches, always (§12.9)
+          this.#consoles.delete(ws);
         },
-        message: () => undefined, // input goes through REST only (§12.4)
+        message: (ws, message) => {
+          // Panel socket: input goes through REST only (§12.4). Console socket:
+          // binary frames ARE the keystrokes, forwarded verbatim (§12.9).
+          const state = this.#consoles.get(ws);
+          if (state === undefined || typeof message === "string") return;
+          const bytes = new Uint8Array(message.buffer, message.byteOffset, message.byteLength);
+          if (bytes.length === 0 || bytes.length > CONSOLE_INPUT_MAX_BYTES) return;
+          if (state.attachment === undefined) state.pending.push(new Uint8Array(bytes));
+          else state.attachment.write(bytes);
+        },
       },
     });
     if ([...this.#identities.values()].some((identity) => identity.ports !== undefined)) {
@@ -411,6 +515,13 @@ export class WebchatConnector implements ChannelConnector {
     this.#pollTimer = undefined;
     this.#unsubscribeTransport?.();
     this.#unsubscribeTransport = undefined;
+    // Every open console is a live tmux client (§12.9) — a stopped connector
+    // must not leave one attached to an agent's pane.
+    for (const state of this.#consoles.values()) {
+      state.closed = true;
+      state.attachment?.close();
+    }
+    this.#consoles.clear();
     await this.#server?.stop(true);
     this.#server = undefined;
     this.#clients.clear();
@@ -942,9 +1053,9 @@ export class WebchatConnector implements ChannelConnector {
   }
 
   // GET /api/agents/:name/screen (FR-102): the peer's VISIBLE console pane as-is
-  // — a read-only capture the panel's Screen Live mode polls. Same structural
-  // neighbor gate as the POST actions (§10.2): the panel can only watch an agent
-  // its operator is wired to.
+  // — the read-only TEXT capture (what `get_screen` hands an agent, FR-147); the
+  // panel's own console is the socket below (§12.9). Same structural neighbor gate
+  // as the POST actions (§10.2): the panel can only watch an agent it is wired to.
   async handleAgentScreen(url: URL, me: Identity): Promise<Response> {
     const lifecycle = me.lifecycle;
     if (lifecycle?.screen === undefined) return json({ error: "screen capture not wired" }, 503);
@@ -961,6 +1072,80 @@ export class WebchatConnector implements ChannelConnector {
     } catch (error) {
       return json({ error: operatorErrorText(error) }, 409); // §3.2, redacted (§8.7)
     }
+  }
+
+  /** `<base>/api/agents/<name>/console` → the agent name (§12.4, §12.9, FR-160). */
+  #consoleTarget(path: string): string | undefined {
+    const prefix = `${this.#base}/api/agents/`;
+    const suffix = "/console";
+    if (!path.startsWith(prefix) || !path.endsWith(suffix)) return undefined;
+    const name = decodeURIComponent(path.slice(prefix.length, -suffix.length));
+    return name.length > 0 && !name.includes("/") ? name : undefined;
+  }
+
+  /**
+   * Attaches an upgraded console socket to its pane (§12.9, FR-160). The gates
+   * already ran at the upgrade; what can still fail here is the pane itself — a
+   * dead session, an agent that never had one — and that comes back as an error
+   * frame plus a close, never as a socket that silently shows nothing.
+   */
+  async #openConsole(ws: WsClient): Promise<void> {
+    const data = consoleData(ws);
+    const state = this.#consoles.get(ws);
+    if (data === undefined || state === undefined) return;
+    const lifecycle = this.#identities.get(data.owner)?.lifecycle;
+    if (lifecycle?.console === undefined) {
+      this.#failConsole(ws, "console is not wired");
+      return;
+    }
+    // Output produced between the attach and the `init` frame waits for it: the
+    // browser must size its emulator before the first byte lands in it.
+    let live = false;
+    const backlog: Uint8Array[] = [];
+    try {
+      const attachment = await lifecycle.console(data.console, {
+        onData: (bytes) => {
+          if (state.closed) return;
+          if (!live) {
+            backlog.push(new Uint8Array(bytes));
+            return;
+          }
+          if ((ws.getBufferedAmount?.() ?? 0) > CONSOLE_MAX_BUFFERED_BYTES) return; // see the cap
+          ws.send(bytes);
+        },
+        onExit: () => {
+          if (state.closed) return;
+          state.closed = true;
+          endConsole(ws, { t: "exit" }); // the pane is gone — the popup says so
+        },
+      });
+      if (state.closed) {
+        attachment.close(); // the tab was closed while the attach was in flight
+        return;
+      }
+      state.attachment = attachment;
+      ws.send(
+        JSON.stringify({
+          t: "init",
+          cols: attachment.cols,
+          rows: attachment.rows,
+          screen: attachment.screen,
+        }),
+      );
+      live = true;
+      for (const chunk of backlog) ws.send(chunk);
+      backlog.length = 0;
+      for (const chunk of state.pending) attachment.write(chunk);
+      state.pending = [];
+    } catch (error) {
+      this.#failConsole(ws, consoleErrorText(error));
+    }
+  }
+
+  #failConsole(ws: WsClient, message: string): void {
+    const state = this.#consoles.get(ws);
+    if (state !== undefined) state.closed = true;
+    endConsole(ws, { t: "error", message });
   }
 
   // GET /api/agents/:name/tokens (§12.8, FR-103): the peer's token-usage series

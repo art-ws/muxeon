@@ -879,9 +879,9 @@ describe("lifecycle endpoints (FR-65)", () => {
   });
 });
 
-// --- Screen Live endpoint (FR-102, §12.4) ------------------------------------
+// --- console TEXT capture endpoint (FR-102, §12.4) ---------------------------
 
-describe("screen live endpoint (FR-102)", () => {
+describe("screen capture endpoint (FR-102)", () => {
   function fakeLifecycle() {
     const calls: string[] = [];
     return {

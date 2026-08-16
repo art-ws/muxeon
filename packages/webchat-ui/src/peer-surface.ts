@@ -5,7 +5,7 @@
 //
 // Three surfaces (§12.7, §15, §17.7):
 //   agent     — a session: status dot, "thinking…", token meter, console
-//               (slash commands / raw mode / Screen Live), lifecycle actions;
+//               (slash commands / raw mode / console), lifecycle actions;
 //   person    — a user (§17.7), oneself included (self-chat, FR-128): an
 //               ordinary 1:1 chat with a presence dot (FR-133) instead of a
 //               status; no session ⇒ no console, no tokens, no lifecycle —
@@ -53,12 +53,12 @@ export const nameTooltip = (peer: PeerInfo | undefined): string | undefined =>
 /**
  * A federated peer (§18.4, FR-144/FR-150): imported over a link — its chrome is
  * the read-only projection: an agent surface WITHOUT the console (no slash/raw/
- * Screen Live), a person surface without DND; lifecycle/pause never render (the
+ * terminal), a person surface without DND; lifecycle/pause never render (the
  * server ships `actions` all-false, this predicate closes the composer half).
  */
 export const isRemote = (peer: PeerInfo | undefined): boolean => peer?.server !== undefined;
 
-/** Whether this peer has a console behind it: raw mode, slash commands, Screen Live. */
+/** Whether this peer has a console behind it: raw mode, slash commands, the terminal (§12.9). */
 export const hasConsole = (peer: PeerInfo | undefined): boolean =>
   chatSurface(peer) === "agent" && !isRemote(peer);
 

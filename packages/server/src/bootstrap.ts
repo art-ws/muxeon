@@ -73,6 +73,7 @@ import {
   type TokenSamplerHandle,
   TokenUsageStore,
   TransportLog,
+  attachConsole,
   buildBroadcastResolver,
   capturePane,
   commandFanout,
@@ -743,7 +744,7 @@ export async function bootstrap(options: BootstrapOptions = {}): Promise<MuxeonS
                 // transport log (§8.2) — read-only, neighbor-scoped in the tool.
                 pairHistory: (me, peer, limit) => transportLog.pair(me, peer, limit),
                 // get_screen (T214, FR-147): a NEIGHBOUR's console as text — the
-                // same capture the panel's Screen Live shows (FR-102), through the
+                // same capture that primes the panel's console (FR-102), through the
                 // same read-only path (no lane, no injection — §10.8). The edge is
                 // re-checked here as well as in the tool: the port must not be a
                 // wider capability than the tool that fronts it. The text is
@@ -1059,6 +1060,18 @@ export async function bootstrap(options: BootstrapOptions = {}): Promise<MuxeonS
           throw new Error(`unknown agent "${name}"`);
         }
         return capturePane(runtime.session);
+      },
+      // Interactive console (§12.9, FR-160): the neighbour's pane attached live,
+      // both ways. The edge is re-checked here as well as at the socket — the
+      // port must not be a wider capability than the surface that fronts it.
+      // Injection stays the dispatcher's own `send-keys` path (§4, §5.2): the
+      // console adds a place to type from, not a new way into the pane.
+      console: (name, handlers) => {
+        const runtime = agents.get(name);
+        if (runtime === undefined || !topology.neighbors(operator).includes(name)) {
+          throw new Error(`unknown agent "${name}"`);
+        }
+        return attachConsole(runtime.session, handlers);
       },
     });
 

@@ -176,7 +176,7 @@ export const HISTORY_MAX_LIMIT = 200;
 
 /**
  * get_screen scrollback bound (FR-147): the default capture is the VISIBLE pane —
- * exactly what the panel's Screen Live shows (FR-102) and what a human sees. A
+ * exactly what the panel's console shows (§12.9, FR-102) and what a human sees. A
  * caller may ask for scrollback above it, capped so one tool call can never drag
  * an agent's whole session into another agent's context.
  */

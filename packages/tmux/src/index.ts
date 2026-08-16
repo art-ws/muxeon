@@ -3,4 +3,5 @@
 export * from "./run";
 export * from "./send";
 export * from "./capture";
+export * from "./control";
 export * from "./session";

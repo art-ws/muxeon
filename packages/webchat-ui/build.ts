@@ -34,6 +34,13 @@ await cp(join(root, "src", "styles.css"), join(dist, "assets", "styles.css"));
 const katexDist = join(root, "..", "..", "node_modules", "katex", "dist");
 await cp(join(katexDist, "katex.min.css"), join(dist, "assets", "katex.min.css"));
 await cp(join(katexDist, "fonts"), join(dist, "assets", "fonts"), { recursive: true });
+// xterm stylesheet (§12.9, FR-160): the terminal's own CSS ships with the
+// package — copied next to ours rather than vendored, so it tracks the version
+// in package.json.
+await cp(
+  join(root, "..", "..", "node_modules", "@xterm", "xterm", "css", "xterm.css"),
+  join(dist, "assets", "xterm.css"),
+);
 // branding (T88): the designer's logo as-is + the favicon derived from its mark
 await cp(join(root, "assets", "logo.png"), join(dist, "assets", "logo.png"));
 await cp(join(root, "assets", "favicon.png"), join(dist, "assets", "favicon.png"));

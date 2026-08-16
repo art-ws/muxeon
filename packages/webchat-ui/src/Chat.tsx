@@ -4,10 +4,10 @@
 // (React elements only, no innerHTML — §12.6) plus copy/source hover actions.
 
 import { useEffect, useReducer, useRef, useState } from "react";
+import { ConsoleDialog } from "./Console";
 import { FilterNote } from "./FilterNote";
 import { MessageText } from "./MessageText";
 import { RzArrows } from "./RzArrows";
-import { SCREEN_LIVE_INTERVAL_MS, ScreenLiveDialog } from "./ScreenLive";
 import { TokenMeter } from "./TokenMeter";
 import { agentAction, blobUrl, clearHistory, exportHistoryUrl, setAgentPaused } from "./api";
 import { usePinnedFeed } from "./feed-pin";
@@ -183,7 +183,7 @@ export function ChatView(props: {
 // The group/tag chat (§15, FR-106/FR-107): a ONE-DIRECTIONAL broadcast view.
 // The header shows the target's name + its icon and a "broadcast → <members>"
 // subheader (a group resolves hierarchically server-side); there is NO status
-// dot, NO "thinking…", NO token meter, NO lifecycle kebab and NO Screen-Live —
+// dot, NO "thinking…", NO token meter, NO lifecycle kebab and NO console —
 // a broadcast target has no status or lifecycle. The feed shows the operator's
 // outgoing broadcasts (server history under the target name); the composer
 // (mounted by the parent) sends through the same send path, raw mode disabled.
@@ -350,10 +350,10 @@ function MessageFeed(props: {
 function ChatActionsMenu(props: { peer: PeerInfo }): React.JSX.Element {
   const t = useT();
   const [open, setOpen] = useState(false);
-  // Screen Live (FR-102) moved here from the composer's "+" menu in T228
-  // (operator's call): watching a console observes the AGENT, it does not help
-  // compose a message — it belongs with the other agent actions.
-  const [screen, setScreen] = useState(false);
+  // Console (§12.9, FR-160) — the entry the operator's Screen Live grew into
+  // (T228 moved it here from the composer's "+" menu: a console is an action on
+  // the AGENT, not a way to compose a message; T270 made it interactive).
+  const [consoleOpen, setConsoleOpen] = useState(false);
   const peer = props.peer;
   // only a local agent has a tmux pane to capture (§17.7, §15.5, §18.4)
   const canWatch = hasConsole(peer);
@@ -386,16 +386,13 @@ function ChatActionsMenu(props: { peer: PeerInfo }): React.JSX.Element {
                 type="button"
                 role="menuitem"
                 className="filter-option"
-                title={t("live console — refreshes every {seconds}s").replace(
-                  "{seconds}",
-                  String(Math.round(SCREEN_LIVE_INTERVAL_MS / 1000)),
-                )}
+                title={t("the agent's live terminal — watch it and type into it")}
                 onClick={() => {
                   setOpen(false);
-                  setScreen(true);
+                  setConsoleOpen(true);
                 }}
               >
-                <IconMonitor size={14} /> {t("Screen Live")}
+                <IconMonitor size={14} /> {t("Console")}
               </button>
             )}
             <a
@@ -444,8 +441,8 @@ function ChatActionsMenu(props: { peer: PeerInfo }): React.JSX.Element {
         </>
       )}
       {/* the popup outlives the menu it was opened from — closing the menu must
-          not stop the watch (the dialog portals itself out of here) */}
-      {screen && <ScreenLiveDialog peer={peer.name} onClose={() => setScreen(false)} />}
+          not tear down the console (the dialog portals itself out of here) */}
+      {consoleOpen && <ConsoleDialog peer={peer.name} onClose={() => setConsoleOpen(false)} />}
     </span>
   );
 }

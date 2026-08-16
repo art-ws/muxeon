@@ -205,8 +205,19 @@ export async function runCommandFanout(
   );
 }
 
-/** A live console snapshot (FR-102): the peer's visible pane as-is — the Screen
- *  Live mode polls this. */
+/**
+ * The console socket of one agent (§12.9, FR-160): the URL the terminal attaches
+ * to. Relative to the document, so it follows the panel's basePath (§12.6) — the
+ * same rule the push feed lives by.
+ */
+export function consoleSocketUrl(name: string): string {
+  const base = new URL(".", window.location.href);
+  base.protocol = base.protocol === "https:" ? "wss:" : "ws:";
+  return new URL(`api/agents/${encodeURIComponent(name)}/console`, base).toString();
+}
+
+/** A live console snapshot (FR-102): the peer's visible pane as-is — the text
+ *  capture, the same one `get_screen` (FR-147) hands an agent. */
 export async function fetchAgentScreen(name: string): Promise<string> {
   const { output } = await jsonOrThrow<{ output: string }>(
     await fetch(`api/agents/${encodeURIComponent(name)}/screen`),

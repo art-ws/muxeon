@@ -2049,34 +2049,72 @@ dialog.camera-dialog {
   cursor: pointer;
 }
 
-/* Screen Live (FR-102): the polled console capture fills the panel as-is. */
-.screen-live-note {
+/* Console (§12.9, FR-160): the agent's terminal, popup or full screen. The pane
+   is the emulator's host — it gets no padding of its own, xterm owns the box. */
+.console-note {
   font-weight: 400;
   font-size: 12px;
   color: var(--text-dim);
 }
 
-.screen-live-pane {
-  flex: 1;
-  min-height: 0;
-  margin: 0;
-  width: 100%;
-  box-sizing: border-box;
-  padding: 14px 16px;
-  overflow: auto;
-  background: var(--bg);
-  color: var(--text);
-  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
-  font-size: 13px;
-  line-height: 1.4;
-  white-space: pre; /* as-is: no wrapping, no markdown */
+.console-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 
-.screen-live-error {
-  flex-shrink: 0;
-  margin: 0;
-  padding: 6px 16px;
-  border-top: 1px solid var(--border);
+.console-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--text);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.console-button:hover {
+  border-color: var(--accent);
+}
+
+.console-button.icon {
+  padding: 4px 8px;
+}
+
+.console-pane {
+  flex: 1;
+  min-height: 0;
+  width: 100%;
+  box-sizing: border-box;
+  padding: 8px;
+  overflow: hidden; /* the terminal scrolls itself — the box never does */
+  background: #0b0d10;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+}
+
+/* the emulator sizes itself from the agent's grid; center what is left over */
+.console-pane .xterm {
+  height: auto !important;
+}
+
+/* full screen (§12.9): the same dialog, grown to the viewport — the terminal is
+   unchanged, its characters just get bigger (the fit runs on the toggle). */
+.popup-overlay.popup-full {
+  padding: 0;
+}
+
+.popup-overlay.popup-full dialog.popup-dialog {
+  width: 100vw;
+  height: 100vh;
+  max-width: 100vw;
+  max-height: 100vh;
+  border-radius: 0;
+  border: none;
 }
 
 /* Transport observability view (FR-48, §12.4) — read-only routed-message feed */

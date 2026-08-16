@@ -12,8 +12,15 @@ export * from "./dispatcher";
 export * from "./nudge";
 export * from "./transport-log";
 // The server reaches tmux only through orchestrator helpers (§8) — re-exported
-// for the console-fallback scrape (FR-47), like probeSession for the down-probe.
-export { type CaptureOptions, capturePane } from "@muxeon/tmux";
+// for the console-fallback scrape (FR-47), like probeSession for the down-probe,
+// and for the panel's interactive console (§12.9, FR-160).
+export {
+  type CaptureOptions,
+  type TmuxConsoleAttachment,
+  type TmuxConsoleHandlers,
+  attachConsole,
+  capturePane,
+} from "@muxeon/tmux";
 export * from "./driver";
 export * from "./down-probe";
 export * from "./idle-teardown";

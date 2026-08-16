@@ -311,7 +311,7 @@ configuration (FR-11b). Step by step:
 
 **Watching a neighbour's console (`get_screen`, FR-147).** Every agent may read
 the **visible terminal pane** of any agent it has a topology edge with, as plain
-text — the same capture the panel's Screen Live shows. It answers "what is this
+text — the same capture that primes the panel's console (§8.1c). It answers "what is this
 peer actually doing" when `get_status` only says `busy`: which prompt it sits on,
 what it printed last, whether it is waiting for input. The edge is the whole
 gate — no grant to configure, symmetric with being allowed to talk to it. It is
@@ -685,6 +685,54 @@ Cost is one `capture-pane` per tracked agent per `sampleEvery`, and the series i
 persisted (two small JSON files per session) so a restart does not lose history;
 a 24h window is retained.
 
+### 8.1c The agent's console in the browser (§12.9, FR-160)
+
+The chat's ⋮ menu carries **Console** for every local agent. It opens a real
+terminal — not a picture of one: the popup is a full emulator attached to the
+agent's tmux pane, so you both **see** what the agent sees and **type into it**,
+with the same effect as sitting at the machine. Ctrl-C interrupts, arrows walk
+the history, Tab completes, paste pastes, `vim` and full-screen TUIs render.
+
+What it is wired to:
+
+- **Output** — a tmux *control-mode* client (`tmux -C attach-session`) attached
+  read-only and with `ignore-size`, so the browser is invisible to the session:
+  it never joins the window-size calculation and cannot reflow the agent's
+  screen. The popup opens with the pane's scrollback already painted.
+- **Input** — plain `send-keys`, the very path the coordinator uses to inject
+  messages (§4). The console gives a new place to type from, not a new way into
+  the pane.
+- **Size** — the agent's, mirrored. The font scales so that grid fills the popup;
+  "Full screen" grows the popup, not the terminal. If you want a bigger grid,
+  resize the agent's own tmux window.
+- **The keyboard is the terminal's.** Esc goes to the pane (it is a key an agent
+  CLI needs), so the popup closes with ✕ — and a click on the backdrop does
+  nothing on purpose: a stray click must not tear down a console you are working
+  in. Copy/paste keep their platform shortcuts (⌘C/⌘V, Ctrl+Shift+C/V).
+
+Who may open it: the same gate as every other console action — an authenticated
+panel identity plus a **topology edge** to that agent (§10.2). It is exactly the
+authority raw mode (§14) and the lifecycle actions already carry; if you do not
+want someone typing into an agent, do not give them the edge.
+
+Two things to keep in mind:
+
+- **You are a second pair of hands on one keyboard.** Typing while the agent is
+  mid-turn is the same as typing at its real terminal: it lands in whatever the
+  CLI is doing. The queue discipline (§10.1) governs *messages*, not keystrokes.
+- **Everyone attached sees the same pane.** Two panels, plus whoever is attached
+  to the session in a real terminal, share one console — as they always did.
+
+Closing the popup detaches immediately; nothing keeps running in the background.
+If the agent's session dies (a restart, a shutdown), the console says so and
+offers **Reconnect**. The read-only text capture is still available for scripts
+as `GET /api/agents/:name/screen` — that is what `get_screen` (FR-147) hands an
+agent, and it needs no socket.
+
+> Behind a reverse-proxy the console needs the same WebSocket upgrade the push
+> feed does (§8.3) — and a `proxy_read_timeout` long enough that a *quiet*
+> console is not dropped mid-session (an idle terminal sends nothing).
+
 ### 8.2 Building the UI
 
 The SPA ships as a workspace package and is served automatically once built:
@@ -713,7 +761,7 @@ server {
     proxy_http_version 1.1;                  # WebSocket (§12.4)
     proxy_set_header Upgrade $http_upgrade;
     proxy_set_header Connection "upgrade";
-    proxy_read_timeout 300s;                 # keep the push feed open
+    proxy_read_timeout 3600s;                # push feed + a quiet console (§12.9)
   }
 }
 ```

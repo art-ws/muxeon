@@ -215,10 +215,42 @@ export interface WebchatLifecycle {
   commandFanout?(slash: string, selectors: readonly string[]): Promise<CommandFanoutOutcome>;
   /**
    * Live console snapshot (FR-102): the peer's VISIBLE terminal pane as-is —
-   * a read-only capture the panel polls to watch the console. Optional: absent
-   * ⇒ /api/agents/:name/screen answers 503 (like the port as a whole).
+   * a read-only capture, the text form of what the console shows. Optional:
+   * absent ⇒ /api/agents/:name/screen answers 503 (like the port as a whole).
    */
   screen?(name: string): Promise<string>;
+  /**
+   * Interactive console (§12.9, FR-160): attaches to the peer's pane and hands
+   * back a live terminal — output streams through `handlers`, keystrokes go the
+   * other way through `write`. This is the panel's REAL console, replacing the
+   * polled snapshot mode; the snapshot port stays for the text capture.
+   * Optional: absent ⇒ the console socket refuses with UNAVAILABLE.
+   */
+  console?(name: string, handlers: ConsoleHandlers): Promise<ConsoleAttachment>;
+}
+
+/** Callbacks of a live console attachment (§12.9) — the socket's two directions. */
+export interface ConsoleHandlers {
+  /** Pane output as raw bytes, in order. */
+  readonly onData: (bytes: Uint8Array) => void;
+  /** The pane is gone (session killed/restarted) or the attachment was closed. */
+  readonly onExit: () => void;
+}
+
+/**
+ * A live console (§12.9, FR-160) — structurally the tmux package's attachment,
+ * redeclared here so webchat stays free of a tmux dependency (§8 layering).
+ */
+export interface ConsoleAttachment {
+  /** Pane geometry: the browser MIRRORS it and never resizes the agent's window. */
+  readonly cols: number;
+  readonly rows: number;
+  /** Opening frame — scrollback, screen and cursor, written into a fresh emulator. */
+  readonly screen: string;
+  /** Type bytes into the pane exactly as a keyboard would. */
+  write(bytes: Uint8Array): void;
+  /** Detach. Idempotent; `onExit` follows. */
+  close(): void;
 }
 
 /**

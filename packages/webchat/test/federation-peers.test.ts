@@ -102,7 +102,7 @@ describe("§18.4 federated peers on the panel surface", () => {
       const body = (await response.json()) as { peers: Record<string, unknown>[] };
       const dev = body.peers.find((peer) => peer.name === "dev@hq");
       // The projection + the link, and NO console affordances: the chrome the
-      // panel derives (no lifecycle, no slash commands, no Screen Live) follows
+      // panel derives (no lifecycle, no slash commands, no console) follows
       // from actions/commands, not from client-side special-casing.
       expect(dev).toMatchObject({
         type: "agent",

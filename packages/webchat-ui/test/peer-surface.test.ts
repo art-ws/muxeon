@@ -39,7 +39,7 @@ describe("chatSurface (§12.7, §15, §17.7)", () => {
   });
 });
 
-describe("hasConsole — raw mode / slash commands / Screen Live", () => {
+describe("hasConsole — raw mode / slash commands / the terminal (§12.9)", () => {
   test("only an agent has a terminal behind it", () => {
     expect(hasConsole(peer())).toBe(true);
     expect(hasConsole(person())).toBe(false);
