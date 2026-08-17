@@ -1,3 +1,15 @@
+## [0.1.13](https://github.com/art-ws/muxeon/compare/v0.1.12...v0.1.13) (2026-08-17)
+
+
+### Changes
+
+* **T270:** the panel's console stops being a picture of a terminal
+
+  Screen Live polled a text snapshot every 3s: you could watch, not work. The operator asked for the real thing — a terminal in the panel, typed into with the same effect as sitting at the machine (exchange 239c3390). ([9c5eabb](https://github.com/art-ws/muxeon/commit/9c5eabba1dc3f068e500c5c0b591c4a47ccefae1))
+* **T271:** raw mode leaves the panel — one way to type into a pane, not two
+
+  Raw was an approximation of a terminal from the time there was none: text in verbatim, a console snapshot back as the reply. T270 gave the panel the real pane, so a second and weaker way to type into the same place is UI with no purpose — and it carried its own rules (a global toggle, media switched off, its own placeh… ([4e46599](https://github.com/art-ws/muxeon/commit/4e4659939929be1bb5aba5406dbaa9bac8cd5f80))
+
 ## [0.1.12](https://github.com/art-ws/muxeon/compare/v0.1.11...v0.1.12) (2026-08-14)
 
 
