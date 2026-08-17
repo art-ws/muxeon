@@ -1,3 +1,12 @@
+## [0.1.15](https://github.com/art-ws/muxeon/compare/v0.1.14...v0.1.15) (2026-08-17)
+
+
+### Changes
+
+* **T276:** a sent message puts the composer back in its resting shape
+
+  Full screen (FR-70, T222/T223) is the mode for writing a LONG message. Once that message is sent, the reason for the mode is gone — but the card stayed grown: an empty canvas over the whole feed, hiding the answer the operator was waiting for, with the collapse left as a chore for the human. ([ff8be67](https://github.com/art-ws/muxeon/commit/ff8be6762f7175591d62873b919b1a4d0d4cfc71))
+
 ## [0.1.14](https://github.com/art-ws/muxeon/compare/v0.1.13...v0.1.14) (2026-08-17)
 
 
