@@ -10,7 +10,8 @@
 // markdown) in a dismissible panel.
 // Draft persistence (T93, FR-69): the unsent text and the manually dragged
 // textarea height live in localStorage PER PEER (draft-store.ts) — leaving the
-// page and coming back restores the composer; a successful send clears the text.
+// page and coming back restores the composer; a successful send clears the text
+// AND collapses the full screen back to the resting pill (T276).
 
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
@@ -75,8 +76,8 @@ export function Composer(props: {
   const [commandsOpen, setCommandsOpen] = useState(false);
   // Full-screen mode for long messages (FR-70, T222): the composer card itself
   // GROWS to fill the feed (the Gemini idiom) — no separate editor window. The
-  // same textarea and the same text state, so drafts persist; Esc or the corner
-  // button shrink it back.
+  // same textarea and the same text state, so drafts persist; Esc, the corner
+  // button or a sent message (T276) shrink it back.
   const [expanded, setExpanded] = useState(false);
   const [commandOutput, setCommandOutput] = useState<{ slash: string; output: string } | undefined>(
     undefined,
@@ -172,6 +173,12 @@ export function Composer(props: {
       await props.onSend({ text: trimmed, blobs });
       setText("");
       setBlobs([]);
+      // A sent message leaves the composer in its RESTING state (T276): the
+      // full screen exists for writing a long text, and that text is gone —
+      // an empty canvas over the whole feed hides the reply that was just
+      // asked for. A FAILED send stays expanded on purpose: the text is still
+      // in the field and the error is above it.
+      setExpanded(false);
     } catch (failure) {
       setError(failure instanceof Error ? failure.message : "send failed");
     } finally {
