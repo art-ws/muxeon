@@ -1,3 +1,12 @@
+## [0.1.14](https://github.com/art-ws/muxeon/compare/v0.1.13...v0.1.14) (2026-08-17)
+
+
+### Changes
+
+* **T274:** reactions — a mark on a message, and an instruction for an agent
+
+  Implements §19 (FR-161…FR-168) and the console-input record §12.9.6 (FR-170). ([03600b4](https://github.com/art-ws/muxeon/commit/03600b4dff7d31013ec70f76eb29c729fed92b5b))
+
 ## [0.1.13](https://github.com/art-ws/muxeon/compare/v0.1.12...v0.1.13) (2026-08-17)
 
 
