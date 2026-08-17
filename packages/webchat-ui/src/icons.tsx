@@ -237,3 +237,15 @@ export const IconChevron = (props: IconProps): React.JSX.Element => (
     <polyline points="9 18 15 12 9 6" />
   </Icon>
 );
+
+/** Add a reaction (§19.9, FR-168) — a smiley with a plus, the picker trigger. */
+export const IconReaction = (props: IconProps): React.JSX.Element => (
+  <Icon {...props}>
+    <path d="M20.94 13A9 9 0 1 1 11 3.06" />
+    <path d="M8.5 14.5s1.2 1.5 3.5 1.5 3.5-1.5 3.5-1.5" />
+    <circle cx="9" cy="10" r="0.8" />
+    <circle cx="15" cy="10" r="0.8" />
+    <line x1="19" y1="2" x2="19" y2="8" />
+    <line x1="16" y1="5" x2="22" y2="5" />
+  </Icon>
+);

@@ -131,6 +131,13 @@ export interface AgentPlaneDeps {
    * announced is worse than an error the agent can act on.
    */
   attach?(caller: string, files: readonly string[]): Promise<AttachedRef[] | string>;
+  /**
+   * Reactions (§19.7, FR-167): the declared catalog and the one operation over it.
+   * The pair is always (the user `peer`, the caller) — structurally, an agent can
+   * only mark a message in a chat it is part of. Absent ⇒ both tools answer
+   * REACTIONS_DISABLED rather than pretending an empty palette.
+   */
+  readonly reactions?: ReactionPlane;
   /** Clock for message ts; default Date.now. Injectable for tests. */
   readonly now?: () => number;
   /** Idempotency-id generator when send omits one (§5.3/§10.9); default randomUUID. */
@@ -142,6 +149,38 @@ export interface AgentPlaneDeps {
    * (§10.27). Absent ⇒ no federation; an FQN name answers UNKNOWN_PEER.
    */
   remotePeers?(): readonly FederatedPeer[];
+}
+
+/**
+ * The reaction plane the tools see (§19.7) — structurally the webchat hub,
+ * redeclared here so the tool set keeps its narrow, data-only dependency surface.
+ */
+export interface ReactionPlane {
+  /** The declared palette (§19.2). Recent order is a picker affordance, not an agent's. */
+  catalog(): {
+    readonly categories: readonly { readonly name: string; readonly title?: string }[];
+    readonly items: readonly {
+      readonly key: string;
+      readonly emoji: string;
+      readonly label?: string;
+      readonly category?: string;
+    }[];
+  };
+  /** Place/remove one reaction; a refusal carries its §19.7 code, never a silent no-op. */
+  react(input: {
+    readonly owner: string;
+    readonly peer: string;
+    readonly actor: string;
+    readonly messageId: string;
+    readonly key: string;
+    readonly remove?: boolean;
+  }): Promise<
+    | {
+        readonly ok: true;
+        readonly reactions: readonly { readonly key: string; readonly count: number }[];
+      }
+    | { readonly ok: false; readonly code: string; readonly message: string }
+  >;
 }
 
 /** A federated peer row (§18.4) — the FR-140 shape list_peers/get_status read. */
@@ -168,6 +207,8 @@ export const AGENT_TOOL_NAMES = [
   "send_command",
   "list_controls",
   "control_session",
+  "list_reactions",
+  "react",
 ] as const;
 
 /** get_history depth bounds (FR-87) — mirrors the §12.4 history paging caps. */
@@ -368,6 +409,35 @@ export const AGENT_TOOLS: Tool[] = [
         },
       },
       required: ["to", "action"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "list_reactions",
+    description:
+      "List the reactions this server declares — the closed palette you may place " +
+      "with `react`: key, emoji and (when configured) label and category. Empty " +
+      "means reactions are not configured here.",
+    inputSchema: EMPTY_INPUT,
+  },
+  {
+    name: "react",
+    description:
+      "Mark ONE message of a human neighbour with a reaction instead of writing a " +
+      "message about it — an acknowledgement that costs no turn of theirs. The " +
+      "message must be one from your chat with that person (use the id from the " +
+      "message you were given, or from get_history). Several different keys may sit " +
+      "on one message; the same key twice is a no-op. `remove: true` takes back YOUR " +
+      "OWN reaction — never someone else's.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        peer: { type: "string", description: "neighbour name (the human whose chat holds it)" },
+        messageId: { type: "string", description: "id of the message to mark" },
+        key: { type: "string", description: "reaction key from list_reactions" },
+        remove: { type: "boolean", description: "remove your own reaction instead of placing it" },
+      },
+      required: ["peer", "messageId", "key"],
       additionalProperties: false,
     },
   },
@@ -697,6 +767,61 @@ async function dispatch(
       } catch (error) {
         return fail("CONTROL_FAILED", error instanceof Error ? error.message : String(error));
       }
+    }
+
+    case "list_reactions": {
+      // The catalog is server-wide and tiny; no gate beyond having a session — a
+      // caller must know the legal keys before `react` can refuse an illegal one.
+      if (deps.reactions === undefined) {
+        return fail("REACTIONS_DISABLED", "no reaction catalog is configured on this server");
+      }
+      return ok(deps.reactions.catalog());
+    }
+
+    case "react": {
+      const { peer, messageId, key, remove } = args;
+      if (typeof peer !== "string") return fail("INVALID_ARGS", "peer must be a string");
+      if (typeof messageId !== "string" || messageId.length === 0) {
+        return fail("INVALID_ARGS", "messageId must be a non-empty string");
+      }
+      if (typeof key !== "string" || key.length === 0) {
+        return fail("INVALID_ARGS", "key must be a non-empty string");
+      }
+      if (remove !== undefined && typeof remove !== "boolean") {
+        return fail("INVALID_ARGS", "remove must be a boolean");
+      }
+      // The gate is the EDGE and nothing else (§19.7, FR-167) — same stance as
+      // get_screen (FR-147): a reaction is a mark in a conversation the caller is
+      // already allowed to have, not a new power over someone else's session.
+      if (!deps.topology.hasEdge(caller, peer)) {
+        return fail("UNKNOWN_PEER", `not a neighbor: ${peer}`);
+      }
+      if (deps.reactions === undefined) {
+        return fail("REACTIONS_DISABLED", "no reaction catalog is configured on this server");
+      }
+      // Only a pair with panel history can carry a reaction (§19.10): an agent keeps
+      // no chat log of its own, a group/tag is one-directional, a federated peer is
+      // across the boundary (§10.24). Say which, rather than "unknown message".
+      if (isFqn(peer)) {
+        return fail("NOT_REACTABLE", `"${peer}" is a federated peer — reactions stay local`);
+      }
+      const kind = typeOf(peer);
+      if (kind === "group" || kind === "tag") {
+        return fail("NOT_REACTABLE", `"${peer}" is a ${kind} — one-directional, it has no chat`);
+      }
+      // A peer that is an agent falls through to the hub, which answers
+      // NOT_REACTABLE because an agent keeps no panel history: one place decides
+      // "is there a log to mark", and it is the place that owns the logs.
+      const outcome = await deps.reactions.react({
+        owner: peer, // the human's history dir holds the pair (§19.4)
+        peer: caller, // …under the caller's name: the pair is (peer, caller)
+        actor: caller,
+        messageId,
+        key,
+        ...(remove === true ? { remove: true } : {}),
+      });
+      if (!outcome.ok) return fail(outcome.code, outcome.message);
+      return ok({ peer, messageId, key, reactions: outcome.reactions });
     }
 
     default:

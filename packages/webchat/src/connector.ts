@@ -20,6 +20,7 @@
 // status / queue-depth / message-phase changes into WS events. Observation only —
 // the panel never moves queue records (§10.8).
 
+import { randomUUID } from "node:crypto";
 import { join } from "node:path";
 import {
   type BlobRef,
@@ -36,6 +37,7 @@ import {
   SessionStore,
   verifyPassword,
 } from "./auth";
+import { ConsoleLineBuffer } from "./console-input";
 import type { HistoryStore } from "./history";
 import type {
   ConsoleAttachment,
@@ -45,6 +47,7 @@ import type {
   WebchatPorts,
   WebchatRole,
 } from "./ports";
+import type { ReactionView, ReactionsHub } from "./reactions";
 
 export const SESSION_COOKIE = "muxeon_webchat";
 
@@ -84,6 +87,13 @@ export type WebchatEvent =
   | { readonly type: "transport"; readonly record: Signal }
   | { readonly type: "ack"; readonly id: string; readonly to: string }
   | { readonly type: "history-cleared"; readonly peer: string }
+  | {
+      /** A message's reactions changed (§19.5, FR-162) — the folded state, not a delta. */
+      readonly type: "reaction";
+      readonly peer: string;
+      readonly messageId: string;
+      readonly reactions: readonly ReactionView[];
+    }
   | {
       readonly type: "status";
       readonly peer: string;
@@ -186,6 +196,13 @@ export interface WebchatConnectorOptions {
   readonly lifecycle?: WebchatLifecycle;
   /** Blob store (§12.5); absent ⇒ media endpoints answer 503. */
   readonly blobs?: WebchatBlobStore;
+  /**
+   * Reactions (§19, FR-161…FR-168): the one hub both this surface and the
+   * agent-plane `react` tool go through, so they share idempotency, mirroring and
+   * notification rules. Absent (or with an empty catalog) ⇒ the endpoints answer
+   * REACTIONS_DISABLED and the panel renders no picker.
+   */
+  readonly reactions?: ReactionsHub;
   /** Built SPA dir (§12.7, the @muxeon/webchat-ui dist); absent ⇒ non-API 404. */
   readonly staticDir?: string;
   /**
@@ -218,6 +235,11 @@ export interface WebchatConnectorOptions {
 
 const JSON_HEADERS = { "content-type": "application/json" } as const;
 
+/** Operator-visible warning (same stderr idiom as the user push fan-out, §17.5). */
+const warn = (message: string): void => {
+  process.stderr.write(`muxeon: warning: ${message}\n`);
+};
+
 const json = (body: unknown, status = 200): Response =>
   new Response(JSON.stringify(body), { status, headers: JSON_HEADERS });
 
@@ -243,6 +265,8 @@ interface ConsoleSocketState {
   closed: boolean;
   /** Keystrokes typed between the upgrade and the attach — replayed in order. */
   pending: Uint8Array[];
+  /** Reconstruction of what this socket's human typed (§12.9.6, FR-170). */
+  readonly line: ConsoleLineBuffer;
 }
 
 /** A single input frame is capped: a console is a keyboard, not an upload path. */
@@ -398,6 +422,21 @@ export class WebchatConnector implements ChannelConnector {
       });
     }
     this.#loginLimiter = new LoginRateLimiter(options.loginRate ?? {});
+    // The hub notifies humans through the panel (§19.6), so it needs a way back in.
+    // Registering HERE keeps the wiring one-directional at assembly: the server
+    // builds the hub (which the MCP `react` tool also uses) without knowing about
+    // sockets, and the connector supplies the only socket-aware part.
+    options.reactions?.registerPush((owner, event) => {
+      this.#push(
+        {
+          type: "reaction",
+          peer: event.peer,
+          messageId: event.messageId,
+          reactions: event.reactions,
+        },
+        owner,
+      );
+    });
   }
 
   /** Identity of the session cookie, or undefined when unauthenticated (§10.12). */
@@ -470,7 +509,12 @@ export class WebchatConnector implements ChannelConnector {
       websocket: {
         open: (ws) => {
           if (consoleData(ws) !== undefined) {
-            this.#consoles.set(ws, { attachment: undefined, closed: false, pending: [] });
+            this.#consoles.set(ws, {
+              attachment: undefined,
+              closed: false,
+              pending: [],
+              line: new ConsoleLineBuffer(),
+            });
             void this.#openConsole(ws);
             return;
           }
@@ -493,6 +537,10 @@ export class WebchatConnector implements ChannelConnector {
           if (bytes.length === 0 || bytes.length > CONSOLE_INPUT_MAX_BYTES) return;
           if (state.attachment === undefined) state.pending.push(new Uint8Array(bytes));
           else state.attachment.write(bytes);
+          // The keystrokes also become chat history (§12.9.6, FR-170): the delivery
+          // already happened through the pane, so this is a RECORD of what was said,
+          // written without routing — no queue, no journal, no reply window.
+          this.#recordConsoleInput(ws, state, bytes);
         },
       },
     });
@@ -607,6 +655,16 @@ export class WebchatConnector implements ChannelConnector {
     if (url.pathname === "/api/server" && req.method === "GET") return this.handleServerInfo();
     // history export/clear (FR-84): /api/history/<peer>/(export|clear) — matched
     // by SEGMENTS so a peer literally named "export" still pages normally.
+    // Reactions (§19.5, FR-161/FR-162): the catalog, then place/remove on one
+    // message. Matched BEFORE the paging route below — both live under
+    // /api/history/, and the deeper shape is the more specific one.
+    if (url.pathname === "/api/reactions" && req.method === "GET") {
+      return this.handleReactionCatalog();
+    }
+    const reaction = reactionRoute(url.pathname);
+    if (reaction !== null && (req.method === "POST" || req.method === "DELETE")) {
+      return this.handleReaction(reaction, req, me);
+    }
     const historySub = historySubRoute(url.pathname);
     if (historySub?.action === "export" && req.method === "GET") {
       return this.handleExport(historySub.peer, me);
@@ -1142,6 +1200,48 @@ export class WebchatConnector implements ChannelConnector {
     }
   }
 
+  /**
+   * Console input → chat history (§12.9.6, FR-170). One record per submitted line,
+   * `origin:"console"`, appended to the pair's log and pushed to the owner's tabs —
+   * and pointedly NOT routed: the agent already got the keystrokes, so routing would
+   * inject the same text twice. That is why there is no queue phase, no transport
+   * journal line, no reply window and no receipt: the history here is a log of what
+   * happened, not a delivery sink.
+   */
+  #recordConsoleInput(ws: WsClient, state: ConsoleSocketState, bytes: Uint8Array): void {
+    const data = consoleData(ws);
+    if (data === undefined) return;
+    const identity = this.#identities.get(data.owner);
+    const history = identity?.history;
+    const { submitted, discarded } = state.line.feed(bytes);
+    if (discarded > 0) {
+      // Never silent (the T239 rule): a line edited with arrows/Ctrl-C is dropped
+      // rather than recorded wrongly, and the operator can see that it happened.
+      warn(
+        `console input of "${data.owner}" → "${data.console}" was not recorded: ` +
+          `${discarded} line(s) became unreconstructable (§12.9.6)`,
+      );
+    }
+    if (history === undefined || submitted.length === 0) return;
+    for (const text of submitted) {
+      const record: Signal = {
+        id: randomUUID(),
+        from: data.owner,
+        to: data.console,
+        kind: "message",
+        ts: (this.#options.now ?? Date.now)(),
+        payload: text,
+        origin: "console",
+      };
+      void history
+        .append(record)
+        .then((fresh) => {
+          if (fresh) this.#push({ type: "message", record }, data.owner);
+        })
+        .catch(() => undefined); // a failed append must not break the terminal
+    }
+  }
+
   #failConsole(ws: WsClient, message: string): void {
     const state = this.#consoles.get(ws);
     if (state !== undefined) state.closed = true;
@@ -1180,11 +1280,86 @@ export class WebchatConnector implements ChannelConnector {
     const rawLimit = Number(url.searchParams.get("limit") ?? "50");
     const limit = Number.isInteger(rawLimit) ? Math.min(Math.max(rawLimit, 1), 200) : 50;
     const cursor = { ...(before !== undefined ? { before } : {}), limit };
-    const page =
-      me.isUser && peer === me.name
-        ? await history.projected(cursor)
-        : await history.page(peer, cursor);
-    return json(page);
+    const self = me.isUser && peer === me.name;
+    const page = self ? await history.projected(cursor) : await history.page(peer, cursor);
+    // Reactions ride BESIDE the records (§19.5), never inside them: an envelope
+    // stays verbatim (§5.3) wherever it is served — page, export, projection.
+    const reactions = await this.#options.reactions?.pageMap(
+      me.name,
+      peer,
+      page.records.map((record) => record.id),
+      { merged: self }, // the self-chat thread is merged across every pair (§17.7)
+    );
+    return json({ ...page, ...(reactions !== undefined ? { reactions } : {}) });
+  }
+
+  // GET /api/reactions (§19.5, FR-161/FR-166): the declared catalog plus the
+  // frequency order of the Recent block. Read at picker-open time — there is no
+  // WS push for frequencies on purpose (R3: the list is tiny, and a Recent block
+  // that reshuffles under the cursor is a nuisance, §19.8).
+  handleReactionCatalog(): Response {
+    const hub = this.#options.reactions;
+    if (hub === undefined || !hub.enabled) {
+      return json({ error: "reactions are not configured", code: "REACTIONS_DISABLED" }, 409);
+    }
+    return json(hub.catalog());
+  }
+
+  // POST   /api/history/:peer/messages/:id/reactions      {key}  — place (§19.5)
+  // DELETE /api/history/:peer/messages/:id/reactions/:key        — remove MY OWN
+  //
+  // Structurally owner-scoped (§10.22): the route addresses the logged-in user's
+  // own pair, so another user's chat is unreachable rather than merely forbidden.
+  async handleReaction(
+    route: { peer: string; messageId: string; key?: string },
+    req: Request,
+    me: Identity,
+  ): Promise<Response> {
+    const hub = this.#options.reactions;
+    if (hub === undefined || !hub.enabled) {
+      return json({ error: "reactions are not configured", code: "REACTIONS_DISABLED" }, 409);
+    }
+    const remove = req.method === "DELETE";
+    let key = route.key;
+    if (!remove) {
+      if (key !== undefined) return json({ error: "not found" }, 404); // POST takes a body
+      const body = await readJsonObject(req);
+      const fromBody = body?.key;
+      if (typeof fromBody !== "string" || fromBody.length === 0) {
+        return json({ error: '"key" (non-empty string) is required' }, 400);
+      }
+      key = fromBody;
+    }
+    if (key === undefined) return json({ error: "reaction key required" }, 400);
+    const outcome = await hub.react({
+      owner: me.name,
+      peer: route.peer,
+      messageId: route.messageId,
+      actor: me.name,
+      key,
+      ...(remove ? { remove: true } : {}),
+    });
+    if (!outcome.ok) {
+      const status =
+        outcome.code === "UNKNOWN_MESSAGE" || outcome.code === "NOT_REACTABLE"
+          ? 404
+          : outcome.code === "REACTIONS_DISABLED"
+            ? 409
+            : outcome.code === "REACTION_DENIED"
+              ? 403
+              : 400;
+      return json({ error: outcome.message, code: outcome.code }, status);
+    }
+    return json({
+      ok: true,
+      peer: route.peer,
+      messageId: route.messageId,
+      reactions: outcome.reactions,
+      // The notification's fate travels with the answer (§19.6): a reaction whose
+      // notice was refused (paused agent, WIP cap) is still PLACED, and the panel
+      // shows why in the badge popup instead of losing it silently (the T239 rule).
+      ...(outcome.notify !== undefined ? { notify: outcome.notify } : {}),
+    });
   }
 
   // GET /api/history/:agent/export (FR-84, §12.3): the peer's FULL log as a
@@ -1195,13 +1370,22 @@ export class WebchatConnector implements ChannelConnector {
     if (history === undefined) return json({ error: "history is not wired" }, 503);
     if (peer.length === 0) return json({ error: "agent name required" }, 400);
     const now = (this.#options.now ?? Date.now)();
+    const records = await history.all(peer);
+    // Reactions travel as a SIBLING field (§19.5), so `records` stays verbatim; the
+    // document version says 2 because its shape changed, not its record contract.
+    const reactions = await this.#options.reactions?.pageMap(
+      me.name,
+      peer,
+      records.map((record) => record.id),
+    );
     const body = {
       format: "muxeon-chat-history",
-      version: 1,
+      version: 2,
       operator: me.name,
       peer,
       exportedAt: now,
-      records: await history.all(peer),
+      records,
+      ...(reactions !== undefined ? { reactions } : {}),
     };
     const safePeer = peer.replace(/[^\w.-]/g, "_"); // header-safe (§8.7)
     const day = new Date(now).toISOString().slice(0, 10);
@@ -1222,6 +1406,7 @@ export class WebchatConnector implements ChannelConnector {
     if (history === undefined) return json({ error: "history is not wired" }, 503);
     if (peer.length === 0) return json({ error: "agent name required" }, 400);
     await history.clear(peer);
+    await this.#options.reactions?.clear(me.name, peer); // the sidecar goes too (§19.4)
     this.#push({ type: "history-cleared", peer }, me.name);
     return json({ ok: true, peer });
   }
@@ -1557,6 +1742,24 @@ function preview(payload: unknown): string {
   const text = normalized.text ?? "";
   const blobs = normalized.blobs.length > 0 ? `[${normalized.blobs.length} attachment(s)]` : "";
   return `${text} ${blobs}`.trim().slice(0, 120);
+}
+
+/**
+ * /api/history/<peer>/messages/<id>/reactions[/<key>] by segments (§19.5, FR-162);
+ * null = not a reaction route. Matched by SEGMENTS like export/clear, so a peer or
+ * an id that happens to be spelled "messages" or "reactions" cannot shift the shape.
+ */
+function reactionRoute(pathname: string): { peer: string; messageId: string; key?: string } | null {
+  if (!pathname.startsWith("/api/history/")) return null;
+  const segments = pathname.slice("/api/history/".length).split("/");
+  if (segments.length !== 4 && segments.length !== 5) return null;
+  if (segments[1] !== "messages" || segments[3] !== "reactions") return null;
+  const peer = decodeURIComponent(segments[0] ?? "");
+  const messageId = decodeURIComponent(segments[2] ?? "");
+  if (peer.length === 0 || messageId.length === 0) return null;
+  const key = segments.length === 5 ? decodeURIComponent(segments[4] ?? "") : undefined;
+  if (segments.length === 5 && (key === undefined || key.length === 0)) return null;
+  return { peer, messageId, ...(key !== undefined ? { key } : {}) };
 }
 
 /** /api/history/<peer>/(export|clear) by segments (FR-84); null = not a sub-route. */

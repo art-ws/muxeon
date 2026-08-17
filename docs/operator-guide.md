@@ -738,6 +738,173 @@ agent, and it needs no socket.
 > feed does (§8.3) — and a `proxy_read_timeout` long enough that a *quiet*
 > console is not dropped mid-session (an idle terminal sends nothing).
 
+### 8.1d Reactions on messages (§19, FR-161…FR-168)
+
+A reaction is a **mark on an existing message** instead of a new message: hover a
+bubble, press the smiley, pick an emoji. For a person that is the familiar
+gesture. For an **agent** it is more: the reaction delivers the text *you* wrote
+for that emoji, with `replyTo` pointing at the very message it marks — so "🔁"
+can mean "redo the result of that message and say what changed", and the agent
+gets the instruction with its context already attached, without costing anyone a
+turn of conversation.
+
+The palette is **closed by your config**: there is no free-emoji input, because an
+undeclared emoji would have no text for an agent, no category and no meaningful
+place in the frequency-ordered *Recent* block.
+
+#### The config block
+
+Top-level `reactions`, next to `agents` / `groups` / `users` — it is shared by the
+panel and the agent plane, so it belongs to no channel. Copy this, keep the keys
+you want, and edit the texts: **`agentMessage` is what an agent actually reads.**
+
+```jsonc
+{
+  "reactions": {
+    // Picker blocks, in this order. `title` is the heading; absent ⇒ the name.
+    "categories": [
+      { "name": "feedback", "title": "Feedback" },
+      { "name": "work",     "title": "Rework" },
+      { "name": "process",  "title": "Process" },
+      { "name": "mood",     "title": "Mood" }
+    ],
+    "items": [
+      // --- plain acknowledgements: a notice, no answer expected ---------------
+      { "key": "ok", "emoji": "👍", "label": "Accepted", "category": "feedback",
+        "agentMessage": "The operator marked this message as accepted. This is a notice; no answer is needed." },
+      { "key": "thanks", "emoji": "🙏", "label": "Thanks", "category": "feedback",
+        "agentMessage": "The operator thanks you for this message. A notice; no answer is needed." },
+      { "key": "celebrate", "emoji": "🎉", "label": "Great", "category": "feedback",
+        "agentMessage": "The operator is happy with the result in this message. A notice; no answer is needed." },
+      { "key": "seen", "emoji": "👀", "label": "Looking", "category": "feedback",
+        "agentMessage": "The operator has seen this and is looking into it. Carry on; no answer is needed." },
+
+      // --- instructions: real work, so they ASK for an answer ----------------
+      // `expectsReply: true` makes the delivery an ordinary turn with a reply
+      // contract; without it the agent is told explicitly not to answer.
+      { "key": "redo", "emoji": "🔁", "label": "Redo", "category": "work", "expectsReply": true,
+        "agentMessage": "The result in this message is not good enough. Re-read the original requirement, find the weak spot and do it again. In your answer say what changed and why the previous attempt did not fit." },
+      { "key": "shorter", "emoji": "✂️", "label": "Shorter", "category": "work", "expectsReply": true,
+        "agentMessage": "Too long. Say the same thing three times shorter, without losing facts and without preamble." },
+      { "key": "details", "emoji": "🔍", "label": "More detail", "category": "work", "expectsReply": true,
+        "agentMessage": "I need the details of this message: what exactly was done, in which files, how it was verified, what is left." },
+      { "key": "verify", "emoji": "🧪", "label": "Verify", "category": "work", "expectsReply": true,
+        "agentMessage": "Check the claims in this message against facts — run the tests, read the logs and the files — and answer with the result of that check, not a restatement." },
+      { "key": "bug", "emoji": "🐛", "label": "Broken", "category": "work", "expectsReply": true,
+        "agentMessage": "What this message claims does not work. Reproduce it, find the cause, fix it, and answer with the analysis: cause, fix, evidence." },
+      { "key": "document", "emoji": "📝", "label": "Write it down", "category": "work", "expectsReply": true,
+        "agentMessage": "Record the content of this message in the project documentation following the repository's rules, and answer with where you put it." },
+      { "key": "question", "emoji": "❓", "label": "Unclear", "category": "work", "expectsReply": true,
+        "agentMessage": "The main point of this message is unclear. Explain it simply, step by step, without jargon." },
+
+      // --- process: instructions that need no receipt ------------------------
+      { "key": "urgent", "emoji": "⚡", "label": "Urgent", "category": "process",
+        "agentMessage": "This has become the priority: work on it before your other tasks. No receipt needed — a result is." },
+      { "key": "hold", "emoji": "⏸️", "label": "Hold", "category": "process",
+        "agentMessage": "Pause the work on this message until further notice. Do not start anything; no answer is needed." },
+      { "key": "closed", "emoji": "✅", "label": "Closed", "category": "process",
+        "agentMessage": "The question in this message is closed. No need to return to it; no answer is needed." },
+
+      // --- mood: no agentMessage at all ⇒ the coordinator's own short notice --
+      { "key": "fire", "emoji": "🔥", "label": "Fire", "category": "mood" },
+      { "key": "mindblown", "emoji": "🤯", "label": "Unexpected", "category": "mood" },
+      { "key": "smile", "emoji": "🙂", "label": "Smile", "category": "mood" },
+      { "key": "meh", "emoji": "😐", "label": "Meh", "category": "mood" }
+    ],
+    // Length of the frequency-ordered "Recent" block shown first; 0 hides it.
+    "picker": { "recentLimit": 12 }
+  }
+}
+```
+
+Field by field:
+
+| Field | Meaning |
+|---|---|
+| `key` | the reaction's identity — its own namespace, never an address; stored with every placement |
+| `emoji` | exactly **one** grapheme (`👍`, `👍🏽`, `❤️` are one; `👍👍` is rejected at startup) |
+| `label` | the picker tooltip and the popup heading; absent ⇒ the key |
+| `category` | must name a declared category; absent ⇒ the item lands in a last, unheaded block |
+| `agentMessage` | delivered to an agent **verbatim**, in whatever language you write it; absent ⇒ a short English notice from the coordinator |
+| `expectsReply` | `false` (default) — a notice that explicitly asks for no answer; `true` — an ordinary turn with a reply contract |
+| `picker.recentLimit` | how many keys the Recent block shows (default 12, `0` hides it) |
+
+Validation is fail-fast (§7.5): a duplicate key, an undeclared category, a
+two-glyph emoji or an unknown field aborts startup with the JSON pointer of the
+offending entry. **No `reactions` block at all ⇒ the feature is simply off** —
+no picker in the panel, and both MCP tools answer `REACTIONS_DISABLED`.
+
+#### What happens when a reaction is placed
+
+- **On an agent's message** — the agent receives exactly one signal
+  (`kind: "reaction"`, `replyTo` = the marked message) carrying your
+  `agentMessage`. With `expectsReply: false` the injected text ends with an
+  explicit *"no reply is expected"* and no reply path is named at all, so a
+  reaction cannot start a receipt ping-pong. With `expectsReply: true` the turn
+  gets the ordinary reply contract and the answer lands in the chat.
+- **On a person's message** — nothing is routed: the badge itself is the
+  notification, live in every open tab of that person.
+- **Repeats and self-reactions notify nobody**: the same key twice is a no-op, and
+  nobody pings themselves.
+- **A refused notification is reported, not lost.** If the agent is paused (§16)
+  or at its WIP cap (FR-104) the reaction is still placed and the badge popup says
+  why the agent was not notified.
+
+#### In the panel
+
+The badge shows the emoji and a **count only from 2 up**; your own reactions carry
+an accent ring. Clicking a badge opens **who reacted and when**, with *Remove my
+reaction* at the bottom — only your own, never someone else's (an admin included).
+The picker opens with **Recent** (ordered by how often the whole stand uses each
+key), then your categories in config order.
+
+Reactions live in 1:1 chats — with an agent or with a person, notes to self
+included. A group/tag broadcast feed has none (there is no single author to
+notify), and they never cross a federation link.
+
+#### For agents (MCP)
+
+Two tools join the agent plane (§8.6) for agents connected through the shim:
+
+```
+list_reactions()                                  → the declared palette
+react({ peer, messageId, key, remove? })          → mark one message of a HUMAN neighbour
+```
+
+`peer` is the person whose chat holds the message, `messageId` the id the agent
+already sees in its own delivery (`[muxeon] … id=<id>`) or in `get_history`. The
+gate is the topology edge alone — the same stance as `get_screen`: a reaction is a
+mark in a conversation the agent is already allowed to have. Reacting to another
+agent's message is `NOT_REACTABLE` (an agent keeps no panel chat log of its own).
+
+#### Where it is stored
+
+```
+<config_dir>/webchat/reactions/<user>/<peer>.jsonl   # append-only events, folded on read
+<config_dir>/webchat/reactions-usage.json            # global "Recent" counters
+```
+
+Beside the history, never inside it: the chat log stays a pure stream of message
+envelopes. Reactions are pruned together with the messages they annotate, and
+`POST /api/history/:peer/clear` drops both. The history export (FR-84) gains a
+`reactions` field and its document `version` is now `2`.
+
+### 8.1e The console writes into the chat too (§12.9.6, FR-170)
+
+Whatever you **type** into an agent's pane through the Console (§8.1c) is also
+recorded in that chat: one bubble per submitted line, marked *from the console*.
+It is a record, not a delivery — the keystrokes already reached the agent, so
+nothing is routed: no queue, no transport-journal line, no reply expected. The
+point is that a day later the chat still shows what you told the agent.
+
+The reconstruction is honest rather than clever: printable text, `Backspace` and
+`Shift/Alt-Enter` are followed exactly; **arrows, history recall (`↑`), `Ctrl-C`,
+`Ctrl-U`, `Ctrl-W` and `Tab` drop the line** — after the cursor has moved we cannot
+know what is left on it, and writing something false down would be worse than
+writing nothing. A dropped line is reported as a server warning, never silently.
+Lines over 16 KiB are dropped the same way: the console is a line of input, and
+long texts belong in the composer with its attachments.
+
 ### 8.2 Building the UI
 
 The SPA ships as a workspace package and is served automatically once built:

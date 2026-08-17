@@ -150,7 +150,7 @@ edge against the layering, a cycle, or an unauthorized consumer of
 | `routines` | MD+frontmatter routines: discovery (central + cwd), cron/once scheduler, crash-safe state. |
 | `channels` | Unified connector interface + telegram / slack / web. |
 | `federation` | Server-to-server links (§18): handshake + WS wire protocol, link client/listener, remote-actor registry, status publisher. Routing authority stays in `orchestrator`. |
-| `webchat` | Operator web panel surface: own port, auth gate, REST + WS, durable chat history, media via blobs. |
+| `webchat` | Operator web panel surface: own port, auth gate, REST + WS, durable chat history, media via blobs, message reactions (§19). |
 | `webchat-ui` | React SPA of the panel — build-time only (`bun run build` → `dist/`), served by `webchat`, outside the runtime graph. |
 | `server` | Composition root: both network planes, channel wiring, admin, CLI. |
 

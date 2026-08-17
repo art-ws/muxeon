@@ -2,7 +2,7 @@
 // tested); this layer is wiring and DOM. Agent text renders as TEXT ONLY —
 // React's default escaping is the §12.6 XSS stance, no HTML/markdown injection.
 
-import { useCallback, useEffect, useReducer, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
 import { AccountMenu } from "./AccountMenu";
 import { ChatView } from "./Chat";
 import { CommandFanout } from "./CommandFanout";
@@ -25,6 +25,7 @@ import { authMode, instanceName } from "./instance";
 import { agentColor } from "./palette";
 import { chatSurface, hasConsole } from "./peer-surface";
 import { loadPref, savePref } from "./prefs";
+import { type ReactionsApi, ReactionsContext } from "./reactions-context";
 import { type Route, parseRoute, routeHash } from "./route";
 import type { ServerInfo } from "./server-info";
 import { SESSION_CHECK_MS, renewDueAt } from "./session";
@@ -34,12 +35,14 @@ import {
   applyHistoryPage,
   applyOutgoing,
   applyPeers,
+  applyReactions,
   initialState,
+  reactionsOf,
   selectPeer,
   threadOf,
 } from "./store";
 import { type Theme, applyTheme, loadTheme } from "./theme";
-import { type ChatRecord, type PanelEvent, peerKind } from "./types";
+import { type ChatRecord, type PanelEvent, type ReactionView, peerKind } from "./types";
 import { loadVisibility, saveVisibility, visiblePeers } from "./visibility";
 
 type Action =
@@ -47,6 +50,7 @@ type Action =
   | { kind: "select"; peer: string | undefined }
   | { kind: "page"; peer: string; page: Parameters<typeof applyHistoryPage>[2] }
   | { kind: "outgoing"; record: ChatRecord }
+  | { kind: "reactions"; messageId: string; reactions: readonly ReactionView[] }
   | { kind: "event"; event: PanelEvent };
 
 // The panel is one operator (§12.1): anything that is not a listed peer is "us".
@@ -66,6 +70,8 @@ const makeReducer =
         return applyHistoryPage(state, action.peer, action.page);
       case "outgoing":
         return applyOutgoing(state, action.record, self());
+      case "reactions":
+        return applyReactions(state, action.messageId, action.reactions);
       case "event":
         return applyEvent(state, action.event, (name) => !isPeer(name), { self: self() });
       default:
@@ -512,124 +518,151 @@ function Panel(props: {
   // only behind an AGENT: a person (§17.7) has no terminal, so the
   // server would reject them — the composer must not offer them at all.
   const openHasConsole = hasConsole(openPeer);
+  // Reactions (§19, FR-161/FR-168): are they configured on this server at all?
+  // One probe at mount — a 409 (REACTIONS_DISABLED) means no catalog, so no bubble
+  // ever draws a trigger. The picker re-reads the catalog when it opens, because
+  // the Recent order moves as the stand reacts (§19.8).
+  const [reactionsEnabled, setReactionsEnabled] = useState(false);
+  useEffect(() => {
+    void api
+      .fetchReactionCatalog()
+      .then((catalog) => setReactionsEnabled(catalog.items.length > 0))
+      .catch(() => setReactionsEnabled(false));
+  }, []);
+  const reactionsApi = useMemo<ReactionsApi>(
+    () => ({
+      enabled: reactionsEnabled,
+      reactionsOf: (messageId) => reactionsOf(stateRef.current, messageId),
+      onChanged: (messageId, reactions) => dispatch({ kind: "reactions", messageId, reactions }),
+    }),
+    [reactionsEnabled],
+  );
   // Command-fanout modal (§15.8, FR-115): launched from a group/tag chat, seeded
   // with that target; closed automatically when the open chat changes.
   const [commandOpen, setCommandOpen] = useState(false);
   // biome-ignore lint/correctness/useExhaustiveDependencies: re-run to CLOSE the modal whenever the open chat changes (the body doesn't read openChat, it reacts to it)
   useEffect(() => setCommandOpen(false), [openChat]);
   return (
-    <div className="panel">
-      <PeerList
-        peers={visiblePeers(state.peers, visibility)}
-        selected={openChat}
-        onSelect={(peer) => navigate({ view: "chat", peer })}
-        transportSelected={route.view === "transport"}
-        /* The journal is an admin capability (§17.7, FR-131): a plain user gets no
+    <ReactionsContext.Provider value={reactionsApi}>
+      <div className="panel">
+        <PeerList
+          peers={visiblePeers(state.peers, visibility)}
+          selected={openChat}
+          onSelect={(peer) => navigate({ view: "chat", peer })}
+          transportSelected={route.view === "transport"}
+          /* The journal is an admin capability (§17.7, FR-131): a plain user gets no
            entry at all — the endpoint answers 403 for them anyway. */
-        {...(showTransport && role !== "user"
-          ? { onTransport: () => navigate({ view: "transport" }) }
-          : {})}
-        flat={props.flat}
-        collapsed={props.collapsed}
-      />
-      {route.view === "transport" ? (
-        <main className="chat-pane">
-          <TransportView
-            live={transportLive}
-            follow={props.follow}
-            query={props.query}
-            {...(route.from !== undefined ? { from: route.from } : {})}
-            {...(route.to !== undefined ? { to: route.to } : {})}
-            // FR-85: the selection PROJECTS into the URL and round-trips back via
-            // the route; replace() — filter toggles must not pile up in history
-            onFilters={(from, to) =>
-              location.replace(
-                routeHash({
-                  view: "transport",
-                  ...(from.length > 0 ? { from } : {}),
-                  ...(to.length > 0 ? { to } : {}),
-                }),
-              )
-            }
-          />
-        </main>
-      ) : route.view === "settings" ? (
-        <main className="chat-pane">
-          {/* the checklist gets the FULL list of AGENTS — hidden agents must stay
+          {...(showTransport && role !== "user"
+            ? { onTransport: () => navigate({ view: "transport" }) }
+            : {})}
+          flat={props.flat}
+          collapsed={props.collapsed}
+        />
+        {route.view === "transport" ? (
+          <main className="chat-pane">
+            <TransportView
+              live={transportLive}
+              follow={props.follow}
+              query={props.query}
+              {...(route.from !== undefined ? { from: route.from } : {})}
+              {...(route.to !== undefined ? { to: route.to } : {})}
+              // FR-85: the selection PROJECTS into the URL and round-trips back via
+              // the route; replace() — filter toggles must not pile up in history
+              onFilters={(from, to) =>
+                location.replace(
+                  routeHash({
+                    view: "transport",
+                    ...(from.length > 0 ? { from } : {}),
+                    ...(to.length > 0 ? { to } : {}),
+                  }),
+                )
+              }
+            />
+          </main>
+        ) : route.view === "settings" ? (
+          <main className="chat-pane">
+            {/* the checklist gets the FULL list of AGENTS — hidden agents must stay
               pickable; groups/tags (§15) are not per-agent visibility toggles */}
-          <SettingsView
-            follow={props.follow}
-            onFollow={props.onFollow}
-            theme={props.theme}
-            onTheme={props.onTheme}
-            lang={props.lang}
-            onLang={props.onLang}
-            transport={showTransport}
-            onTransport={setShowTransport}
-            flat={props.flat}
-            onFlat={props.onFlat}
-            showTokens={props.showTokens}
-            onShowTokens={props.onShowTokens}
-            peers={state.peers.filter(
-              // local agents only — a federated peer (§18.4) is not a visibility toggle
-              (peer) => peerKind(peer) === "agent" && peer.server === undefined,
-            )}
-            visibility={visibility}
-            onVisibility={setVisibility}
-            serverInfo={serverInfo}
-          />
-        </main>
-      ) : openChat !== undefined ? (
-        /* the agent's accent tints the whole pane (FR-73): a soft gradient
+            <SettingsView
+              follow={props.follow}
+              onFollow={props.onFollow}
+              theme={props.theme}
+              onTheme={props.onTheme}
+              lang={props.lang}
+              onLang={props.onLang}
+              transport={showTransport}
+              onTransport={setShowTransport}
+              flat={props.flat}
+              onFlat={props.onFlat}
+              showTokens={props.showTokens}
+              onShowTokens={props.onShowTokens}
+              peers={state.peers.filter(
+                // local agents only — a federated peer (§18.4) is not a visibility toggle
+                (peer) => peerKind(peer) === "agent" && peer.server === undefined,
+              )}
+              visibility={visibility}
+              onVisibility={setVisibility}
+              serverInfo={serverInfo}
+            />
+          </main>
+        ) : openChat !== undefined ? (
+          /* the agent's accent tints the whole pane (FR-73): a soft gradient
            normally, an animated one while the agent is thinking (busy) */
-        <main
-          className={`chat-pane tinted${openPeer?.status === "busy" ? " thinking" : ""}`}
-          style={{ "--agent-color": agentColor(openChat, openPeer?.color) } as React.CSSProperties}
-        >
-          <ChatView
-            peer={openPeer}
-            thread={threadOf(state, openChat)}
-            phases={state.phases}
-            isPeer={(name) => peerSet.current.has(name)}
-            self={self}
-            onLoadOlder={() => loadOlder(openChat)}
-            follow={props.follow}
-            showTokens={props.showTokens}
-            query={props.query}
-            anchor={route.view === "chat" ? route.message : undefined}
-          />
-          {openIsBroadcast && (
-            /* a group/tag can't receive a one-directional broadcast COMMAND on the
+          <main
+            className={`chat-pane tinted${openPeer?.status === "busy" ? " thinking" : ""}`}
+            style={
+              { "--agent-color": agentColor(openChat, openPeer?.color) } as React.CSSProperties
+            }
+          >
+            <ChatView
+              peer={openPeer}
+              thread={threadOf(state, openChat)}
+              phases={state.phases}
+              isPeer={(name) => peerSet.current.has(name)}
+              self={self}
+              onLoadOlder={() => loadOlder(openChat)}
+              follow={props.follow}
+              showTokens={props.showTokens}
+              query={props.query}
+              anchor={route.view === "chat" ? route.message : undefined}
+            />
+            {openIsBroadcast && (
+              /* a group/tag can't receive a one-directional broadcast COMMAND on the
                message path — the slash-command fan-out (§15.8, FR-115) runs it on
                the INTERSECTION of the target + any extra selectors, per-agent */
-            <div className="broadcast-actions">
-              <button type="button" className="cmdfan-launch" onClick={() => setCommandOpen(true)}>
-                {t("⌘ Slash command")}
-              </button>
-            </div>
-          )}
-          <Composer
-            key={openChat}
-            peer={openChat}
-            onSend={(draft) => send(openChat, draft)}
-            commands={openHasConsole ? (openPeer?.commands ?? []) : []}
-            onCommand={(slash) => api.runAgentCommand(openChat, slash)}
-            /* the pause note (§16.6, FR-120); a group/tag is never paused (§16.1) */
-            paused={openIsBroadcast ? false : openPeer?.paused === true}
-            /* …but for a person the same flag is their do-not-disturb (§17.8) */
-            dnd={chatSurface(openPeer) === "person"}
-          />
-          {commandOpen && (
-            <CommandFanout
-              peers={state.peers}
-              initialSelector={openChat}
-              onClose={() => setCommandOpen(false)}
+              <div className="broadcast-actions">
+                <button
+                  type="button"
+                  className="cmdfan-launch"
+                  onClick={() => setCommandOpen(true)}
+                >
+                  {t("⌘ Slash command")}
+                </button>
+              </div>
+            )}
+            <Composer
+              key={openChat}
+              peer={openChat}
+              onSend={(draft) => send(openChat, draft)}
+              commands={openHasConsole ? (openPeer?.commands ?? []) : []}
+              onCommand={(slash) => api.runAgentCommand(openChat, slash)}
+              /* the pause note (§16.6, FR-120); a group/tag is never paused (§16.1) */
+              paused={openIsBroadcast ? false : openPeer?.paused === true}
+              /* …but for a person the same flag is their do-not-disturb (§17.8) */
+              dnd={chatSurface(openPeer) === "person"}
             />
-          )}
-        </main>
-      ) : (
-        <main className="chat-pane empty">{t("Select an agent to start chatting")}</main>
-      )}
-    </div>
+            {commandOpen && (
+              <CommandFanout
+                peers={state.peers}
+                initialSelector={openChat}
+                onClose={() => setCommandOpen(false)}
+              />
+            )}
+          </main>
+        ) : (
+          <main className="chat-pane empty">{t("Select an agent to start chatting")}</main>
+        )}
+      </div>
+    </ReactionsContext.Provider>
   );
 }

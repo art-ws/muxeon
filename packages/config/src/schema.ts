@@ -448,6 +448,51 @@ export function userRole(user: UserConfig): UserRole {
   return user.role ?? "user";
 }
 
+/** One picker block of the reaction catalog (§19.2, FR-161). Closed shape. */
+export interface ReactionCategoryConfig {
+  readonly name: string;
+  /** Block heading in the picker; absent ⇒ the panel prints `name`. */
+  readonly title?: string;
+}
+
+/**
+ * One declared reaction (§19.2, FR-161). `key` is the identity (its own namespace
+ * — a key is never an address, §19.3); `emoji` is the presentation; `agentMessage`
+ * is what an agent whose message was reacted to actually receives, verbatim, and
+ * may be a full instruction rather than an emotion (§19.1). `expectsReply` is the
+ * ONE switch between a notice and a real turn (§19.6).
+ */
+export interface ReactionItemConfig {
+  readonly key: string;
+  readonly emoji: string;
+  readonly label?: string;
+  readonly category?: string;
+  readonly agentMessage?: string;
+  readonly expectsReply?: boolean;
+}
+
+/** Picker presentation knobs (§19.2/§19.8, FR-166). */
+export interface ReactionPickerConfig {
+  /** Length of the frequency-ordered "Recent" block; 0 hides it. Default 12. */
+  readonly recentLimit?: number;
+}
+
+/**
+ * The reaction catalog (§19.2, FR-161) — a TOP-LEVEL block like `groups`: it is
+ * shared by the panel and the agent plane and belongs to no channel. Absent ⇒
+ * reactions are off everywhere (no picker, surfaces answer REACTIONS_DISABLED).
+ * The palette is CLOSED by this catalog on purpose: an emoji nobody declared has
+ * no text for an agent, no category and no meaningful place in Recent (§19.1).
+ */
+export interface ReactionsConfig {
+  readonly categories?: readonly ReactionCategoryConfig[];
+  readonly items: readonly ReactionItemConfig[];
+  readonly picker?: ReactionPickerConfig;
+}
+
+/** Default length of the Recent block (§19.8, FR-166). */
+export const REACTIONS_DEFAULT_RECENT_LIMIT = 12;
+
 export type TopologyMap = Readonly<Record<string, readonly string[]>>;
 
 export interface MuxeonConfig {
@@ -474,6 +519,12 @@ export interface MuxeonConfig {
    * input-only topology nodes — addressable `to`, never a queue/session/status.
    */
   readonly groups?: readonly GroupConfig[];
+  /**
+   * Message reactions (§19.2, FR-161): the declared palette — categories, keys,
+   * emoji, the text each reaction delivers to an agent. Absent ⇒ reactions are off
+   * (every existing config behaves exactly as before).
+   */
+  readonly reactions?: ReactionsConfig;
   /** Per-agent-type defaults keyed by adapter type (§7.1, FR-64). */
   readonly types?: Readonly<Record<string, AgentTypeConfig>>;
   /**
@@ -1159,6 +1210,113 @@ function validateGroups(value: unknown, path: string): GroupConfig[] {
   });
 }
 
+// reactions: { categories?, items, picker? } — closed shapes (§19.2/§19.3, FR-161).
+// Shape and WITHIN-block uniqueness live here; the category reference closure is a
+// §7.5 rule (validate.ts), like every other reference in the config.
+const REACTION_ITEM_FIELDS = ["key", "emoji", "label", "category", "agentMessage", "expectsReply"];
+
+function validateReactions(value: unknown, path: string): ReactionsConfig {
+  const obj = requireObject(value, path);
+  for (const key of Object.keys(obj)) {
+    if (key !== "categories" && key !== "items" && key !== "picker") {
+      throw new ConfigError(`unknown reactions field "${key}"`, { path: joinPointer(path, key) });
+    }
+  }
+  const categoriesPath = joinPointer(path, "categories");
+  const seenCategories = new Set<string>();
+  const categories = (
+    obj.categories === undefined ? [] : requireArray(obj.categories, categoriesPath)
+  ).map((entry, i) => {
+    const entryPath = joinPointer(categoriesPath, String(i));
+    const record = requireObject(entry, entryPath);
+    for (const key of Object.keys(record)) {
+      if (key !== "name" && key !== "title") {
+        throw new ConfigError(`unknown reaction category field "${key}"`, {
+          path: joinPointer(entryPath, key),
+        });
+      }
+    }
+    const name = requireNonEmptyString(record.name, joinPointer(entryPath, "name"));
+    if (seenCategories.has(name)) {
+      throw new ConfigError(`duplicate reaction category "${name}"`, {
+        path: joinPointer(entryPath, "name"),
+      });
+    }
+    seenCategories.add(name);
+    const title = optionalField(record, "title", entryPath, requireNonEmptyString);
+    return { name, ...(title !== undefined ? { title } : {}) };
+  });
+
+  const itemsPath = joinPointer(path, "items");
+  const seenKeys = new Set<string>();
+  const items = requireArray(obj.items, itemsPath).map((entry, i) => {
+    const entryPath = joinPointer(itemsPath, String(i));
+    const record = requireObject(entry, entryPath);
+    for (const key of Object.keys(record)) {
+      if (!REACTION_ITEM_FIELDS.includes(key)) {
+        throw new ConfigError(`unknown reaction field "${key}"`, {
+          path: joinPointer(entryPath, key),
+        });
+      }
+    }
+    const key = requireNonEmptyString(record.key, joinPointer(entryPath, "key"));
+    if (seenKeys.has(key)) {
+      throw new ConfigError(`duplicate reaction key "${key}"`, {
+        path: joinPointer(entryPath, "key"),
+      });
+    }
+    seenKeys.add(key);
+    const emoji = requireNonEmptyString(record.emoji, joinPointer(entryPath, "emoji"));
+    if (graphemeCount(emoji) !== 1) {
+      // One badge is one glyph (§19.3): "👍🏽" and "❤️" are single graphemes, "👍👍"
+      // is two and would break both the badge and the picker grid.
+      throw new ConfigError(`reaction "${key}" emoji must be exactly one grapheme`, {
+        path: joinPointer(entryPath, "emoji"),
+      });
+    }
+    const label = optionalField(record, "label", entryPath, requireNonEmptyString);
+    const category = optionalField(record, "category", entryPath, requireNonEmptyString);
+    const agentMessage = optionalField(record, "agentMessage", entryPath, requireNonEmptyString);
+    const expectsReply = optionalField(record, "expectsReply", entryPath, requireBoolean);
+    return {
+      key,
+      emoji,
+      ...(label !== undefined ? { label } : {}),
+      ...(category !== undefined ? { category } : {}),
+      ...(agentMessage !== undefined ? { agentMessage } : {}),
+      ...(expectsReply !== undefined ? { expectsReply } : {}),
+    };
+  });
+
+  const pickerPath = joinPointer(path, "picker");
+  let picker: ReactionPickerConfig | undefined;
+  if (obj.picker !== undefined) {
+    const record = requireObject(obj.picker, pickerPath);
+    for (const key of Object.keys(record)) {
+      if (key !== "recentLimit") {
+        throw new ConfigError(`unknown reaction picker field "${key}"`, {
+          path: joinPointer(pickerPath, key),
+        });
+      }
+    }
+    const recentLimit = optionalField(record, "recentLimit", pickerPath, requireNonNegativeInt);
+    picker = { ...(recentLimit !== undefined ? { recentLimit } : {}) };
+  }
+
+  return {
+    ...(categories.length > 0 ? { categories } : {}),
+    items,
+    ...(picker !== undefined ? { picker } : {}),
+  };
+}
+
+/** Grapheme clusters, not code units (§19.3) — Segmenter where the runtime has it. */
+function graphemeCount(text: string): number {
+  const Segmenter = (Intl as { Segmenter?: typeof Intl.Segmenter }).Segmenter;
+  if (Segmenter === undefined) return [...text].length; // conservative fallback
+  return [...new Segmenter(undefined, { granularity: "grapheme" }).segment(text)].length;
+}
+
 function validateTopology(value: unknown, path: string): Record<string, string[]> {
   const obj = requireObject(value, path);
   const out: Record<string, string[]> = {};
@@ -1389,6 +1547,8 @@ export function validateStructure(value: unknown): MuxeonConfig {
       ? undefined
       : validateSessionGrants(root.sessionGrants, "/sessionGrants");
   const groups = root.groups === undefined ? undefined : validateGroups(root.groups, "/groups");
+  const reactions =
+    root.reactions === undefined ? undefined : validateReactions(root.reactions, "/reactions");
   const users = root.users === undefined ? undefined : validateUsers(root.users, "/users");
   const imports =
     root.imports === undefined ? undefined : validateImports(root.imports, "/imports");
@@ -1405,6 +1565,7 @@ export function validateStructure(value: unknown): MuxeonConfig {
     ...(commandGrants !== undefined ? { commandGrants } : {}),
     ...(sessionGrants !== undefined ? { sessionGrants } : {}),
     ...(groups !== undefined ? { groups } : {}),
+    ...(reactions !== undefined ? { reactions } : {}),
     ...(imports !== undefined ? { imports } : {}),
     ...(federation !== undefined ? { federation } : {}),
   };

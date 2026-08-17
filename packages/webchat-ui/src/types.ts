@@ -104,9 +104,58 @@ export interface PeerInfo {
   readonly paused?: boolean;
 }
 
+/** Who placed one reaction, and when (§19.9) — the badge popup's list. */
+export interface ReactionActor {
+  readonly name: string;
+  readonly ts: number;
+}
+
+/** The folded state of one reaction key on one message (§19.5, FR-162). */
+export interface ReactionView {
+  readonly key: string;
+  readonly emoji: string;
+  readonly count: number;
+  readonly actors: readonly ReactionActor[];
+  /** Placed by the logged-in viewer — the accent ring and the remove item (§19.9). */
+  readonly mine: boolean;
+}
+
+/** One declared reaction of the catalog (§19.2, FR-161) — the picker's element. */
+export interface ReactionItem {
+  readonly key: string;
+  readonly emoji: string;
+  readonly label?: string;
+  readonly category?: string;
+}
+
+/** One picker block (§19.2). */
+export interface ReactionCategory {
+  readonly name: string;
+  readonly title?: string;
+}
+
+/** GET /api/reactions (§19.5): the closed palette plus the Recent order (§19.8). */
+export interface ReactionCatalog {
+  readonly categories: readonly ReactionCategory[];
+  readonly items: readonly ReactionItem[];
+  /** Keys ordered by global usage frequency — the block shown FIRST (FR-166). */
+  readonly recent: readonly string[];
+}
+
+/** What became of the notification to an agent (§19.6) — shown in the badge popup. */
+export interface ReactionNotify {
+  readonly delivered: boolean;
+  readonly code?: string;
+}
+
 export interface HistoryPage {
   readonly records: readonly ChatRecord[];
   readonly nextBefore?: string;
+  /**
+   * Reactions of the records on this page (§19.5), keyed by message id — BESIDE the
+   * records, never inside them: an envelope stays verbatim wherever it is served.
+   */
+  readonly reactions?: Readonly<Record<string, readonly ReactionView[]>>;
 }
 
 /** One token histogram column: bucket-start unix ms + the slot's max gauge (§12.8). */
@@ -142,6 +191,13 @@ export type PanelEvent =
   | { readonly type: "transport"; readonly record: ChatRecord }
   | { readonly type: "ack"; readonly id: string; readonly to: string }
   | { readonly type: "history-cleared"; readonly peer: string }
+  | {
+      /** A message's reactions changed (§19.5, FR-162): the folded state, not a delta. */
+      readonly type: "reaction";
+      readonly peer: string;
+      readonly messageId: string;
+      readonly reactions: readonly ReactionView[];
+    }
   | {
       readonly type: "status";
       readonly peer: string;

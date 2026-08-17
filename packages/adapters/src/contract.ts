@@ -5,6 +5,7 @@
 
 import { join } from "node:path";
 import type { Session, Signal } from "@muxeon/core";
+import { isNotificationOnly } from "@muxeon/core";
 
 // Detection (§5.2, FR-11/FR-11b): readyPrompt is ALWAYS declared — output (front)
 // detection needs zero agent cooperation, and Muxeon never touches agent
@@ -177,6 +178,21 @@ export function renderMcpExchangeHint(
 }
 
 /**
+ * The notice render (§19.6, FR-164): attribution, the reaction text as the operator
+ * wrote it, and one closing clause. The clause distinguishes ACTING from ANSWERING —
+ * an operator's reaction text may well be an instruction ("this is urgent now"), and
+ * suppressing the receipt is exactly what keeps a reaction from starting an ack
+ * ping-pong (§8.2). English by the same rule as every protocol surface (§13.2/T76).
+ */
+export function renderNotice(message: Signal, blobsDir?: string): string {
+  return [
+    renderAttribution(message),
+    renderPayload(message.payload, blobsDir),
+    "[notification — no reply is expected: act on the text above if it asks for something, but do NOT answer this message]",
+  ].join("\n");
+}
+
+/**
  * Builds the default render. With an exchange context (§13.2): attribution +
  * inlined payload text (when short — the hybrid rule) + attachment lines + the
  * file-contract instruction LAST. Without one (legacy/no-exchange): attribution +
@@ -190,6 +206,11 @@ export function makeDefaultRender(
 ): (message: Signal, ctx?: RenderContext) => string {
   const inlineMax = options.inlineMaxChars ?? DEFAULT_INLINE_MAX_CHARS;
   return (message, ctx) => {
+    // A notification-only reaction (§19.6, FR-164) is the one turn that names NO
+    // reply path at all — not even to forbid one (T267): naming a path is asking for
+    // an answer, and this turn is a notice. The exchange skips materialization for
+    // the same signal, so there is no folder to mention either.
+    if (isNotificationOnly(message)) return renderNotice(message, options.blobsDir);
     if (ctx?.messageFile === undefined) {
       // Legacy shape: no exchange materialized for this turn.
       return `${renderAttribution(message)}\n${renderPayload(message.payload, options.blobsDir)}\n${renderReplyHint(message)}`;

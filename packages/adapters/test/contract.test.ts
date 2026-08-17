@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import type { Message } from "@muxeon/core";
+import type { Message, Signal } from "@muxeon/core";
 import { defaultRender, makeDefaultRender, renderAttribution, renderRaw } from "../src/contract";
 
 function msg(overrides: Partial<Message> = {}): Message {
@@ -243,5 +243,64 @@ describe("blob attachment rendering (T48, FR-43, §12.5)", () => {
     expect(render(msg({ payload: "just text" }))).toBe(
       defaultRender(msg({ payload: "just text" })),
     );
+  });
+});
+
+// A reaction notice (§19.6, FR-164) is the ONE turn that names no reply path at
+// all — not even to forbid one (T267): naming a path is asking for an answer, and
+// this turn is a notice. `expectsReply: true` is the operator's explicit opt-in and
+// puts the turn back on the ordinary contract rails (§10.29: exactly one path).
+describe("reaction notices (§19.6, FR-164)", () => {
+  const reaction = (overrides: Partial<Signal> = {}): Signal => ({
+    ...msg(),
+    kind: "reaction",
+    replyTo: "orig-1",
+    origin: "reaction:ok",
+    payload: "[muxeon reaction] 👍 Accepted from shagin on your message orig-1\nAccepted.",
+    ...overrides,
+  });
+
+  test("the notice render: attribution, the operator's text, and 'no reply expected'", () => {
+    const render = makeDefaultRender();
+    const text = render(reaction());
+    expect(text).toContain("[muxeon] from=researcher id=abc-123 replyTo=orig-1");
+    expect(text).toContain("👍 Accepted from shagin");
+    expect(text).toContain("no reply is expected");
+    // Not one reply path is named — neither the file contract nor the compact one.
+    expect(text).not.toContain("reply.md");
+    expect(text).not.toContain("message.json");
+    expect(text).not.toContain("send(");
+  });
+
+  test("the notice shape holds even WITH an exchange context (nothing to answer in)", () => {
+    const render = makeDefaultRender();
+    const text = render(reaction(), { messageFile: "/x/inbox/abc/message.json" });
+    expect(text).not.toContain("/x/inbox/abc/message.json");
+    expect(text).toContain("no reply is expected");
+  });
+
+  test("expectsReply:true renders the ORDINARY file contract instead", () => {
+    const render = makeDefaultRender();
+    const text = render(reaction({ expectsReply: true }), {
+      messageFile: "/x/inbox/abc/message.json",
+    });
+    expect(text).toContain("reply contract:");
+    expect(text).toContain("/x/inbox/abc/message.json");
+    expect(text).not.toContain("no reply is expected");
+  });
+
+  test("expectsReply:true with the compact form names `send` and only `send`", () => {
+    const render = makeDefaultRender();
+    const text = render(reaction({ expectsReply: true }), {
+      messageFile: "/x/inbox/abc/message.json",
+      replyVia: "mcp",
+    });
+    expect(text).toContain('send(to="researcher", replyTo="abc-123")');
+    expect(text).not.toContain("reply.md");
+  });
+
+  test("a plain message is untouched by the reaction branch (baseline regression)", () => {
+    const render = makeDefaultRender();
+    expect(render(msg())).not.toContain("no reply is expected");
   });
 });

@@ -10,7 +10,11 @@ import { LOOPBACK_DIRECT, connectClient } from "./mcp-helpers";
 // command pair (FR-94/FR-95, a peer's slash commands) and the session pair
 // (FR-96/FR-97, a peer's session lifecycle). Both bridges fire ONLY through their
 // ACL (commandGrants / sessionGrants) + a topology edge — not an UNGATED operator
-// capability.
+// capability. Since §19.7 (FR-167) the reaction pair joins them: `list_reactions`
+// reads the declared palette and `react` marks a message in a chat the caller is
+// ALREADY part of — gated by the edge alone, because it is not a new power over
+// someone else's session (the get_screen stance, FR-147), and it opens no operator
+// capability either.
 const TOOLS = [
   "control_session",
   "get_history",
@@ -19,6 +23,8 @@ const TOOLS = [
   "list_commands",
   "list_controls",
   "list_peers",
+  "list_reactions",
+  "react",
   "send",
   "send_command",
   "whoami",

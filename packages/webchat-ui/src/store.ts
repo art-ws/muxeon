@@ -1,7 +1,7 @@
 // Pure panel state + reducer (§12.7) — all chat/dynamics logic lives here,
 // DOM-free, so `bun test` covers it without a browser. Components stay thin.
 
-import type { ChatRecord, MessagePhase, PanelEvent, PeerInfo } from "./types";
+import type { ChatRecord, MessagePhase, PanelEvent, PeerInfo, ReactionView } from "./types";
 
 export interface ChatThread {
   /** Chronological records (oldest → newest), §12.3 order. */
@@ -18,14 +18,44 @@ export interface PanelState {
   readonly threads: Readonly<Record<string, ChatThread>>;
   /** Lifecycle of outgoing messages (§12.7): id → phase. */
   readonly phases: Readonly<Record<string, MessagePhase>>;
+  /**
+   * Reactions by MESSAGE id (§19.5, FR-162) — one flat map, not a per-thread one:
+   * message ids are unique across pairs, and the self-chat shows the very same
+   * record as its pair thread does (§17.7), so one entry serves both views.
+   */
+  readonly reactions: Readonly<Record<string, readonly ReactionView[]>>;
 }
 
-export const initialState: PanelState = { peers: [], threads: {}, phases: {} };
+export const initialState: PanelState = { peers: [], threads: {}, phases: {}, reactions: {} };
 
 const EMPTY_THREAD: ChatThread = { records: [], loaded: false };
 
 export const threadOf = (state: PanelState, peer: string): ChatThread =>
   state.threads[peer] ?? EMPTY_THREAD;
+
+const NO_REACTIONS: readonly ReactionView[] = [];
+
+/** A message's reactions (§19.5) — empty when it has none. */
+export const reactionsOf = (state: PanelState, messageId: string): readonly ReactionView[] =>
+  state.reactions[messageId] ?? NO_REACTIONS;
+
+/**
+ * Fold one message's new state in (§19.5): the server always sends the WHOLE
+ * folded list, so this replaces rather than merges — and an empty list DROPS the
+ * entry instead of keeping an empty array around.
+ */
+export function applyReactions(
+  state: PanelState,
+  messageId: string,
+  reactions: readonly ReactionView[],
+): PanelState {
+  if (reactions.length === 0) {
+    if (state.reactions[messageId] === undefined) return state;
+    const { [messageId]: _gone, ...rest } = state.reactions;
+    return { ...state, reactions: rest };
+  }
+  return { ...state, reactions: { ...state.reactions, [messageId]: reactions } };
+}
 
 /**
  * The chat partner of a record from the operator's point of view. `self` — the
@@ -58,16 +88,24 @@ function appendRecord(thread: ChatThread, record: ChatRecord): ChatThread {
 export function applyHistoryPage(
   state: PanelState,
   peer: string,
-  page: { records: readonly ChatRecord[]; nextBefore?: string },
+  page: {
+    records: readonly ChatRecord[];
+    nextBefore?: string;
+    reactions?: Readonly<Record<string, readonly ReactionView[]>>;
+  },
 ): PanelState {
   const thread = threadOf(state, peer);
   const known = new Set(thread.records.map((record) => record.id));
   const fresh = page.records.filter((record) => !known.has(record.id));
-  return withThread(state, peer, {
+  const next = withThread(state, peer, {
     records: [...fresh, ...thread.records],
     loaded: true,
     ...(page.nextBefore !== undefined ? { nextBefore: page.nextBefore } : {}),
   });
+  // The page carries the reactions of ITS records (§19.5); ids outside it keep
+  // whatever they had (an older page never invalidates a newer badge).
+  if (page.reactions === undefined) return next;
+  return { ...next, reactions: { ...next.reactions, ...page.reactions } };
 }
 
 export function applyPeers(
@@ -159,13 +197,22 @@ export function applyEvent(
     }
     case "ack":
       return { ...state, phases: { ...state.phases, [event.id]: "queued" } };
+    case "reaction":
+      // Live badge update (§19.5): every tab of this user, including the one that
+      // placed it — one mechanism, no local guesswork (the FR-84 clear-push rule).
+      return applyReactions(state, event.messageId, event.reactions);
     case "history-cleared": {
       // FR-84: the server dropped the pair's log — empty the thread in EVERY
       // tab (the clearing one included; it relies on this same push) and zero
       // the badge: nothing is left to be unread.
+      const cleared = threadOf(state, event.peer).records;
       const next = withThread(state, event.peer, { records: [], loaded: true });
+      // The sidecar went with the log (§19.4) — drop the badges of those records too.
+      const reactions = { ...next.reactions };
+      for (const record of cleared) delete reactions[record.id];
       return {
         ...next,
+        reactions,
         peers: next.peers.map((info) => (info.name === event.peer ? { ...info, unread: 0 } : info)),
       };
     }

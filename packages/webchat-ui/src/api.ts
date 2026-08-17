@@ -3,7 +3,16 @@
 // the client never sees the token, fetch just carries it.
 
 import type { ServerInfo } from "./server-info";
-import type { BlobMeta, HistoryPage, PanelEvent, PeerInfo, TokenSeries } from "./types";
+import type {
+  BlobMeta,
+  HistoryPage,
+  PanelEvent,
+  PeerInfo,
+  ReactionCatalog,
+  ReactionNotify,
+  ReactionView,
+  TokenSeries,
+} from "./types";
 
 /** Client-generated message id — the §10.9 idempotency key for send retries. */
 export const newMessageId = (): string => crypto.randomUUID();
@@ -120,6 +129,48 @@ export async function uploadBlob(file: File): Promise<BlobMeta> {
 }
 
 export const blobUrl = (id: string): string => `api/blobs/${encodeURIComponent(id)}`;
+
+/**
+ * The reaction catalog + Recent order (§19.5, FR-161/FR-166). Read when the picker
+ * OPENS: the frequency order is global and changes as people react, and there is no
+ * push for it on purpose — a Recent block reshuffling under the cursor is a nuisance
+ * (§19.8). A 409 (no catalog configured) throws {@link ApiError} with
+ * REACTIONS_DISABLED, and the caller simply renders no picker.
+ */
+export async function fetchReactionCatalog(): Promise<ReactionCatalog> {
+  return jsonOrThrow<ReactionCatalog>(await fetch("api/reactions"));
+}
+
+const reactionPath = (peer: string, messageId: string): string =>
+  `api/history/${encodeURIComponent(peer)}/messages/${encodeURIComponent(messageId)}/reactions`;
+
+/** Place one reaction (§19.5, FR-162) — resolves to the message's folded state. */
+export async function placeReaction(
+  peer: string,
+  messageId: string,
+  key: string,
+): Promise<{ reactions: readonly ReactionView[]; notify?: ReactionNotify }> {
+  return jsonOrThrow<{ reactions: readonly ReactionView[]; notify?: ReactionNotify }>(
+    await fetch(reactionPath(peer, messageId), {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ key }),
+    }),
+  );
+}
+
+/** Remove MY OWN reaction (§19.5) — someone else's is not addressable here. */
+export async function removeReaction(
+  peer: string,
+  messageId: string,
+  key: string,
+): Promise<{ reactions: readonly ReactionView[] }> {
+  return jsonOrThrow<{ reactions: readonly ReactionView[] }>(
+    await fetch(`${reactionPath(peer, messageId)}/${encodeURIComponent(key)}`, {
+      method: "DELETE",
+    }),
+  );
+}
 
 /** The server-wide transport log page (FR-48, §12.4) — read-only. */
 export async function fetchTransport(before?: string): Promise<HistoryPage> {

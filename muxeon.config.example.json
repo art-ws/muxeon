@@ -38,6 +38,40 @@
 
   "groups": [{ "name": "workers" }],
 
+  "reactions": {
+    "categories": [
+      { "name": "feedback", "title": "Feedback" },
+      { "name": "work", "title": "Rework" }
+    ],
+    "items": [
+      {
+        "key": "ok",
+        "emoji": "👍",
+        "label": "Accepted",
+        "category": "feedback",
+        "agentMessage": "The operator marked this message as accepted. This is a notice; no answer is needed."
+      },
+      {
+        "key": "redo",
+        "emoji": "🔁",
+        "label": "Redo",
+        "category": "work",
+        "expectsReply": true,
+        "agentMessage": "The result in this message is not good enough. Re-read the requirement, find the weak spot and do it again; answer with what changed."
+      },
+      {
+        "key": "verify",
+        "emoji": "🧪",
+        "label": "Verify",
+        "category": "work",
+        "expectsReply": true,
+        "agentMessage": "Check the claims in this message against facts (tests, logs, files) and answer with the result of that check."
+      },
+      { "key": "fire", "emoji": "🔥", "label": "Fire" }
+    ],
+    "picker": { "recentLimit": 12 }
+  },
+
   "users": [
     {
       "name": "operator",

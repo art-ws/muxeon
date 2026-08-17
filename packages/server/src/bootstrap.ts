@@ -25,6 +25,7 @@ import {
   DEFAULT_RENDEZVOUS_SWEEP_MS,
   type EnvSource,
   type MuxeonConfig,
+  REACTIONS_DEFAULT_RECENT_LIMIT,
   type TeardownConfig,
   type UserConfig,
   channelName,
@@ -42,6 +43,7 @@ import {
   type SessionAction,
   SessionGrants,
   Topology,
+  isNotificationOnly,
 } from "@muxeon/core";
 import {
   type Reviver,
@@ -96,7 +98,17 @@ import {
   waitForSessionDown,
 } from "@muxeon/orchestrator";
 import { type SchedulerHandle, createFsStateStore, startScheduler } from "@muxeon/routines";
-import { WebchatConnector, type WebchatLifecycle, type WebchatPorts } from "@muxeon/webchat";
+import {
+  type HistoryStore,
+  type ReactionCatalog,
+  type ReactionOwner,
+  ReactionStore,
+  ReactionUsage,
+  ReactionsHub,
+  WebchatConnector,
+  type WebchatLifecycle,
+  type WebchatPorts,
+} from "@muxeon/webchat";
 import { createBlobsAdmin } from "./admin/blobs";
 import { createChannelsAdmin } from "./admin/channels";
 import {
@@ -115,6 +127,7 @@ import { routeExchangeReply } from "./exchange-reply";
 import {
   type AgentPlaneCore,
   type AgentPlaneHandle,
+  type ReactionPlane,
   createAgentPlaneCore,
   createAgentServer,
 } from "./mcp";
@@ -619,6 +632,11 @@ export async function bootstrap(options: BootstrapOptions = {}): Promise<MuxeonS
           // Raw mode (FR-88): no inbox projection — the dispatcher renders
           // verbatim and skips file-detect (null ⇒ no message.json this turn).
           if (message.raw === true) return Promise.resolve(null);
+          // A notification-only reaction (§19.6, FR-164): nothing to answer, so
+          // there is no folder to answer in — and the render names no reply path
+          // either (§10.29/T267). The operator's opt-in (`expectsReply`) turns the
+          // very same kind back into an ordinary turn with a contract.
+          if (isNotificationOnly(message)) return Promise.resolve(null);
           return exchange.materialize(message);
         },
         awaitDone: (message, signal) => exchange.awaitDone(message, signal),
@@ -717,6 +735,10 @@ export async function bootstrap(options: BootstrapOptions = {}): Promise<MuxeonS
   let federationHandle: FederationHandle | undefined;
   let scheduler: SchedulerHandle | undefined;
   let retention: RetentionHandle | undefined;
+  // Reactions (§19): built with the channels in step 8b, read by the MCP closures
+  // above (lazily, like the federation handle) and flushed on shutdown (§19.8).
+  let reactionsHub: ReactionsHub | undefined;
+  let reactionUsage: ReactionUsage | undefined;
   try {
     // 7. agent-plane core (§8.1): MCP, identity-bound (§8.6). Gated by server.mcp;
     //    mcp:false → no /mcp mount, only operator-plane/channels. No listener yet —
@@ -808,6 +830,13 @@ export async function bootstrap(options: BootstrapOptions = {}): Promise<MuxeonS
                   if (closed) mcpClosedTurn.set(callerName, replyTo);
                   return closed;
                 },
+                // Reactions (§19.7, FR-167): the SAME hub the panel goes through, so a
+                // badge placed by an agent and one placed by a human are one event with
+                // one set of rules (idempotency, mirroring, notification). Read lazily —
+                // the hub is assembled with the channels, below.
+                ...(reactionsHub !== undefined
+                  ? { reactions: agentReactionPlane(reactionsHub) }
+                  : {}),
               }),
             // Takeover (FR-44b) is normal after an agent restart but also the trace
             // of a duplicate-name misconfiguration — always surfaced.
@@ -1122,11 +1151,77 @@ export async function bootstrap(options: BootstrapOptions = {}): Promise<MuxeonS
       };
     };
 
+    // 8b. reactions (§19, FR-161…FR-168): the catalog, the per-owner sidecars, the
+    //     global frequency counters and the ONE hub both the panel surface and the
+    //     agent-plane `react` tool go through. Built here, before the channels, so
+    //     the connector can register its socket push into it (§19.6).
+    const reactionCatalog: ReactionCatalog | undefined =
+      config.reactions === undefined
+        ? undefined
+        : {
+            categories: config.reactions.categories ?? [],
+            items: config.reactions.items,
+            recentLimit: config.reactions.picker?.recentLimit ?? REACTIONS_DEFAULT_RECENT_LIMIT,
+          };
+    reactionUsage = new ReactionUsage({
+      file: join(location.configDir, "webchat", "reactions-usage.json"),
+    });
+    const reactionStores = new Map<string, ReactionStore>();
+    // One sidecar dir per OWNER (§19.4) — the same per-owner layout the history
+    // uses next door, so a pair's two files always sit under the same name.
+    const reactionStoreOf = (owner: string): ReactionStore => {
+      const existing = reactionStores.get(owner);
+      if (existing !== undefined) return existing;
+      const store = new ReactionStore({
+        dir: join(location.configDir, "webchat", "reactions", owner),
+      });
+      reactionStores.set(owner, store);
+      return store;
+    };
+    // The owner's log: a user's own (§17.7) or — in legacy mode (§12.1) — the
+    // panel connector's. Resolved LAZILY: a reaction is placed long after boot, and
+    // the legacy history is built inside the connector factory.
+    const panelHistoryOf = (owner: string): HistoryStore | undefined => {
+      const user = usersHandle?.users.get(owner);
+      if (user !== undefined) return user.history;
+      for (const channel of channelsHandle?.channels.values() ?? []) {
+        if (channel.connector instanceof WebchatConnector && channel.operator === owner) {
+          return channel.connector.history;
+        }
+      }
+      return undefined;
+    };
+    const usage = reactionUsage;
+    reactionsHub =
+      reactionCatalog === undefined
+        ? undefined
+        : new ReactionsHub({
+            catalog: reactionCatalog,
+            usage,
+            ownerOf: (owner): ReactionOwner | undefined => {
+              const history = panelHistoryOf(owner);
+              return history === undefined
+                ? undefined
+                : { history, reactions: reactionStoreOf(owner) };
+            },
+            // An agent takes turns and keeps no panel log: that is what decides
+            // whether a reaction notifies through the router or through a socket.
+            isAgent: (name) => agents.has(name),
+            route: async (signal) => {
+              const result = await router.route(signal);
+              return result.ok
+                ? { ok: true }
+                : { ok: false, ...(result.code !== undefined ? { code: result.code } : {}) };
+            },
+          });
+    if (reactionsHub !== undefined) await usage.load();
+
     channelsHandle = await wireChannels({
       channels: config.channels,
       router,
       root,
       configDir: location.configDir,
+      ...(reactionsHub !== undefined ? { reactions: reactionsHub } : {}),
       usersOf: (channel) =>
         bindingsOf(channel).map((runtime) => ({
           name: runtime.name,
@@ -1355,6 +1450,25 @@ export async function bootstrap(options: BootstrapOptions = {}): Promise<MuxeonS
       extraSweeps: [
         ...histories.map((history) => () => history.prune()),
         () => transportLog.prune(),
+        // Reaction sidecars compact WITH the logs they annotate (§19.4): events of
+        // pruned messages go, and surviving state collapses to one `add` each — so a
+        // long-lived pair cannot accumulate an unbounded event tail. Runs after the
+        // history prune above (same sweep, in order), which is what makes the
+        // "still in the log" test meaningful.
+        ...(reactionsHub === undefined
+          ? []
+          : [
+              async (): Promise<void> => {
+                for (const [owner, store] of reactionStores) {
+                  const history = panelHistoryOf(owner);
+                  if (history === undefined) continue;
+                  for (const peer of await store.peers()) {
+                    const live = new Set((await history.all(peer)).map((record) => record.id));
+                    await store.compact(peer, live);
+                  }
+                }
+              },
+            ]),
         ...exchangeSweeps,
       ],
       extraRefFiles: async () =>
@@ -1553,11 +1667,45 @@ export async function bootstrap(options: BootstrapOptions = {}): Promise<MuxeonS
     stop: async () => {
       abort.abort();
       if (tokenSampler !== undefined) await tokenSampler.stop(); // final token flush (§12.8)
+      if (reactionUsage !== undefined) await reactionUsage.flush(); // Recent order (§19.8)
       await channels.stop();
       if (federationHandle !== undefined) await federationHandle.stop();
       if (scheduler !== undefined) await scheduler.stop();
       await liveSurface.stop();
       await Promise.allSettled(runs);
+    },
+  };
+}
+
+/**
+ * The agent-plane view of the reaction hub (§19.7, FR-167). A named adapter rather
+ * than an inline literal for a plain reason: the tools see a NARROWER surface than
+ * the panel — the palette without the picker's Recent order (a human affordance,
+ * §19.8) and counts without the actor list (who reacted is the marked pair's
+ * business, and the caller already knows its own placement succeeded).
+ */
+function agentReactionPlane(hub: ReactionsHub): ReactionPlane {
+  return {
+    catalog: () => {
+      const { categories, items } = hub.catalog();
+      return {
+        categories,
+        items: items.map((item) => ({
+          key: item.key,
+          emoji: item.emoji,
+          ...(item.label !== undefined ? { label: item.label } : {}),
+          ...(item.category !== undefined ? { category: item.category } : {}),
+        })),
+      };
+    },
+    react: async (input) => {
+      const outcome = await hub.react(input);
+      return outcome.ok
+        ? {
+            ok: true,
+            reactions: outcome.reactions.map((view) => ({ key: view.key, count: view.count })),
+          }
+        : { ok: false, code: outcome.code, message: outcome.message };
     },
   };
 }

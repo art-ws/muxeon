@@ -7,6 +7,7 @@ import { useEffect, useReducer, useRef, useState } from "react";
 import { ConsoleDialog } from "./Console";
 import { FilterNote } from "./FilterNote";
 import { MessageText } from "./MessageText";
+import { ReactionBar } from "./Reactions";
 import { RzArrows } from "./RzArrows";
 import { TokenMeter } from "./TokenMeter";
 import { agentAction, blobUrl, clearHistory, exportHistoryUrl, setAgentPaused } from "./api";
@@ -175,6 +176,7 @@ export function ChatView(props: {
         {...(props.follow !== undefined ? { follow: props.follow } : {})}
         {...(props.query !== undefined ? { query: props.query } : {})}
         {...(props.anchor !== undefined ? { anchor: props.anchor } : {})}
+        reactable
       />
     </>
   );
@@ -246,6 +248,8 @@ function MessageFeed(props: {
   follow?: boolean;
   query?: string;
   anchor?: string | undefined;
+  /** 1:1 feed ⇒ bubbles take reactions (§19.10); a broadcast feed does not. */
+  reactable?: boolean;
 }): React.JSX.Element {
   // The self-chat (§17.7, FR-128): the open chat IS the viewer — its feed
   // aggregates every pair, so each bubble points back at its own pair chat.
@@ -331,6 +335,7 @@ function MessageFeed(props: {
                   ? peerOf(record, (name) => !props.isPeer(name), props.self)
                   : props.peerName
               }
+              {...(props.reactable === true ? { reactable: true } : {})}
             />
           ))}
         </div>
@@ -583,6 +588,12 @@ function Bubble(props: {
   phase: MessagePhase | undefined;
   /** The open chat's peer name — the deep-link route key (T107, FR-75). */
   chatPeer?: string | undefined;
+  /**
+   * May this message carry reactions (§19.10)? A 1:1 chat — with an agent or a
+   * person — yes; a one-directional group/tag feed (§15.6) no: there is no single
+   * author to notify, so a badge there would mean nothing (decision §19.12-Q3).
+   */
+  reactable?: boolean;
 }): React.JSX.Element {
   const { text, blobs } = payloadParts(props.record.payload);
   // data-msg-id is the anchor target; the hash feeds the link button
@@ -608,6 +619,11 @@ function Bubble(props: {
         {blobs.map((blob) => (
           <MediaBubble key={blob.blob} blob={blob} />
         ))}
+        {/* Badges under the content, above the meta line (§19.9) — the emoji, a
+            count only from 2 up, and the hover trigger that opens the picker. */}
+        {props.reactable === true && props.chatPeer !== undefined && (
+          <ReactionBar peer={props.chatPeer} messageId={props.record.id} />
+        )}
         <span className="bubble-meta">
           {/* Route in front of the time (FR-148): the bubble side alone says who
               wrote it only as long as the chat has two distinct sides — a note to

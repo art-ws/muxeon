@@ -48,6 +48,7 @@ export function validateRules(config: MuxeonConfig, context: ValidateContext = {
   // exactly one kind (§10.17). Groups/tags carry NO queue key — they are input-only.
   const groupNames = collectGroupNames(config); // FR-106: group names unique
   const tagNames = collectTagNames(config); // FR-107: implicit tag namespace
+  assertReactionCategories(config); // §19.3/FR-161: a reaction's category is declared
   assertGroupHierarchy(config, groupNames); // FR-106: parents exist, acyclic, no self-parent
   assertAgentGroups(config, groupNames); // FR-106: agents[].group names a declared group
   assertUserGroups(config, groupNames); // FR-130: users[].group names a declared group
@@ -300,6 +301,25 @@ function assertUserGroups(config: MuxeonConfig, groupNames: Set<string>): void {
       throw new ConfigError(`user "${user.name}" references unknown group "${user.group}"`, {
         path: joinPointer(joinPointer("/users", String(i)), "group"),
       });
+    }
+  }
+}
+
+// §19.3 / FR-161: a reaction's `category` (when set) names a DECLARED category —
+// the same reference-closure rule groups live by. Reaction keys are their OWN
+// namespace (a key is never an address, §19.3), so they take no part in the
+// participant disjointness above.
+function assertReactionCategories(config: MuxeonConfig): void {
+  const reactions = config.reactions;
+  if (reactions === undefined) return;
+  const declared = new Set((reactions.categories ?? []).map((category) => category.name));
+  for (const [i, item] of reactions.items.entries()) {
+    if (item.category === undefined) continue;
+    if (!declared.has(item.category)) {
+      throw new ConfigError(
+        `reaction "${item.key}" references unknown category "${item.category}"`,
+        { path: joinPointer(joinPointer("/reactions/items", String(i)), "category") },
+      );
     }
   }
 }

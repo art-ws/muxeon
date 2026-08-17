@@ -382,6 +382,12 @@ function sliceBackwards(
 // encode anything outside [A-Za-z0-9_-] (codepoint hex between % delimiters) so a
 // hostile-looking name cannot traverse or hide (defense in depth, §8.7; mirrors
 // the router's id sanitation stance §10.11).
+//
+// Exported as `encodePeerName` for the reaction sidecar (§19.4), which keys its
+// files by the same pairs: ONE implementation, because file naming is a security
+// surface and two copies of it would drift.
+export { encodePeer as encodePeerName };
+
 function encodePeer(peer: string): string {
   return peer.replace(/[^A-Za-z0-9_-]/gu, (char) => `%${char.codePointAt(0)?.toString(16)}%`);
 }

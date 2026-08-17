@@ -31,6 +31,7 @@ import {
 } from "@muxeon/orchestrator";
 import {
   HistoryStore,
+  type ReactionsHub,
   type TransportObservability,
   WebchatConnector,
   type WebchatLifecycle,
@@ -58,6 +59,8 @@ export interface ConnectorDeps {
   readonly transport?: TransportObservability;
   /** Narrow neighbor-scoped lifecycle port (webchat, §12.4/FR-65). */
   readonly lifecycle?: WebchatLifecycle;
+  /** The reaction hub (§19, FR-161…FR-168); absent ⇒ reactions are off. */
+  readonly reactions?: ReactionsHub;
 }
 
 /** Builds a connector from its (validated, $env-resolved) config; injectable for tests. */
@@ -109,6 +112,11 @@ export interface WireChannelsOptions {
   ) => void;
   /** Server-wide transport observability port (webchat, §12.4/FR-48). */
   readonly transport?: TransportObservability;
+  /**
+   * Server-wide reaction hub (§19, FR-161…FR-168) — one instance for the panel and
+   * the agent-plane `react` tool alike. Absent ⇒ no reactions anywhere.
+   */
+  readonly reactions?: ReactionsHub;
   readonly knownAgents: readonly string[];
   /** Aborts the egress dispatcher loops (shared with the agent dispatchers). */
   readonly signal: AbortSignal;
@@ -154,6 +162,7 @@ export async function wireChannels(options: WireChannelsOptions): Promise<Channe
       ...(ports !== undefined ? { ports } : {}),
       ...(options.transport !== undefined ? { transport: options.transport } : {}),
       ...(lifecycle !== undefined ? { lifecycle } : {}),
+      ...(options.reactions !== undefined ? { reactions: options.reactions } : {}),
       ...(users.length > 0 ? { users } : {}),
       ...(identity !== undefined ? { identity } : {}),
     });
@@ -362,6 +371,7 @@ function defaultConnectorFactory(config: ChannelConfig, deps: ConnectorDeps): Ch
       ...(deps.ports !== undefined ? { ports: deps.ports } : {}),
       ...(deps.transport !== undefined ? { transport: deps.transport } : {}),
       ...(deps.lifecycle !== undefined ? { lifecycle: deps.lifecycle } : {}),
+      ...(deps.reactions !== undefined ? { reactions: deps.reactions } : {}),
       ...(bind !== undefined ? { bind } : {}),
       ...(basePath !== undefined ? { basePath } : {}),
       ...(staticDir !== undefined ? { staticDir } : {}),

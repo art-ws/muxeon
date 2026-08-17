@@ -263,13 +263,34 @@ binds. A name that resolves to none of those aborts the boot.
   },
   "sessionGrants": {                    // agent -> agent session control
     "writer": { "researcher": ["restart"] }
+  },
+
+  // Message reactions (§19): a mark ON a message instead of a new message. To a
+  // person it is a badge; to an AGENT it delivers `agentMessage` verbatim with
+  // replyTo pointing at the marked message — so a reaction can be a full
+  // instruction with its context attached. The palette is CLOSED by this block:
+  // no catalog ⇒ the feature is off everywhere. Full reference and a ready-made
+  // set: operator guide §8.1d.
+  "reactions": {
+    "categories": [{ "name": "feedback", "title": "Feedback" }],
+    "items": [
+      { "key": "ok", "emoji": "👍", "label": "Accepted", "category": "feedback",
+        "agentMessage": "The operator accepted this message. A notice; no answer is needed." },
+      // expectsReply: true ⇒ delivered as an ordinary turn WITH a reply contract;
+      // without it the agent is told explicitly not to answer (no receipt chains).
+      { "key": "redo", "emoji": "🔁", "label": "Redo", "category": "feedback", "expectsReply": true,
+        "agentMessage": "The result in this message is not good enough. Do it again and say what changed." }
+    ],
+    "picker": { "recentLimit": 12 }     // length of the frequency-ordered Recent block
   }
 }
 ```
 
 Validation is **fail-fast**: an unknown agent in a grant, a grant pair with no
-topology edge, a group name that collides with an agent name, or a command not
-in the recipient's catalog all abort the boot. That is intentional — fix the
+topology edge, a group name that collides with an agent name, a command not in
+the recipient's catalog, a duplicate reaction key, a reaction pointing at an
+undeclared category or an emoji that is not exactly one grapheme — all abort the
+boot with the JSON pointer of the offending entry. That is intentional — fix the
 config, do not work around it.
 
 ---

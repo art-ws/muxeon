@@ -51,4 +51,30 @@ export interface Signal {
    * it (a human peer has no console to capture).
    */
   readonly raw?: boolean;
+  /**
+   * Explicit answer opt-in for a non-message kind (§19.6, FR-164). A reaction
+   * notification is a notice by default — no inbox projection, no reply contract,
+   * "no answer required" spelled out — because the operator's default reaction
+   * texts are notices and an answer chain would be pure noise (§10.30). When the
+   * operator configures a reaction whose text is real WORK (`expectsReply: true`,
+   * §19.2), this flag rides along and the turn is rendered exactly like a message:
+   * one materialized message.json and exactly one reply contract (§10.29).
+   *
+   * A transport modifier, like `raw` — never a kind of its own: what changes is
+   * the instruction the agent reads, not the routing, the queue or the receipt.
+   * Meaningless on `kind:"message"` (a message always asks) and ignored there.
+   */
+  readonly expectsReply?: boolean;
+}
+
+/**
+ * Is this signal a NOTICE — delivered as a turn, but asking for nothing (§19.6,
+ * FR-164)? Only a reaction can be one, and only until the operator opts that
+ * reaction into a real turn. The predicate lives here because two layers must
+ * agree on it byte-for-byte: the render (which must not name a reply path —
+ * §10.29/T267: naming one is asking) and the exchange (which must not create a
+ * folder for an answer nobody wants).
+ */
+export function isNotificationOnly(signal: Signal): boolean {
+  return signal.kind === "reaction" && signal.expectsReply !== true;
 }
