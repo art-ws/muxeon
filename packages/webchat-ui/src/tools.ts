@@ -171,6 +171,28 @@ export function visibleTools(
   return TOOLS.filter((tool) => enabled.has(tool.id) && tool.available(peer));
 }
 
+/**
+ * Do these two peers give the toolbar the same buttons (T280)? The panel hands
+ * the open peer up on every store change — a status push, a queue tick, a token
+ * sample all rebuild the object — but the BAR only reads these fields. Comparing
+ * them lets the lift keep the previous object, so the header (and everything
+ * under it) does not re-render on traffic that cannot change a button.
+ */
+export function sameToolSurface(a: PeerInfo | undefined, b: PeerInfo | undefined): boolean {
+  if (a === b) return true;
+  if (a === undefined || b === undefined) return false;
+  return (
+    a.name === b.name &&
+    a.title === b.title &&
+    a.type === b.type &&
+    a.server === b.server &&
+    a.paused === b.paused &&
+    a.actions?.shutdown === b.actions?.shutdown &&
+    a.actions?.reload === b.actions?.reload &&
+    a.actions?.pause === b.actions?.pause
+  );
+}
+
 /** Immutable check/uncheck of one tool (the settings switches). */
 export function toggleTool(enabled: ReadonlySet<ToolId>, id: ToolId): ReadonlySet<ToolId> {
   const next = new Set(enabled);

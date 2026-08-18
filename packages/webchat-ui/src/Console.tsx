@@ -44,6 +44,12 @@ export function ConsoleDialog(props: {
   const [attempt, setAttempt] = useState(0);
   const hostRef = useRef<HTMLDivElement | null>(null);
   const termRef = useRef<Terminal | undefined>(undefined);
+  // The attach below MUST NOT depend on the translator (T280): `t` comes from
+  // context and used to change identity on every App re-render, so an unrelated
+  // render detached the tmux client and built a new terminal — the console blinked.
+  // What the socket handlers need is the CURRENT wording, not a dependency.
+  const tr = useRef(t);
+  tr.current = t;
 
   /**
    * Scales the FONT so the mirrored grid fills the popup. The cell metrics are
@@ -129,19 +135,19 @@ export function ConsoleDialog(props: {
       }
       live = false;
       setPhase("ended");
-      setNote(frame.t === "exit" ? t("the session ended") : frame.message);
+      setNote(frame.t === "exit" ? tr.current("the session ended") : frame.message);
       socket.close(); // the server leaves the closing to us (§12.9)
     });
     socket.addEventListener("close", () => {
       if (!live) return; // an ending we already explained
       live = false;
       setPhase("ended");
-      setNote(t("connection lost"));
+      setNote(tr.current("connection lost"));
     });
     socket.addEventListener("error", () => {
       if (live) return;
       setPhase("ended");
-      setNote(t("could not open the console"));
+      setNote(tr.current("could not open the console"));
     });
 
     // Keystrokes go out as the exact bytes a terminal would send.
@@ -165,7 +171,7 @@ export function ConsoleDialog(props: {
       term.dispose();
       termRef.current = undefined;
     };
-  }, [peer, attempt, fit, t]);
+  }, [peer, attempt, fit]);
 
   // Full screen only changes the popup's box; the grid is the agent's, so all
   // that changes is how big its characters get.

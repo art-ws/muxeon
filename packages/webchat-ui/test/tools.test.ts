@@ -10,6 +10,7 @@ import {
   TOOLS,
   type ToolId,
   loadToolbar,
+  sameToolSurface,
   saveToolbar,
   toggleTool,
   visibleTools,
@@ -135,6 +136,36 @@ describe("what the bar prints (FR-172)", () => {
   test("an older server without a pause flag offers no pause button", () => {
     const old = agent({ actions: { shutdown: true, reload: true } });
     expect(ids(["pause"], old)).toEqual([]);
+  });
+});
+
+// T280: the panel hands the open peer up on EVERY store change. If the header
+// took each of those as news, it re-rendered the whole app — and the console,
+// mounted under it, tore its terminal down and rebuilt it (the blink the
+// operator saw). The bar only reads these fields, so only these count as news.
+describe("what counts as a change for the bar (T280)", () => {
+  test("a status push, a queue tick or a fresh object are NOT news", () => {
+    expect(sameToolSurface(agent(), agent())).toBe(true);
+    expect(sameToolSurface(agent(), agent({ status: "busy" }))).toBe(true);
+    expect(sameToolSurface(agent(), agent({ queueDepth: 7, unread: 3 }))).toBe(true);
+    expect(sameToolSurface(agent(), agent({ busySince: 12345, atWipLimit: true }))).toBe(true);
+  });
+
+  test("anything a button reads IS news", () => {
+    expect(sameToolSurface(agent(), agent({ name: "writer" }))).toBe(false);
+    expect(sameToolSurface(agent(), agent({ paused: true }))).toBe(false);
+    expect(sameToolSurface(agent(), agent({ title: "Researcher" }))).toBe(false);
+    expect(sameToolSurface(agent(), agent({ type: "user" }))).toBe(false);
+    expect(sameToolSurface(agent(), agent({ server: "hub" }))).toBe(false);
+    expect(
+      sameToolSurface(agent(), agent({ actions: { shutdown: false, reload: true, pause: true } })),
+    ).toBe(false);
+  });
+
+  test("opening and closing a chat is news in both directions", () => {
+    expect(sameToolSurface(undefined, undefined)).toBe(true);
+    expect(sameToolSurface(undefined, agent())).toBe(false);
+    expect(sameToolSurface(agent(), undefined)).toBe(false);
   });
 });
 

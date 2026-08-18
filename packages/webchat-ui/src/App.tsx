@@ -43,7 +43,7 @@ import {
   threadOf,
 } from "./store";
 import { type Theme, applyTheme, loadTheme } from "./theme";
-import { type ToolId, loadToolbar, saveToolbar } from "./tools";
+import { type ToolId, loadToolbar, sameToolSurface, saveToolbar } from "./tools";
 import {
   type ChatRecord,
   type PanelEvent,
@@ -101,6 +101,12 @@ export function App(): React.JSX.Element {
   // lift the account circle already uses for the logged-in name (T234). No extra
   // request: the data is the panel's `/api/peers` + WS statuses.
   const [surface, setSurface] = useState<PeerInfo | undefined>(undefined);
+  // …but only when the BUTTONS would change (T280): the panel reports the peer on
+  // every store update, and a header that re-rendered on each of them made the
+  // console blink — React bails out when the state object stays the same.
+  const onSurface = useCallback((peer: PeerInfo | undefined): void => {
+    setSurface((current) => (sameToolSurface(current, peer) ? current : peer));
+  }, []);
   // Logout (FR-68): revoke server-side, then drop to the login screen; a failed
   // call (expired session) still lands on login — that IS the logged-out state.
   const logout = useCallback((): void => {
@@ -170,7 +176,11 @@ export function App(): React.JSX.Element {
       stale = true;
     };
   }, [lang]);
-  const t = translator(messages);
+  // The translator is CONTEXT (T280): a fresh closure per render would republish
+  // the context on every App re-render, and consumers that key effects off `t`
+  // (the console's attach, §12.9) would tear themselves down and rebuild — the
+  // dictionary is what it depends on, so that is its only dependency.
+  const t = useMemo(() => translator(messages), [messages]);
   return (
     <I18nContext.Provider value={t}>
       <div className="app">
@@ -257,7 +267,7 @@ export function App(): React.JSX.Element {
               setOperator(name);
               setOperatorTitle(title);
             }}
-            onSurface={setSurface}
+            onSurface={onSurface}
             onAuthLost={() => setAuthed(false)}
           />
         ) : (
