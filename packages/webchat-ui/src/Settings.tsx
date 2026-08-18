@@ -10,6 +10,7 @@ import { agentColor } from "./palette";
 import { nameTooltip, peerLabel } from "./peer-surface";
 import { type ServerInfo, formatServerInfo } from "./server-info";
 import type { Theme } from "./theme";
+import { TOOLS, type ToolId, type ToolScope, toggleTool } from "./tools";
 import type { PeerInfo } from "./types";
 import { type Visibility, setMode, toggleAgent } from "./visibility";
 
@@ -29,6 +30,9 @@ export function SettingsView(props: {
   /** Token-usage display (FR-72): true (default) shows the chat-header token meter. */
   showTokens: boolean;
   onShowTokens: (show: boolean) => void;
+  /** Pinned toolbar tools (§12.10, FR-173) — the set the topbar prints. */
+  tools: ReadonlySet<ToolId>;
+  onTools: (tools: ReadonlySet<ToolId>) => void;
   /** The FULL peer list (unfiltered) — the checklist must show hidden agents. */
   peers: readonly PeerInfo[];
   visibility: Visibility;
@@ -91,6 +95,42 @@ export function SettingsView(props: {
               ))}
             </select>
           </div>
+        </section>
+        {/* the toolbar picker (§12.10.3, FR-173): the WHOLE catalogue, in the
+            order the topbar prints it, so the list reads as a preview of the bar.
+            Actions the open chat cannot take are listed all the same — the
+            setting outlives the open chat. */}
+        <section className="settings-section">
+          <h2>{t("Toolbar")}</h2>
+          <p className="settings-note">
+            {t("Pinned buttons appear in the header, next to the filter field")}
+          </p>
+          {(["chat", "panel"] as readonly ToolScope[]).map((scope) => (
+            <div key={scope}>
+              <h3 className="settings-subhead">{t(scope === "chat" ? "Chat actions" : "Panel")}</h3>
+              {TOOLS.filter((tool) => tool.scope === scope).map((tool) => (
+                <div className="settings-row tool-row" key={tool.id} title={t(tool.hint)}>
+                  <span className="settings-icon">
+                    <tool.icon size={16} />
+                  </span>
+                  <span className="settings-label">
+                    {t(tool.label)}
+                    <span className="settings-hint">{t(tool.hint)}</span>
+                  </span>
+                  <button
+                    type="button"
+                    role="switch"
+                    aria-checked={props.tools.has(tool.id)}
+                    aria-label={`${t("Show in the toolbar")}: ${t(tool.label)}`}
+                    className="switch"
+                    onClick={() => props.onTools(toggleTool(props.tools, tool.id))}
+                  >
+                    <span className="switch-knob" />
+                  </button>
+                </div>
+              ))}
+            </div>
+          ))}
         </section>
         <section className="settings-section">
           <h2>{t("Agents")}</h2>

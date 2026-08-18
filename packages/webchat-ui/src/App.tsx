@@ -9,6 +9,7 @@ import { CommandFanout } from "./CommandFanout";
 import { Composer, type Draft } from "./Composer";
 import { PeerList } from "./PeerList";
 import { SettingsView } from "./Settings";
+import { Toolbar } from "./Toolbar";
 import { TransportView } from "./Transport";
 import * as api from "./api";
 import {
@@ -42,7 +43,14 @@ import {
   threadOf,
 } from "./store";
 import { type Theme, applyTheme, loadTheme } from "./theme";
-import { type ChatRecord, type PanelEvent, type ReactionView, peerKind } from "./types";
+import { type ToolId, loadToolbar, saveToolbar } from "./tools";
+import {
+  type ChatRecord,
+  type PanelEvent,
+  type PeerInfo,
+  type ReactionView,
+  peerKind,
+} from "./types";
 import { loadVisibility, saveVisibility, visiblePeers } from "./visibility";
 
 type Action =
@@ -88,6 +96,11 @@ export function App(): React.JSX.Element {
   // Their configured label (FR-156), when there is one — the account tooltip
   // reads "<title> (<name>)" so the label never hides who is actually signed in.
   const [operatorTitle, setOperatorTitle] = useState<string | undefined>(undefined);
+  // The open 1:1 chat's peer (§12.10.5), reported up by the panel: the topbar
+  // toolbar acts on it, and the header is drawn OUTSIDE the panel — the same
+  // lift the account circle already uses for the logged-in name (T234). No extra
+  // request: the data is the panel's `/api/peers` + WS statuses.
+  const [surface, setSurface] = useState<PeerInfo | undefined>(undefined);
   // Logout (FR-68): revoke server-side, then drop to the login screen; a failed
   // call (expired session) still lands on login — that IS the logged-out state.
   const logout = useCallback((): void => {
@@ -97,6 +110,9 @@ export function App(): React.JSX.Element {
       .then(() => {
         setOperator(undefined);
         setOperatorTitle(undefined);
+        // the toolbar's chat half hangs off the open chat — the next session
+        // must not inherit a peer from the previous one (§12.10.5)
+        setSurface(undefined);
         setAuthed(false);
       });
   }, []);
@@ -121,6 +137,10 @@ export function App(): React.JSX.Element {
   // lighter interface. Persisted (FR-72).
   const [showTokens, setShowTokens] = useState(() => loadPref("show-tokens", true));
   useEffect(() => savePref("show-tokens", showTokens), [showTokens]);
+  // The pinned toolbar tools (§12.10, FR-174): empty by default, the Settings
+  // switches own the set, localStorage keeps it per browser.
+  const [tools, setTools] = useState<ReadonlySet<ToolId>>(() => loadToolbar());
+  useEffect(() => saveToolbar(tools), [tools]);
   // Instance label (FR-90): the connector injected it into the shell; static post-load.
   const [brandName] = useState(instanceName);
   // Global message filter (T97, FR-71): one topbar field filters EVERY list —
@@ -173,6 +193,17 @@ export function App(): React.JSX.Element {
               </span>
             )}
           </div>
+          {/* the pinned tools (§12.10) — right-hand block, tools → filter → account */}
+          {authed === true && (
+            <Toolbar
+              enabled={tools}
+              peer={surface}
+              onSettings={() => {
+                location.hash = routeHash({ view: "settings" });
+              }}
+              onLogout={logout}
+            />
+          )}
           {authed === true && (
             <span className="topbar-search">
               <input
@@ -218,12 +249,15 @@ export function App(): React.JSX.Element {
             onFlat={setFlatPeers}
             showTokens={showTokens}
             onShowTokens={setShowTokens}
+            tools={tools}
+            onTools={setTools}
             collapsed={collapsed}
             query={query}
             onIdentity={(name, title) => {
               setOperator(name);
               setOperatorTitle(title);
             }}
+            onSurface={setSurface}
             onAuthLost={() => setAuthed(false)}
           />
         ) : (
@@ -320,6 +354,9 @@ function Panel(props: {
   /** Token-usage display: true (default) shows the chat-header token meter, false hides it. */
   showTokens: boolean;
   onShowTokens: (show: boolean) => void;
+  /** Pinned toolbar tools (§12.10, FR-173) — the settings page switches them. */
+  tools: ReadonlySet<ToolId>;
+  onTools: (tools: ReadonlySet<ToolId>) => void;
   collapsed: boolean;
   /** Global message filter (FR-71) — applied by the chat and transport views. */
   query: string;
@@ -328,6 +365,12 @@ function Panel(props: {
    * (T234): the topbar account button lives outside this panel.
    */
   onIdentity: (operator: string | undefined, title?: string | undefined) => void;
+  /**
+   * Reports the OPEN 1:1 chat's peer upward (§12.10.5) — the topbar toolbar acts
+   * on it and the header lives outside this panel. Undefined whenever there is no
+   * such chat (home, settings, transport, a broadcast target).
+   */
+  onSurface: (peer: PeerInfo | undefined) => void;
   onAuthLost: () => void;
 }): React.JSX.Element {
   const t = useT();
@@ -537,6 +580,11 @@ function Panel(props: {
     }),
     [reactionsEnabled],
   );
+  // The toolbar's chat half follows the open chat (§12.10.5). The peer object is
+  // the store's, so this fires when the chat changes AND when its status/flags
+  // do — a pinned Pause button must show the pause the WS push just brought.
+  const onSurface = props.onSurface;
+  useEffect(() => onSurface(openPeer), [openPeer, onSurface]);
   // Command-fanout modal (§15.8, FR-115): launched from a group/tag chat, seeded
   // with that target; closed automatically when the open chat changes.
   const [commandOpen, setCommandOpen] = useState(false);
@@ -596,6 +644,8 @@ function Panel(props: {
               onFlat={props.onFlat}
               showTokens={props.showTokens}
               onShowTokens={props.onShowTokens}
+              tools={props.tools}
+              onTools={props.onTools}
               peers={state.peers.filter(
                 // local agents only — a federated peer (§18.4) is not a visibility toggle
                 (peer) => peerKind(peer) === "agent" && peer.server === undefined,

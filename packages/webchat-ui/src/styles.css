@@ -59,7 +59,11 @@ body,
 .topbar {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  /* The right-hand block reads as one run (§12.10.2, operator's call): tools →
+     filter field → account circle. The brand takes the slack on the left, so
+     the free strip of the bar sits there and the three right-hand elements stay
+     glued together instead of drifting apart. */
+  gap: 8px;
   flex-shrink: 0;
   padding: 8px 16px;
   border-bottom: 1px solid var(--border);
@@ -78,6 +82,7 @@ body,
   align-items: center;
   gap: 10px;
   min-width: 0;
+  margin-right: auto; /* the slack lives here (§12.10.2), not between the tools */
 }
 
 /* the instance label (FR-90) next to the logo — truncates rather than crowds the bar */
@@ -120,12 +125,14 @@ body,
 
 /* --- message filtering (T97, FR-71) ------------------------------------- */
 
-/* the GLOBAL search field — filters chats and the transport feed alike */
+/* the GLOBAL search field — filters chats and the transport feed alike. It no
+   longer stretches to the middle (§12.10.2): it hugs the account circle, keeps
+   its old width and is the element that SHRINKS when the bar runs out of room. */
 .topbar-search {
   position: relative;
-  flex: 1;
-  max-width: 420px;
-  margin: 0 16px;
+  flex: 0 1 420px;
+  min-width: 120px;
+  margin: 0 4px 0 0;
 }
 
 .topbar-search input {
@@ -168,6 +175,70 @@ body,
 .search-clear:hover {
   background: var(--bg-hover);
   color: var(--text);
+}
+
+/* --- the header toolbar (§12.10, FR-172, T279) --------------------------- */
+
+/* the pinned tools — a run of ghost icon buttons pressed against the filter
+   field; same stroke language as the composer's "+" and mic (FR-77) */
+.topbar-tools {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex-shrink: 0;
+}
+
+.tool-button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  background: none;
+  color: var(--text-dim);
+  font: inherit;
+  font-size: 13px;
+  line-height: 1;
+  cursor: pointer;
+  text-decoration: none; /* Export JSON is an <a download> wearing this class */
+}
+
+.tool-button:hover {
+  background: var(--bg-hover);
+  color: var(--text);
+}
+
+.tool-button:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+.tool-button.danger:hover {
+  color: var(--failed);
+}
+
+/* armed: the next click fires (FR-172). The icon-only button has no room for
+   "Sure?", so the state speaks in paint — and the tooltip spells it out. */
+.tool-button.armed {
+  background: var(--bg-hover);
+  color: var(--accent);
+  box-shadow: inset 0 0 0 1.5px currentcolor;
+}
+
+.tool-button.danger.armed,
+.tool-button.failed {
+  color: var(--failed);
+}
+
+/* a narrow window keeps the bar in ONE row: the filter field shrinks first and
+   the tools step aside entirely (§12.10.7-Q4) — every action is still in its menu */
+@media (max-width: 720px) {
+  .topbar-tools {
+    display: none;
+  }
 }
 
 /* the hidden-count strip: a filtered list must never pass for the full one */
@@ -381,6 +452,36 @@ body,
 .settings-hint {
   font-size: 12px;
   color: var(--text-dim);
+}
+
+/* --- the toolbar picker (§12.10.3, FR-173) ------------------------------- */
+
+/* what the section is for, once, above the rows */
+.settings-note {
+  margin: 0 0 2px;
+  font-size: 12px;
+  color: var(--text-dim);
+}
+
+/* the scope headings ("Chat actions" / "Panel") inside the section */
+.settings-subhead {
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  color: var(--text-dim);
+  margin: 14px 0 0;
+}
+
+/* the row shows the SAME icon the button will carry — the list is a preview of
+   the bar, so it must look like it */
+.settings-icon {
+  display: flex;
+  align-items: center;
+  color: var(--text-dim);
+}
+
+.tool-row .settings-label {
+  flex: 1; /* the switch stays pinned right of icon + label */
 }
 
 /* the language selector (T114, FR-78) — a plain themed select */

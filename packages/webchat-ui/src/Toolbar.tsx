@@ -1,0 +1,183 @@
+// The topbar toolbar (§12.10, FR-172, T279): the tools the user pinned in
+// Settings, printed as icon buttons in the right-hand block of the header —
+// tools → filter field → account circle (§12.10.7-Q4). A button is a SHORTCUT
+// to a menu item, so it repeats that item exactly: same icon, same wording, same
+// availability (tools.ts owns all three) and the same deliberateness — every
+// item that arms in its menu arms here, and Sign out arms too, because there the
+// deliberate first step was opening the menu (FR-68) and a topbar button has no
+// such step.
+//
+// Nothing here talks to a new endpoint: the buttons call the very API the menu
+// items call (FR-65/FR-84/FR-120/FR-160, POST /api/logout).
+
+import { useEffect, useState } from "react";
+import { ConsoleDialog } from "./Console";
+import { agentAction, clearHistory, exportHistoryUrl, setAgentPaused } from "./api";
+import { useT } from "./i18n-context";
+import { IconPlay } from "./icons";
+import { peerLabel } from "./peer-surface";
+import { type Tool, type ToolId, visibleTools } from "./tools";
+import type { PeerInfo } from "./types";
+
+export function Toolbar(props: {
+  /** The pinned set (FR-174) — the Settings switches own it. */
+  enabled: ReadonlySet<ToolId>;
+  /**
+   * The open 1:1 chat's peer (§12.10.5), lifted here from the panel; undefined
+   * when no chat is open — then no chat tool renders at all (§12.10.7-Q1: the
+   * unavailable is HIDDEN, never printed dead).
+   */
+  peer: PeerInfo | undefined;
+  onSettings: () => void;
+  onLogout: () => void;
+}): React.JSX.Element | null {
+  const t = useT();
+  const peer = props.peer;
+  // The console popup outlives the click that opened it, but not the chat it
+  // belongs to: switching peers closes it (the dialog attaches to a NAME).
+  const [consoleOpen, setConsoleOpen] = useState(false);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: re-run to CLOSE the popup whenever the open peer changes (the body doesn't read it, it reacts to it)
+  useEffect(() => setConsoleOpen(false), [peer?.name]);
+
+  const tools = visibleTools(props.enabled, peer);
+  if (tools.length === 0) return null; // nothing pinned (the default) ⇒ no group
+
+  // A chat tool says WHOM it will act on; a panel tool says what it does.
+  const titleOf = (tool: Tool): string =>
+    tool.scope === "chat"
+      ? `${t(tool.label)} — ${peerLabel(peer)}`
+      : `${t(tool.label)} — ${t(tool.hint)}`;
+
+  const run = (tool: Tool): (() => Promise<unknown>) => {
+    const name = peer?.name ?? "";
+    switch (tool.id) {
+      case "console":
+        return async () => setConsoleOpen(true);
+      case "clear":
+        return () => clearHistory(name);
+      case "reload":
+        return () => agentAction(name, "reload");
+      case "shutdown":
+        return () => agentAction(name, "shutdown");
+      case "settings":
+        return async () => props.onSettings();
+      case "logout":
+        return async () => props.onLogout();
+      default:
+        return async () => undefined;
+    }
+  };
+
+  return (
+    <span className="topbar-tools" role="toolbar" aria-label={t("Toolbar")}>
+      {tools.map((tool) => {
+        // Export is a plain download link, exactly as in the menu (FR-84): no
+        // confirm, no JS — an <a download> styled like its neighbours.
+        if (tool.id === "export" && peer !== undefined) {
+          return (
+            <a
+              key={tool.id}
+              className="tool-button"
+              href={exportHistoryUrl(peer.name)}
+              download
+              title={titleOf(tool)}
+              aria-label={titleOf(tool)}
+            >
+              <tool.icon size={16} />
+            </a>
+          );
+        }
+        // Pause carries STATE (§16.4, FR-120): the button shows what the peer is
+        // now and asks for the opposite — never a blind toggle.
+        if (tool.id === "pause" && peer !== undefined) {
+          const paused = peer.paused === true;
+          const label = t(paused ? "Resume" : "Pause");
+          return (
+            <ToolButton
+              key={tool.id}
+              tool={tool}
+              label={label}
+              title={`${label} — ${peerLabel(peer)}`}
+              icon={paused ? <IconPlay size={16} /> : <tool.icon size={16} />}
+              onRun={() => setAgentPaused(peer.name, !paused)}
+            />
+          );
+        }
+        return (
+          <ToolButton
+            key={tool.id}
+            tool={tool}
+            label={t(tool.label)}
+            title={titleOf(tool)}
+            icon={<tool.icon size={16} />}
+            onRun={run(tool)}
+          />
+        );
+      })}
+      {consoleOpen && peer !== undefined && (
+        <ConsoleDialog peer={peer.name} onClose={() => setConsoleOpen(false)} />
+      )}
+    </span>
+  );
+}
+
+// One toolbar button. Icon-only, so the wording lives in title/aria-label and
+// the STATES speak through paint: armed (a destructive or lifecycle action
+// waiting for its second click, 3s), busy, failed (4s). The behavior mirrors
+// the menu's LifecycleItem — a shortcut is never safer than its item.
+function ToolButton(props: {
+  tool: Tool;
+  /** Already translated — Pause/Resume differ per state. */
+  label: string;
+  title: string;
+  icon: React.JSX.Element;
+  onRun: () => Promise<unknown>;
+}): React.JSX.Element {
+  const t = useT();
+  const [armed, setArmed] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [failed, setFailed] = useState<string | undefined>(undefined);
+  const confirm = props.tool.confirm === true;
+
+  useEffect(() => {
+    if (!armed) return;
+    const timer = setTimeout(() => setArmed(false), 3000);
+    return () => clearTimeout(timer);
+  }, [armed]);
+
+  const click = async (): Promise<void> => {
+    if (busy) return;
+    if (confirm && !armed) {
+      setArmed(true);
+      return;
+    }
+    setArmed(false);
+    setBusy(true);
+    setFailed(undefined);
+    try {
+      await props.onRun();
+    } catch (error) {
+      setFailed(error instanceof Error ? error.message : "failed");
+      setTimeout(() => setFailed(undefined), 4000);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const state = failed !== undefined ? " failed" : armed ? " armed" : "";
+  const danger = props.tool.danger === true ? " danger" : "";
+  const title = failed ?? (armed ? `${props.label} — ${t("Sure?")}` : props.title);
+  return (
+    <button
+      type="button"
+      className={`tool-button${danger}${state}`}
+      disabled={busy}
+      aria-label={props.title}
+      aria-pressed={confirm ? armed : undefined}
+      title={title}
+      onClick={() => void click()}
+    >
+      {busy ? "…" : props.icon}
+    </button>
+  );
+}
