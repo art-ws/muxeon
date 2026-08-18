@@ -27,6 +27,11 @@
 // probing after the FIRST success, not only until it: one cheap tools/list per interval,
 // which reconnects through the same path as any other call and re-registers the name.
 //
+// LIFETIME (T284). Because every probe re-registers the name, a shim that outlives its
+// agent is not idle — it keeps CLAIMING the identity and evicting the live shim (FR-44b),
+// which then reclaims it, forever. So the stdio link is also the shim's lifetime: when it
+// closes, the process exits.
+//
 // Run: MUXEON_AGENT_NAME=<topology-name> bun packages/server/src/mcp/shim.ts
 // Env: MUXEON_MCP_URL — agent-plane endpoint (default http://127.0.0.1:8080/mcp).
 //      MUXEON_SHIM_PROBE_MS — supervision interval, default 30000; 0 disables probing
@@ -292,12 +297,35 @@ export function probeMsFromEnv(raw: string | undefined): number {
   return parsed;
 }
 
+/**
+ * The agent's stdio link is the shim's whole reason to exist, so when it closes the
+ * shim must GO (T284). A survivor keeps probing (FR-158), and every probe RE-REGISTERS
+ * the agent's name upstream, so the coordinator hands the identity to it and evicts
+ * whoever held it (FR-44b) — the live shim of the restarted agent and the ghost of the
+ * dead one then take the name from each other forever. Found live on dev1: four
+ * claimants (three orphaned by earlier sessions, PPID 1) producing ~16 evictions a
+ * minute, and a §13.6 reply-contract choice that could read a ghost's session as
+ * "this agent is on MCP".
+ */
+export function exitWhenAgentGone(server: { onclose?: () => void }, stop: () => void): void {
+  const previous = server.onclose;
+  server.onclose = (): void => {
+    previous?.();
+    stop();
+  };
+}
+
 async function main(agentName: string, url: string, probeMs: number): Promise<void> {
   const { server, supervise } = buildShim(httpConnect(agentName, url), url);
+  const gone = new AbortController();
+  exitWhenAgentGone(server, () => {
+    gone.abort(); // stop probing, then leave: there is no agent left to serve
+    process.exit(0);
+  });
   // Start serving stdio FIRST so the agent's client always has the server, even when the
   // agent-plane is down; then supervise the upstream in the background (FR-89/FR-158).
   await server.connect(new StdioServerTransport());
-  void supervise({ probeMs });
+  void supervise({ probeMs, signal: gone.signal });
 }
 
 if (import.meta.main) {

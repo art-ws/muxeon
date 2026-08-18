@@ -17,7 +17,13 @@ import {
   ToolListChangedNotificationSchema,
 } from "@modelcontextprotocol/sdk/types.js";
 import type { Connect, SuperviseOptions, UpstreamClient } from "../src/mcp/shim";
-import { Upstream, buildShim, httpConnect, probeMsFromEnv } from "../src/mcp/shim";
+import {
+  Upstream,
+  buildShim,
+  exitWhenAgentGone,
+  httpConnect,
+  probeMsFromEnv,
+} from "../src/mcp/shim";
 import { type AgentPlaneHandle, startAgentPlane } from "../src/mcp/transport";
 import { LOOPBACK_DIRECT } from "./mcp-helpers";
 
@@ -289,6 +295,45 @@ describe("shim supervision (FR-158)", () => {
     // that recreates the deadlock this feature exists to prevent.
     expect(probeMsFromEnv("nonsense")).toBe(30_000);
     expect(probeMsFromEnv("-1")).toBe(30_000);
+  });
+});
+
+// The other half of supervision: a shim that outlives its agent is not harmless.
+// Every probe RE-REGISTERS the name upstream, so a ghost keeps taking the identity
+// from the live shim, which takes it back — found on dev1 with four claimants and
+// ~16 evictions a minute (T284). The stdio link is therefore also the lifetime.
+describe("shim lifetime — the agent's link is the shim's (T284)", () => {
+  test("the stdio link closing stops the shim", async () => {
+    const plane = new FakePlane();
+    const { server } = buildShim(plane.connect, "http://test/mcp");
+    let stopped = 0;
+    exitWhenAgentGone(server, () => {
+      stopped += 1;
+    });
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+    await server.connect(serverTransport);
+    const client = new Client({ name: "agent-cli", version: "0" });
+    await client.connect(clientTransport);
+
+    expect(stopped).toBe(0); // the agent is there — the shim stays
+    await client.close(); // the CLI agent exits / its session is killed
+    while (stopped === 0) await new Promise((resolve) => setTimeout(resolve, 1));
+    expect(stopped).toBe(1);
+  });
+
+  test("a handler already on the server still runs — the hook adds, never replaces", async () => {
+    const plane = new FakePlane();
+    const { server } = buildShim(plane.connect, "http://test/mcp");
+    const calls: string[] = [];
+    server.onclose = () => calls.push("existing");
+    exitWhenAgentGone(server, () => calls.push("stop"));
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+    await server.connect(serverTransport);
+    const client = new Client({ name: "agent-cli", version: "0" });
+    await client.connect(clientTransport);
+    await client.close();
+    while (calls.length < 2) await new Promise((resolve) => setTimeout(resolve, 1));
+    expect(calls).toEqual(["existing", "stop"]);
   });
 });
 
