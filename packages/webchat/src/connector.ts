@@ -243,6 +243,34 @@ const warn = (message: string): void => {
 const json = (body: unknown, status = 200): Response =>
   new Response(JSON.stringify(body), { status, headers: JSON_HEADERS });
 
+/**
+ * Static caching (T282, §12.6): every SPA answer carries a validator and
+ * `no-cache`. Not "do not cache" — "cache, but ASK before using": the entry
+ * bundle keeps a stable name (`assets/main.js`, §12.7), so without a validator a
+ * browser may keep serving yesterday's panel after a soft reload and a deployed
+ * fix looks undeployed (the lesson of T280/T281). Revalidation is a header
+ * round-trip against a local server, and an unchanged file comes back as a 304
+ * with no body.
+ */
+const cacheHeaders = (etag: string): Record<string, string> => ({
+  etag,
+  "cache-control": "no-cache",
+});
+
+/** Does the client already hold this exact version? `If-None-Match` may list several. */
+const isFresh = (req: Request | undefined, etag: string): boolean => {
+  const header = req?.headers.get("if-none-match");
+  if (header === null || header === undefined) return false;
+  return header
+    .split(",")
+    .map((candidate) => candidate.trim().replace(/^W\//, ""))
+    .some((candidate) => candidate === etag || candidate === "*");
+};
+
+/** 304: the validator repeats, the body does not (RFC 9110 §15.4.5). */
+const notModified = (etag: string): Response =>
+  new Response(null, { status: 304, headers: cacheHeaders(etag) });
+
 /** The minimal WS client surface the connector needs (Bun's ServerWebSocket). */
 interface WsClient {
   send(data: string | Uint8Array): void;
@@ -630,7 +658,7 @@ export class WebchatConnector implements ChannelConnector {
     if (!url.pathname.startsWith("/api/")) {
       // The SPA statics (§12.7). Unauthenticated by design — the app shell is
       // public, every API behind it is gated (§10.12); GET-only, path-safe.
-      if (req.method === "GET" || req.method === "HEAD") return this.serveStatic(url.pathname);
+      if (req.method === "GET" || req.method === "HEAD") return this.serveStatic(url.pathname, req);
       return json({ error: "not found" }, 404);
     }
     // CSRF (§12.6): a browser POST carries Origin; a mismatched one is rejected
@@ -1508,7 +1536,7 @@ export class WebchatConnector implements ChannelConnector {
   // GET <non-api> → the built SPA (§12.7). Only clean relative segments are
   // joined (no "..", no hidden files — §8.7); an extension-less miss falls back
   // to index.html (SPA routing), an asset miss is 404.
-  async serveStatic(pathname: string): Promise<Response> {
+  async serveStatic(pathname: string, req?: Request): Promise<Response> {
     const staticDir = this.#options.staticDir;
     if (staticDir === undefined) return json({ error: "not found" }, 404);
     const segments = decodeURIComponent(pathname)
@@ -1532,10 +1560,24 @@ export class WebchatConnector implements ChannelConnector {
     if (isShell) {
       const name = this.#options.instanceName;
       const shell = brandShell(await file.text(), name ?? "", this.#usersMode);
-      return new Response(shell, { headers: { "content-type": "text/html; charset=utf-8" } });
+      // The shell is GENERATED (the label and the mode are injected), so its tag
+      // comes from the bytes actually served — the same file under a renamed
+      // instance is a different answer.
+      const etag = `"${Bun.hash(shell).toString(16)}"`;
+      if (isFresh(req, etag)) return notModified(etag);
+      return new Response(shell, {
+        headers: { ...cacheHeaders(etag), "content-type": "text/html; charset=utf-8" },
+      });
     }
+    // An asset's tag is its identity on disk (mtime + size): a rebuild rewrites
+    // both, an untouched file keeps them, and nothing has to be read to know.
+    const etag = `"${file.lastModified.toString(16)}-${file.size.toString(16)}"`;
+    if (isFresh(req, etag)) return notModified(etag);
     return new Response(file, {
-      headers: { "content-type": file.type || "application/octet-stream" },
+      headers: {
+        ...cacheHeaders(etag),
+        "content-type": file.type || "application/octet-stream",
+      },
     });
   }
 

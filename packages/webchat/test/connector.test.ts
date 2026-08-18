@@ -454,6 +454,78 @@ describe("instance label injection (FR-90)", () => {
       expect(js).toBe("console.log(1)");
     });
   });
+
+  // T282: the entry bundle keeps a stable name, so a browser with no validator
+  // can serve yesterday's panel after a soft reload — and a deployed fix looks
+  // undeployed (the T280/T281 hunt). Every static answer must be revalidatable.
+  test("assets carry a validator and must be revalidated before reuse", async () => {
+    await withShell("prod-cluster", async (connector) => {
+      const response = await connector.handleRequest(get("/assets/main.js"));
+      expect(response.headers.get("cache-control")).toBe("no-cache");
+      expect(response.headers.get("etag")).toMatch(/^"[0-9a-f]+-[0-9a-f]+"$/);
+    });
+  });
+
+  test("an unchanged asset comes back as 304 with no body", async () => {
+    await withShell("prod-cluster", async (connector) => {
+      const first = await connector.handleRequest(get("/assets/main.js"));
+      const etag = first.headers.get("etag") ?? "";
+      const again = await connector.handleRequest(
+        new Request("http://panel.test/assets/main.js", { headers: { "if-none-match": etag } }),
+      );
+      expect(again.status).toBe(304);
+      expect(again.headers.get("etag")).toBe(etag);
+      expect(await again.text()).toBe("");
+    });
+  });
+
+  test("a rebuilt asset is a different version — the old tag no longer matches", async () => {
+    const staticDir = mkdtempSync(join(tmpdir(), "muxeon-webchat-ui-"));
+    try {
+      await Bun.write(join(staticDir, "index.html"), SHELL);
+      const asset = join(staticDir, "assets", "main.js");
+      await Bun.write(asset, "console.log(1)");
+      const connector = await startedConnector({ staticDir });
+      try {
+        const before = (await connector.handleRequest(get("/assets/main.js"))).headers.get("etag");
+        await Bun.write(asset, "console.log(2) // a rebuild");
+        const stale = await connector.handleRequest(
+          new Request("http://panel.test/assets/main.js", {
+            headers: { "if-none-match": before ?? "" },
+          }),
+        );
+        expect(stale.status).toBe(200); // the browser gets the new bytes, not a 304
+        expect(await stale.text()).toContain("console.log(2)");
+      } finally {
+        await connector.stop();
+      }
+    } finally {
+      rmSync(staticDir, { recursive: true, force: true });
+    }
+  });
+
+  test("the shell's tag follows what is INJECTED into it, not just the file", async () => {
+    let branded = "";
+    await withShell("prod-cluster", async (connector) => {
+      branded = (await connector.handleRequest(get("/"))).headers.get("etag") ?? "";
+    });
+    let plain = "";
+    await withShell("staging", async (connector) => {
+      plain = (await connector.handleRequest(get("/"))).headers.get("etag") ?? "";
+    });
+    expect(branded).not.toBe("");
+    expect(branded).not.toBe(plain); // same file, different answer ⇒ different version
+  });
+
+  test("a shell the browser already holds is a 304 too", async () => {
+    await withShell("prod-cluster", async (connector) => {
+      const etag = (await connector.handleRequest(get("/"))).headers.get("etag") ?? "";
+      const again = await connector.handleRequest(
+        new Request("http://panel.test/", { headers: { "if-none-match": `W/${etag}` } }),
+      );
+      expect(again.status).toBe(304); // a weak tag names the same version
+    });
+  });
 });
 
 // --- server build info endpoint (FR-91) ----------------------------------------
