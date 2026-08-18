@@ -97,6 +97,52 @@ describe("liveness probe (FR-93, §5.1) — wired", () => {
     await server.stop();
   });
 
+  // T285: the probe is the ONLY witness of a session that died out-of-band, so it has
+  // to say so. Silence made "half the park is down" unexplainable — the log showed
+  // nothing, and the absence of an idle-teardown line (FR-92 does log) was read as
+  // proof that idle teardown had done it.
+  test("an out-of-band transition is announced, in both directions", async () => {
+    const written: string[] = [];
+    const original = process.stderr.write.bind(process.stderr);
+    process.stderr.write = ((chunk: unknown): boolean => {
+      written.push(String(chunk));
+      return true;
+    }) as typeof process.stderr.write;
+    try {
+      const { control, present } = fakeControl(["muxeon-session"]);
+      const server = await bootstrap({
+        configFile: writeConfig(bareConfig()),
+        probe: async () => true,
+        makeDriver: noopDriver,
+        sessionControl: control,
+        autoStart: true,
+        startLivenessProbe: false,
+      });
+
+      present.delete("muxeon-session"); // a script / a crash / a hand — nobody told us
+      await server.liveness?.tick();
+      await waitFor(() => server.status("muxeon") === "down");
+      await waitFor(() => written.some((line) => line.includes("went down out-of-band")));
+      expect(written.find((line) => line.includes("went down out-of-band"))).toContain(
+        'tmux session "muxeon-session" is gone',
+      );
+
+      present.add("muxeon-session"); // and back up, equally unannounced
+      await server.liveness?.tick();
+      await waitFor(() => server.status("muxeon") === "idle");
+      await waitFor(() => written.some((line) => line.includes("came up out-of-band")));
+
+      // a tick that changes nothing stays quiet — the log is for news, not for a pulse
+      const before = written.length;
+      await server.liveness?.tick();
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      expect(written.length).toBe(before);
+      await server.stop();
+    } finally {
+      process.stderr.write = original;
+    }
+  });
+
   test("an idle agent whose session was killed by hand is reconciled to down", async () => {
     const { control, present } = fakeControl(["muxeon-session"]); // live at boot
     const server = await bootstrap({

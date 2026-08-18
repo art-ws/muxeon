@@ -1561,10 +1561,25 @@ export async function bootstrap(options: BootstrapOptions = {}): Promise<MuxeonS
           runtime.dispatcher.control.submit(async () => {
             // The lane drains between turns (§8.5): a turn may have started since the
             // tick, so reconcileLiveness re-checks busy (FR-16b) before probing.
+            const before = runtime.state.status;
             await reconcileLiveness(
               { agent: runtime.agent, adapter: runtime.adapter, state: runtime.state },
               sessionControl,
             );
+            const after = runtime.state.status;
+            // An out-of-band transition is the one thing in the park nobody announces:
+            // a session killed by a script, a crash or a hand, and the agent simply
+            // BECOMES `down`. "Half the park is down" then reads as a mystery — it cost
+            // a wrong diagnosis on 2026-08-18, where the silence was read as an idle
+            // auto-teardown (FR-92, which does log) that had never fired. The probe
+            // found the change, so the probe says it (T285).
+            if (after !== before) {
+              process.stderr.write(
+                after === "down"
+                  ? `muxeon: "${runtime.name}" went down out-of-band — tmux session "${runtime.agent.tmux}" is gone (FR-93)\n`
+                  : `muxeon: "${runtime.name}" came up out-of-band — attached to tmux session "${runtime.agent.tmux}" (FR-93)\n`,
+              );
+            }
           }),
       })),
       ...(cadence.livenessProbeMs !== undefined ? { intervalMs: cadence.livenessProbeMs } : {}),
