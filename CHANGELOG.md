@@ -1,3 +1,24 @@
+## [0.1.16](https://github.com/art-ws/muxeon/compare/v0.1.15...v0.1.16) (2026-08-18)
+
+
+### Changes
+
+* **T279:** a header toolbar the user assembles — pinned shortcuts to the two menus
+
+  The topbar was half empty while the actions people reach for most sat two clicks deep in the chat kebab and the account menu. Now any of those items can be pinned into the header, and Settings has a Toolbar section that lists the whole catalogue — icon, name, what it does — with a switch per row. ([8428cd2](https://github.com/art-ws/muxeon/commit/8428cd2e84679d0b0756b8f525fbda8e894b9c28))
+* **T280:** the console stops blinking — a re-render must not detach the pane
+
+  The translator comes from context and was rebuilt on every App render, so its identity changed constantly. The console's attach effect listed it among its dependencies, so an unrelated re-render disposed the terminal, closed the tmux client and built both again — the pane blinked. ([63f8f97](https://github.com/art-ws/muxeon/commit/63f8f97c6956cac022eef1b0def100afeac1514b))
+* **T281:** the console stops flashing Reconnect — and says which build it is
+
+  Still blinking after T280, in a way that names its own mechanism: "Reconnect" appeared and vanished at speed. That is one re-attach cycle drawn out — connecting → (the previous socket's close arrives) ended → live — so two things were wrong. ([ac9bf46](https://github.com/art-ws/muxeon/commit/ac9bf463175a8bc8192cdd9c1522d6345cad9fd3))
+* **T282:** panel statics answer "is this still current?" — ETag and no-cache
+
+  The entry bundle keeps a stable name, so a browser holding it had no way to learn that dist/ had been rebuilt: statics went out with no ETag, no Last-Modified and no Cache-Control. A soft reload could keep yesterday's panel alive, which is how two console fixes looked like no fix at all. ([c514f04](https://github.com/art-ws/muxeon/commit/c514f04dae3a3ec477c491abf8c6400215aea287))
+* **T284:** a shim that outlives its agent stops being harmless — it now exits
+
+  dev1 was producing a continuous stream of "identity taken over by a new session" on the stand: four processes claimed the name, three of them orphaned by earlier agent sessions (PPID 1, started Aug 14, Aug 16, Aug 17) and one belonging to the live agent. ([93eef4e](https://github.com/art-ws/muxeon/commit/93eef4eedcde8e97a5eb6ec5c45247205318093c))
+
 ## [0.1.15](https://github.com/art-ws/muxeon/compare/v0.1.14...v0.1.15) (2026-08-17)
 
 
