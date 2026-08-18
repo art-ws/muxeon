@@ -30,17 +30,25 @@ export function Toolbar(props: {
   peer: PeerInfo | undefined;
   onSettings: () => void;
   onLogout: () => void;
-}): React.JSX.Element | null {
+}): React.JSX.Element {
   const t = useT();
   const peer = props.peer;
-  // The console popup outlives the click that opened it, but not the chat it
-  // belongs to: switching peers closes it (the dialog attaches to a NAME).
-  const [consoleOpen, setConsoleOpen] = useState(false);
-  // biome-ignore lint/correctness/useExhaustiveDependencies: re-run to CLOSE the popup whenever the open peer changes (the body doesn't read it, it reacts to it)
-  useEffect(() => setConsoleOpen(false), [peer?.name]);
+  // The console holds the NAME it attached to, not the peer object (T281): the
+  // popup must survive everything that can shake the object under it — a status
+  // push rebuilding it, the peer briefly missing from a refreshed list, the bar
+  // itself going empty. It closes when the user opens a DIFFERENT chat, and on
+  // the ✕; "no chat open" is not a reason to tear down a live terminal someone
+  // is working in (§12.9).
+  const [consolePeer, setConsolePeer] = useState<string | undefined>(undefined);
+  const openName = peer?.name;
+  useEffect(() => {
+    if (openName === undefined) return;
+    setConsolePeer((current) =>
+      current === undefined || current === openName ? current : undefined,
+    );
+  }, [openName]);
 
   const tools = visibleTools(props.enabled, peer);
-  if (tools.length === 0) return null; // nothing pinned (the default) ⇒ no group
 
   // A chat tool says WHOM it will act on; a panel tool says what it does.
   const titleOf = (tool: Tool): string =>
@@ -52,7 +60,9 @@ export function Toolbar(props: {
     const name = peer?.name ?? "";
     switch (tool.id) {
       case "console":
-        return async () => setConsoleOpen(true);
+        return async () => {
+          if (name !== "") setConsolePeer(name);
+        };
       case "clear":
         return () => clearHistory(name);
       case "reload":
@@ -69,55 +79,62 @@ export function Toolbar(props: {
   };
 
   return (
-    <span className="topbar-tools" role="toolbar" aria-label={t("Toolbar")}>
-      {tools.map((tool) => {
-        // Export is a plain download link, exactly as in the menu (FR-84): no
-        // confirm, no JS — an <a download> styled like its neighbours.
-        if (tool.id === "export" && peer !== undefined) {
-          return (
-            <a
-              key={tool.id}
-              className="tool-button"
-              href={exportHistoryUrl(peer.name)}
-              download
-              title={titleOf(tool)}
-              aria-label={titleOf(tool)}
-            >
-              <tool.icon size={16} />
-            </a>
-          );
-        }
-        // Pause carries STATE (§16.4, FR-120): the button shows what the peer is
-        // now and asks for the opposite — never a blind toggle.
-        if (tool.id === "pause" && peer !== undefined) {
-          const paused = peer.paused === true;
-          const label = t(paused ? "Resume" : "Pause");
-          return (
-            <ToolButton
-              key={tool.id}
-              tool={tool}
-              label={label}
-              title={`${label} — ${peerLabel(peer)}`}
-              icon={paused ? <IconPlay size={16} /> : <tool.icon size={16} />}
-              onRun={() => setAgentPaused(peer.name, !paused)}
-            />
-          );
-        }
-        return (
-          <ToolButton
-            key={tool.id}
-            tool={tool}
-            label={t(tool.label)}
-            title={titleOf(tool)}
-            icon={<tool.icon size={16} />}
-            onRun={run(tool)}
-          />
-        );
-      })}
-      {consoleOpen && peer !== undefined && (
-        <ConsoleDialog peer={peer.name} onClose={() => setConsoleOpen(false)} />
+    <>
+      {/* The group disappears when nothing is pinned or nothing applies — but the
+          console popup below is its SIBLING, not its child (T281): an empty bar
+          must not tear down a terminal. */}
+      {tools.length > 0 && (
+        <span className="topbar-tools" role="toolbar" aria-label={t("Toolbar")}>
+          {tools.map((tool) => {
+            // Export is a plain download link, exactly as in the menu (FR-84): no
+            // confirm, no JS — an <a download> styled like its neighbours.
+            if (tool.id === "export" && peer !== undefined) {
+              return (
+                <a
+                  key={tool.id}
+                  className="tool-button"
+                  href={exportHistoryUrl(peer.name)}
+                  download
+                  title={titleOf(tool)}
+                  aria-label={titleOf(tool)}
+                >
+                  <tool.icon size={16} />
+                </a>
+              );
+            }
+            // Pause carries STATE (§16.4, FR-120): the button shows what the peer is
+            // now and asks for the opposite — never a blind toggle.
+            if (tool.id === "pause" && peer !== undefined) {
+              const paused = peer.paused === true;
+              const label = t(paused ? "Resume" : "Pause");
+              return (
+                <ToolButton
+                  key={tool.id}
+                  tool={tool}
+                  label={label}
+                  title={`${label} — ${peerLabel(peer)}`}
+                  icon={paused ? <IconPlay size={16} /> : <tool.icon size={16} />}
+                  onRun={() => setAgentPaused(peer.name, !paused)}
+                />
+              );
+            }
+            return (
+              <ToolButton
+                key={tool.id}
+                tool={tool}
+                label={t(tool.label)}
+                title={titleOf(tool)}
+                icon={<tool.icon size={16} />}
+                onRun={run(tool)}
+              />
+            );
+          })}
+        </span>
       )}
-    </span>
+      {consolePeer !== undefined && (
+        <ConsoleDialog peer={consolePeer} onClose={() => setConsolePeer(undefined)} />
+      )}
+    </>
   );
 }
 

@@ -167,6 +167,11 @@ export function ConsoleDialog(props: {
       window.removeEventListener("resize", onResize);
       typed.dispose();
       binary.dispose();
+      // OUR close is not a lost connection (T281): the flag goes down BEFORE the
+      // socket does, so the close event this teardown provokes stays silent
+      // instead of flashing "connection lost" (and its Reconnect button) over
+      // the attachment that is already replacing it.
+      live = false;
       socket.close();
       term.dispose();
       termRef.current = undefined;

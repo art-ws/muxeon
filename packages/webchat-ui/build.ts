@@ -11,11 +11,20 @@ const dist = join(root, "dist");
 await rm(dist, { recursive: true, force: true });
 await mkdir(join(dist, "assets"), { recursive: true });
 
+// A build stamp baked into the bundle (T281): the entry has a stable name, so a
+// browser can serve an old one after a soft reload and a fixed panel looks
+// unfixed. The SPA prints this once at boot — "which build is this tab running"
+// becomes a one-second question. Time + the commit it was built from.
+const sha = Bun.spawnSync(["git", "rev-parse", "--short", "HEAD"], { cwd: root });
+const commit = sha.success ? sha.stdout.toString().trim() : "unknown";
+const stamp = `${new Date().toISOString()} (${commit})`;
+
 const result = await Bun.build({
   entrypoints: [join(root, "src", "main.tsx")],
   outdir: join(dist, "assets"),
   target: "browser",
   minify: true,
+  define: { __PANEL_BUILD__: JSON.stringify(stamp) },
   // splitting: mermaid (FR-100) is imported lazily, so it lands in its own chunk
   // loaded on demand rather than bloating the entry bundle. The entry keeps a
   // stable name; chunks get hashed names (all under assets/, served as statics).
