@@ -23,6 +23,7 @@ import {
   IconMonitor,
   IconPause,
   IconPower,
+  IconRadio,
   IconRotate,
   IconTrash,
 } from "./icons";
@@ -36,12 +37,22 @@ export type ToolId =
   | "pause"
   | "reload"
   | "shutdown"
+  | "transport"
   | "agent-filter"
   | "settings"
   | "logout";
 
 /** `chat` acts on the OPEN peer; `panel` acts on the panel / oneself. */
 export type ToolScope = "chat" | "panel";
+
+/**
+ * What a tool needs to know beyond the open peer (T291). Today that is the
+ * viewer's role: the transport journal is an admin capability (§17.7, FR-131),
+ * and a shortcut to a sidebar entry a plain user never gets must not print.
+ */
+export interface ToolContext {
+  readonly role?: "admin" | "user";
+}
 
 export interface Tool {
   /** Stable persistence key — never reused once a tool leaves the catalogue. */
@@ -66,8 +77,9 @@ export interface Tool {
    * Offered exactly when the kebab item would be (FR-172) — the predicate IS the
    * menu's. `undefined` = no 1:1 chat open ⇒ no chat tool at all; a broadcast
    * target (§15.6) has neither status nor lifecycle, so it counts as no chat.
+   * A panel tool may instead read the CONTEXT (the viewer's role, T291).
    */
-  readonly available: (peer: PeerInfo | undefined) => boolean;
+  readonly available: (peer: PeerInfo | undefined, ctx?: ToolContext) => boolean;
 }
 
 /** A 1:1 chat (agent or person) is open — the precondition of every chat tool. */
@@ -136,7 +148,20 @@ export const TOOLS: readonly Tool[] = [
     available: (peer) => inChat(peer) && peer.actions?.shutdown === true,
   },
   {
-    // The one entry whose "menu item" is a SETTINGS SWITCH, not a menu line
+    // A STATE toggle (FR-177): the sidebar's Transport entry (T115). Its "menu
+    // item" is the Settings switch of the same name, and — unlike the filter —
+    // it is not offered to everyone: the journal is an admin capability (§17.7,
+    // FR-131), so a plain user, whose sidebar never shows the entry, gets no
+    // shortcut to it either (§12.10.7-Q1: the unavailable is hidden).
+    id: "transport",
+    scope: "panel",
+    label: "Transport",
+    hint: "The all-routed-messages feed in the sidebar",
+    icon: IconRadio,
+    available: (_peer, ctx) => ctx?.role !== "user",
+  },
+  {
+    // The entry whose "menu item" is a SETTINGS SWITCH, not a menu line
     // (FR-177): it does not run an action, it flips the state that switch owns —
     // one pref, two places to reach it, so the two can never disagree. Being a
     // state, the button also SHOWS it: lit while the panel is on screen, and its
@@ -182,8 +207,9 @@ export const DEFAULT_TOOLS: ReadonlySet<ToolId> = new Set<ToolId>();
 export function visibleTools(
   enabled: ReadonlySet<ToolId>,
   peer: PeerInfo | undefined,
+  ctx?: ToolContext,
 ): readonly Tool[] {
-  return TOOLS.filter((tool) => enabled.has(tool.id) && tool.available(peer));
+  return TOOLS.filter((tool) => enabled.has(tool.id) && tool.available(peer, ctx));
 }
 
 /**

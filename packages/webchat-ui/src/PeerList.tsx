@@ -16,9 +16,10 @@
 // 1:1 (one glyph per row, same order, respecting collapse).
 // The account button is NOT here (T234): it moved to the topbar's right corner
 // (AccountMenu.tsx), so the sidebar is a list of addressees and nothing else.
-// The agent filter (§12.7, FR-176/FR-177, T290) is: an always-expanded panel
-// between the Transport entry and the list — a name field and an all/online
-// switch — shown/hidden from Settings or its topbar button.
+// The agent filter (§12.7, FR-176/FR-177, T290/T291) is: an always-expanded panel
+// at the TOP of the sidebar — above the Transport entry and the list (operator,
+// T291) — a name field and an all/online switch, shown/hidden from Settings or
+// its topbar button.
 
 import { useState } from "react";
 import { RzArrows } from "./RzArrows";
@@ -140,6 +141,14 @@ export function PeerList(props: {
     <nav className={`peer-list${collapsed ? " collapsed" : ""}`}>
       {/* the rows scroll in their own container (T109) */}
       <div className="peer-scroll">
+        {showPanel && (
+          <AgentFilterPanel
+            filter={filter}
+            onFilter={setFilter}
+            shown={participantCount(peers)}
+            total={participantCount(props.peers)}
+          />
+        )}
         {props.onTransport !== undefined && (
           <button
             type="button"
@@ -160,14 +169,6 @@ export function PeerList(props: {
               </span>
             )}
           </button>
-        )}
-        {showPanel && (
-          <AgentFilterPanel
-            filter={filter}
-            onFilter={setFilter}
-            shown={participantCount(peers)}
-            total={participantCount(props.peers)}
-          />
         )}
         {rows.length === 0 && tags.length === 0 && !collapsed && (
           /* an emptied list says WHY it is empty — the filter is a state one can
@@ -223,10 +224,11 @@ export function PeerList(props: {
   );
 }
 
-// The agent-filter panel (§12.7, FR-176, T290 — operator request). It sits
-// between the Transport entry and the list and is ALWAYS expanded: a filter that
-// has to be unfolded first is a filter one forgets is on. It sticks to the top of
-// the scroller, so a long park cannot scroll its own filter out of reach.
+// The agent-filter panel (§12.7, FR-176, T290/T291 — operator request). It sits
+// at the TOP of the sidebar, above the Transport entry and the list, and is
+// ALWAYS expanded: a filter that has to be unfolded first is a filter one forgets
+// is on. It sticks to the top of the scroller, so a long park cannot scroll its
+// own filter out of reach — the Transport entry passes under it.
 // Two controls — the name field and the all/online switch — and, whenever they
 // shorten the list, a counter: a filtered sidebar never passes for the whole park
 // (the same rule the message filter's strip keeps, FR-71).

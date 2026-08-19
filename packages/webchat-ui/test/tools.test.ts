@@ -85,14 +85,29 @@ describe("the catalogue (FR-171)", () => {
     }
   });
 
-  // FR-177: the catalogue's one STATE toggle — its "menu item" is the Settings
-  // switch, so it is always offered and never confirms (nothing to undo).
-  test("the agent filter is a panel tool, always available, unarmed", () => {
-    const filter = TOOLS.find((tool) => tool.id === "agent-filter");
-    expect(filter?.scope).toBe("panel");
-    expect(filter?.confirm).toBeUndefined();
-    expect(ids(["agent-filter"], undefined)).toEqual(["agent-filter"]);
-    expect(ids(["agent-filter"], group)).toEqual(["agent-filter"]);
+  // FR-177: the catalogue's STATE toggles — their "menu item" is a Settings
+  // switch, so they are offered off any view and never confirm (nothing to undo).
+  test("the view toggles are panel tools, available off any view, unarmed", () => {
+    for (const id of ["agent-filter", "transport"] as const) {
+      const tool = TOOLS.find((entry) => entry.id === id);
+      expect(tool?.scope).toBe("panel");
+      expect(tool?.confirm).toBeUndefined();
+      expect(ids([id], undefined)).toEqual([id]);
+      expect(ids([id], group)).toEqual([id]);
+    }
+  });
+
+  // FR-131/T291: the journal is an admin capability — a plain user has no
+  // Transport entry in the sidebar, so its shortcut must not print either.
+  test("the Transport toggle is admin-only; the filter is everyone's", () => {
+    const forRole = (role: "admin" | "user"): readonly string[] =>
+      visibleTools(new Set<ToolId>(["transport", "agent-filter"]), undefined, { role }).map(
+        (tool) => tool.id,
+      );
+    expect(forRole("admin")).toEqual(["transport", "agent-filter"]);
+    expect(forRole("user")).toEqual(["agent-filter"]);
+    // a legacy panel (§17.9) reports no role at all — it is the single operator
+    expect(ids(["transport"], undefined)).toEqual(["transport"]);
   });
 
   test("sign out arms too — a topbar button has no menu to open first", () => {
@@ -118,11 +133,11 @@ describe("what the bar prints (FR-172)", () => {
   });
 
   test("no chat open ⇒ chat tools vanish, panel tools stay", () => {
-    expect(ids(ALL, undefined)).toEqual(["agent-filter", "settings", "logout"]);
+    expect(ids(ALL, undefined)).toEqual(["transport", "agent-filter", "settings", "logout"]);
   });
 
   test("a broadcast target has no status and no lifecycle — no chat tools", () => {
-    expect(ids(ALL, group)).toEqual(["agent-filter", "settings", "logout"]);
+    expect(ids(ALL, group)).toEqual(["transport", "agent-filter", "settings", "logout"]);
   });
 
   test("a person has history and DND but no terminal and no lifecycle", () => {
@@ -130,6 +145,7 @@ describe("what the bar prints (FR-172)", () => {
       "export",
       "clear",
       "pause",
+      "transport",
       "agent-filter",
       "settings",
       "logout",
@@ -142,7 +158,14 @@ describe("what the bar prints (FR-172)", () => {
       server: "hub",
       actions: { shutdown: false, reload: false, pause: false },
     });
-    expect(ids(ALL, remote)).toEqual(["export", "clear", "agent-filter", "settings", "logout"]);
+    expect(ids(ALL, remote)).toEqual([
+      "export",
+      "clear",
+      "transport",
+      "agent-filter",
+      "settings",
+      "logout",
+    ]);
   });
 
   test("lifecycle tools follow the server's action flags, not a guess", () => {

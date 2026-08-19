@@ -143,11 +143,20 @@ export function App(): React.JSX.Element {
   // lighter interface. Persisted (FR-72).
   const [showTokens, setShowTokens] = useState(() => loadPref("show-tokens", true));
   useEffect(() => savePref("show-tokens", showTokens), [showTokens]);
-  // The sidebar's agent-filter panel (§12.7, FR-176): ON by default. It lives HERE,
-  // above the panel, because two places flip it — the Settings switch inside the
-  // panel and the topbar button (FR-177) outside it — and they must flip one state.
-  const [agentFilter, setAgentFilter] = useState(() => loadPref("agent-filter", true));
+  // The two sidebar view toggles (FR-176/FR-177, T115). They live HERE, above the
+  // panel, because two places flip each — the Settings switch inside the panel and
+  // the topbar button outside it — and both must flip ONE state.
+  // The agent-filter panel is OFF by default (operator, T291): a fresh browser gets
+  // the sidebar it always had, and the panel arrives when asked for.
+  const [agentFilter, setAgentFilter] = useState(() => loadPref("agent-filter", false));
   useEffect(() => savePref("agent-filter", agentFilter), [agentFilter]);
+  // The sidebar Transport entry (T115): shown by default, hideable; the direct
+  // #/transport URL keeps working either way.
+  const [showTransport, setShowTransport] = useState(() => loadPref("transport", true));
+  useEffect(() => savePref("transport", showTransport), [showTransport]);
+  // The viewer's role (FR-131), reported up with their identity: the journal is an
+  // admin capability, so its shortcut is not offered to a plain user (T291).
+  const [role, setRole] = useState<"admin" | "user" | undefined>(undefined);
   // The pinned toolbar tools (§12.10, FR-174): empty by default, the Settings
   // switches own the set, localStorage keeps it per browser.
   const [tools, setTools] = useState<ReadonlySet<ToolId>>(() => loadToolbar());
@@ -215,6 +224,9 @@ export function App(): React.JSX.Element {
               peer={surface}
               agentFilter={agentFilter}
               onAgentFilter={setAgentFilter}
+              transport={showTransport}
+              onTransport={setShowTransport}
+              {...(role !== undefined ? { viewerRole: role } : {})}
               onSettings={() => {
                 location.hash = routeHash({ view: "settings" });
               }}
@@ -266,15 +278,19 @@ export function App(): React.JSX.Element {
             onFlat={setFlatPeers}
             agentFilter={agentFilter}
             onAgentFilter={setAgentFilter}
+            transport={showTransport}
+            onTransport={setShowTransport}
+            viewerRole={role}
             showTokens={showTokens}
             onShowTokens={setShowTokens}
             tools={tools}
             onTools={setTools}
             collapsed={collapsed}
             query={query}
-            onIdentity={(name, title) => {
+            onIdentity={(name, title, myRole) => {
               setOperator(name);
               setOperatorTitle(title);
+              setRole(myRole);
             }}
             onSurface={onSurface}
             onAuthLost={() => setAuthed(false)}
@@ -373,6 +389,11 @@ function Panel(props: {
   /** The sidebar's agent-filter panel (FR-176) — the Settings switch and the topbar button. */
   agentFilter: boolean;
   onAgentFilter: (show: boolean) => void;
+  /** The sidebar Transport entry (T115) — same pair of switches (FR-177). */
+  transport: boolean;
+  onTransport: (show: boolean) => void;
+  /** The viewer's role (FR-131) — owned by App, which the toolbar reads too. */
+  viewerRole: "admin" | "user" | undefined;
   /** Token-usage display: true (default) shows the chat-header token meter, false hides it. */
   showTokens: boolean;
   onShowTokens: (show: boolean) => void;
@@ -383,10 +404,15 @@ function Panel(props: {
   /** Global message filter (FR-71) — applied by the chat and transport views. */
   query: string;
   /**
-   * Reports the logged-in name — and its configured label (FR-156) — upward
-   * (T234): the topbar account button lives outside this panel.
+   * Reports the logged-in name — its configured label (FR-156) and its role
+   * (FR-131) — upward (T234/T291): the topbar account button and the toolbar
+   * live outside this panel, and the journal shortcut needs the role.
    */
-  onIdentity: (operator: string | undefined, title?: string | undefined) => void;
+  onIdentity: (
+    operator: string | undefined,
+    title?: string | undefined,
+    role?: "admin" | "user" | undefined,
+  ) => void;
   /**
    * Reports the OPEN 1:1 chat's peer upward (§12.10.5) — the topbar toolbar acts
    * on it and the header lives outside this panel. Undefined whenever there is no
@@ -424,19 +450,16 @@ function Panel(props: {
   }, []);
 
   // The operator's role (FR-131) — in users mode the logged-in user's (§17.7);
-  // their own row (self-chat, FR-128) arrives inside `peers` like any other.
-  // The NAME goes up to the topbar account button (T234), not into the sidebar.
-  const [role, setRole] = useState<"admin" | "user" | undefined>(undefined);
+  // their own row (self-chat, FR-128) arrives inside `peers` like any other. It
+  // is OWNED by App (T291): the topbar toolbar reads it too, and one fetch must
+  // not become two readings of who is signed in.
+  const role = props.viewerRole;
 
   // Agent visibility (T110, FR-76): the settings checklist decides which agents
   // the sidebar shows — "all" (default) or only the picked set; persisted.
   const [visibility, setVisibility] = useState(() => loadVisibility());
   useEffect(() => saveVisibility(visibility), [visibility]);
 
-  // The sidebar Transport entry (T115): shown by default, hideable from the
-  // settings page; the direct #/transport URL keeps working either way.
-  const [showTransport, setShowTransport] = useState(() => loadPref("transport", true));
-  useEffect(() => savePref("transport", showTransport), [showTransport]);
   // Server build info (FR-91) for the Settings footer — static, fetched once.
   const [serverInfo, setServerInfo] = useState<ServerInfo | undefined>(undefined);
   useEffect(() => {
@@ -485,12 +508,11 @@ function Panel(props: {
       // In users mode the operator's OWN row rides in `peers` (FR-128) — that is
       // where their configured title comes from; a legacy panel has no user, so
       // no title (FR-156).
-      onIdentity(me ?? "operator", peers.find((peer) => peer.name === user)?.title);
+      onIdentity(me ?? "operator", peers.find((peer) => peer.name === user)?.title, myRole);
       // `user` exists only in users mode (§17.2) — that is exactly when there is
       // a self-chat to mirror into; a legacy panel leaves it undefined.
       selfName.current = user;
       setSelf(user);
-      setRole(myRole);
       dispatch({ kind: "peers", peers });
     });
     return api.connectFeed({
@@ -622,7 +644,7 @@ function Panel(props: {
           transportSelected={route.view === "transport"}
           /* The journal is an admin capability (§17.7, FR-131): a plain user gets no
            entry at all — the endpoint answers 403 for them anyway. */
-          {...(showTransport && role !== "user"
+          {...(props.transport && role !== "user"
             ? { onTransport: () => navigate({ view: "transport" }) }
             : {})}
           flat={props.flat}
@@ -661,8 +683,8 @@ function Panel(props: {
               onTheme={props.onTheme}
               lang={props.lang}
               onLang={props.onLang}
-              transport={showTransport}
-              onTransport={setShowTransport}
+              transport={props.transport}
+              onTransport={props.onTransport}
               flat={props.flat}
               onFlat={props.onFlat}
               agentFilter={props.agentFilter}

@@ -21,8 +21,9 @@ export type BoolPref =
   // Token-usage display: ON (the default) shows the per-agent token meter in the
   // chat header; OFF hides it for a lighter interface. Persisted (FR-72).
   | "show-tokens"
-  // The sidebar's agent-filter panel (§12.7, FR-176): ON (the default) prints the
-  // name field + all/online switch above the list. The panel's VISIBILITY is what
+  // The sidebar's agent-filter panel (§12.7, FR-176): ON prints the name field +
+  // all/online switch at the top of the sidebar; OFF is the default (T291) — a
+  // fresh browser gets the sidebar it always had. The panel's VISIBILITY is what
   // persists — never the filter inside it (a hidden filter would shorten the
   // sidebar after a reload with nothing on screen to explain why).
   | "agent-filter";

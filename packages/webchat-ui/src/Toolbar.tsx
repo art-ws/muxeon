@@ -29,12 +29,20 @@ export function Toolbar(props: {
    */
   peer: PeerInfo | undefined;
   /**
-   * The sidebar's agent-filter panel (FR-176/FR-177): its button is a two-state
-   * one — it shows whether the panel is up and asks for the opposite, like Pause
-   * does. The state itself belongs to the same pref the Settings switch writes.
+   * The two SIDEBAR view toggles (FR-177): the agent-filter panel (FR-176) and
+   * the Transport entry (T115). Their buttons are two-state ones — each shows
+   * whether its thing is up and asks for the opposite, like Pause does — and the
+   * state itself belongs to the very pref the matching Settings switch writes.
    */
   agentFilter?: boolean;
   onAgentFilter?: (show: boolean) => void;
+  transport?: boolean;
+  onTransport?: (show: boolean) => void;
+  /**
+   * The viewer's role (FR-131) — the journal shortcut is admin-only (T291). Named
+   * `viewerRole`, not `role`: on a JSX element that word is the ARIA attribute.
+   */
+  viewerRole?: "admin" | "user";
   onSettings: () => void;
   onLogout: () => void;
 }): React.JSX.Element {
@@ -55,13 +63,32 @@ export function Toolbar(props: {
     );
   }, [openName]);
 
-  const tools = visibleTools(props.enabled, peer);
+  const tools = visibleTools(props.enabled, peer, {
+    ...(props.viewerRole !== undefined ? { role: props.viewerRole } : {}),
+  });
 
   // A chat tool says WHOM it will act on; a panel tool says what it does.
   const titleOf = (tool: Tool): string =>
     tool.scope === "chat"
       ? `${t(tool.label)} — ${peerLabel(peer)}`
       : `${t(tool.label)} — ${t(tool.hint)}`;
+
+  // The view toggles (FR-177): what they show now, and what the next click does.
+  // Both halves live here so a toggle cannot end up lit with the wrong wording.
+  const toggleOf = (tool: Tool): { on: boolean; label: string } | undefined => {
+    switch (tool.id) {
+      case "agent-filter": {
+        const on = props.agentFilter === true;
+        return { on, label: t(on ? "Hide the agent filter" : "Show the agent filter") };
+      }
+      case "transport": {
+        const on = props.transport === true;
+        return { on, label: t(on ? "Hide the Transport page" : "Show the Transport page") };
+      }
+      default:
+        return undefined;
+    }
+  };
 
   const run = (tool: Tool): (() => Promise<unknown>) => {
     const name = peer?.name ?? "";
@@ -78,6 +105,8 @@ export function Toolbar(props: {
         return () => agentAction(name, "shutdown");
       case "agent-filter":
         return async () => props.onAgentFilter?.(props.agentFilter !== true);
+      case "transport":
+        return async () => props.onTransport?.(props.transport !== true);
       case "settings":
         return async () => props.onSettings();
       case "logout":
@@ -127,20 +156,19 @@ export function Toolbar(props: {
                 />
               );
             }
-            // The agent filter carries STATE too (FR-177): the button is lit
-            // while the panel is up and its tooltip names the NEXT click — a
-            // toggle that looks the same in both states is a coin flip.
-            if (tool.id === "agent-filter") {
-              const shown = props.agentFilter === true;
-              const label = t(shown ? "Hide the agent filter" : "Show the agent filter");
+            // A view toggle carries STATE (FR-177): the button is lit while its
+            // thing is on screen and its tooltip names the NEXT click — a toggle
+            // that looks the same in both states is a coin flip.
+            const toggle = toggleOf(tool);
+            if (toggle !== undefined) {
               return (
                 <ToolButton
                   key={tool.id}
                   tool={tool}
-                  label={label}
-                  title={label}
+                  label={toggle.label}
+                  title={toggle.label}
                   icon={<tool.icon size={16} />}
-                  pressed={shown}
+                  pressed={toggle.on}
                   onRun={run(tool)}
                 />
               );

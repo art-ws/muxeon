@@ -57,14 +57,14 @@ describe("the filter panel", () => {
     expect(html).toContain(">Online<");
   });
 
-  test("it sits BELOW the Transport entry and ABOVE the first agent row", () => {
+  test("it sits at the TOP — above the Transport entry and the rows (T291)", () => {
     const html = sidebar({ filterPanel: true, transport: true });
-    const transport = html.indexOf("transport-entry");
     const panel = html.indexOf('class="agent-filter"');
+    const transport = html.indexOf("transport-entry");
     const firstRow = html.indexOf("peer-accent");
-    expect(transport).toBeGreaterThanOrEqual(0);
-    expect(panel).toBeGreaterThan(transport);
-    expect(firstRow).toBeGreaterThan(panel);
+    expect(panel).toBeGreaterThanOrEqual(0);
+    expect(transport).toBeGreaterThan(panel);
+    expect(firstRow).toBeGreaterThan(transport);
   });
 
   test("no panel on the collapsed rail — and therefore no hidden filtering", () => {

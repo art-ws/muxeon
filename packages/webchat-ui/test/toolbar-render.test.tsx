@@ -88,6 +88,51 @@ describe("the toolbar group", () => {
     expect(bar(["agent-filter"], undefined)).not.toContain("danger");
   });
 
+  // T291: the Transport entry is the second view toggle — same two-state idiom,
+  // but the journal is an admin capability (FR-131), so a plain user gets no button.
+  test("the Transport button toggles the sidebar entry and shows its state", () => {
+    const hidden = renderToStaticMarkup(
+      <Toolbar
+        enabled={new Set<ToolId>(["transport"])}
+        peer={undefined}
+        transport={false}
+        onTransport={() => undefined}
+        onSettings={() => undefined}
+        onLogout={() => undefined}
+      />,
+    );
+    expect(hidden).toContain('aria-label="Show the Transport page"');
+    expect(hidden).toContain('aria-pressed="false"');
+    const shown = renderToStaticMarkup(
+      <Toolbar
+        enabled={new Set<ToolId>(["transport"])}
+        peer={undefined}
+        transport={true}
+        onTransport={() => undefined}
+        onSettings={() => undefined}
+        onLogout={() => undefined}
+      />,
+    );
+    expect(shown).toContain('aria-label="Hide the Transport page"');
+    expect(shown).toContain("tool-button active");
+  });
+
+  test("a plain user gets no Transport shortcut — the entry is not theirs", () => {
+    const html = renderToStaticMarkup(
+      <Toolbar
+        enabled={new Set<ToolId>(["transport", "agent-filter"])}
+        peer={undefined}
+        viewerRole="user"
+        transport={true}
+        onTransport={() => undefined}
+        onSettings={() => undefined}
+        onLogout={() => undefined}
+      />,
+    );
+    expect(html).not.toContain("Transport");
+    expect(html).toContain("the agent filter"); // …their own toggle stays
+  });
+
   test("chat tools disappear with no chat open; panel tools stay", () => {
     const html = bar(["console", "clear", "settings"], undefined);
     expect(html).not.toContain("Console");
