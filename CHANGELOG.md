@@ -1,3 +1,21 @@
+## [0.1.18](https://github.com/art-ws/muxeon/compare/v0.1.17...v0.1.18) (2026-08-19)
+
+
+### Changes
+
+* **T290:** a filter belongs where you can see it — hide the panel and the list comes back
+
+  The operator asked the sidebar for a working panel over the agent list: filter by name, an all/online switch, expanded in place under the Transport entry, and a toolbar button next to the Settings switch to show or hide it. ([64cec51](https://github.com/art-ws/muxeon/commit/64cec513037354cbce8b013f65efcc8ed5213893))
+* **T291:** the sidebar's two view toggles — same button idiom, and the filter starts hidden
+
+  Three operator notes on T290, in one pass. ([13348fe](https://github.com/art-ws/muxeon/commit/13348fe4229cf078140b037022c11ad7fce1de78))
+* **T292:** a reply hands over a reference, not a retelling — the agent resolves it by id
+
+  The operator asked the panel for reply: quote any message in a chat, see that a message answers another one (and click through to it), and have the agent told — with the id — that this is a reply, so it can read that message and its context over MCP. Explicitly NOT by pasting the quote at the agent. ([f2c2518](https://github.com/art-ws/muxeon/commit/f2c251886a35c95e71cf6af4e198adfd666b7fdc))
+* **T294:** a quote someone chose always prints — "origin is set" was never the test for a human
+
+  The operator's first live reply answered the message directly above it and rendered as an ordinary bubble: no quote, nothing to click. That was T292's suppression rule doing exactly what it was written to do, on the one case the feature exists for. ([e91f302](https://github.com/art-ws/muxeon/commit/e91f302c8c3d3dab4407904fe309d5c7c1b6ec2b))
+
 ## [0.1.17](https://github.com/art-ws/muxeon/compare/v0.1.16...v0.1.17) (2026-08-19)
 
 
