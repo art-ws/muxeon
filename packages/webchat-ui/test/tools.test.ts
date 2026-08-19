@@ -85,6 +85,16 @@ describe("the catalogue (FR-171)", () => {
     }
   });
 
+  // FR-177: the catalogue's one STATE toggle — its "menu item" is the Settings
+  // switch, so it is always offered and never confirms (nothing to undo).
+  test("the agent filter is a panel tool, always available, unarmed", () => {
+    const filter = TOOLS.find((tool) => tool.id === "agent-filter");
+    expect(filter?.scope).toBe("panel");
+    expect(filter?.confirm).toBeUndefined();
+    expect(ids(["agent-filter"], undefined)).toEqual(["agent-filter"]);
+    expect(ids(["agent-filter"], group)).toEqual(["agent-filter"]);
+  });
+
   test("sign out arms too — a topbar button has no menu to open first", () => {
     const logout = TOOLS.find((tool) => tool.id === "logout");
     expect(logout?.confirm).toBe(true);
@@ -108,15 +118,22 @@ describe("what the bar prints (FR-172)", () => {
   });
 
   test("no chat open ⇒ chat tools vanish, panel tools stay", () => {
-    expect(ids(ALL, undefined)).toEqual(["settings", "logout"]);
+    expect(ids(ALL, undefined)).toEqual(["agent-filter", "settings", "logout"]);
   });
 
   test("a broadcast target has no status and no lifecycle — no chat tools", () => {
-    expect(ids(ALL, group)).toEqual(["settings", "logout"]);
+    expect(ids(ALL, group)).toEqual(["agent-filter", "settings", "logout"]);
   });
 
   test("a person has history and DND but no terminal and no lifecycle", () => {
-    expect(ids(ALL, person)).toEqual(["export", "clear", "pause", "settings", "logout"]);
+    expect(ids(ALL, person)).toEqual([
+      "export",
+      "clear",
+      "pause",
+      "agent-filter",
+      "settings",
+      "logout",
+    ]);
   });
 
   test("a federated agent keeps history, loses the console (§18.4)", () => {
@@ -125,7 +142,7 @@ describe("what the bar prints (FR-172)", () => {
       server: "hub",
       actions: { shutdown: false, reload: false, pause: false },
     });
-    expect(ids(ALL, remote)).toEqual(["export", "clear", "settings", "logout"]);
+    expect(ids(ALL, remote)).toEqual(["export", "clear", "agent-filter", "settings", "logout"]);
   });
 
   test("lifecycle tools follow the server's action flags, not a guess", () => {

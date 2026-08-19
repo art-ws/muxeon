@@ -238,6 +238,13 @@ export const IconChevron = (props: IconProps): React.JSX.Element => (
   </Icon>
 );
 
+/** The sidebar's agent filter (§12.7, FR-177) — a funnel; the toolbar toggle. */
+export const IconFilter = (props: IconProps): React.JSX.Element => (
+  <Icon {...props}>
+    <path d="M3 4h18l-7 8.5V20l-4-2.5v-5z" />
+  </Icon>
+);
+
 /** Add a reaction (§19.9, FR-168) — a smiley with a plus, the picker trigger. */
 export const IconReaction = (props: IconProps): React.JSX.Element => (
   <Icon {...props}>

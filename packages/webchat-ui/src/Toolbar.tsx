@@ -28,6 +28,13 @@ export function Toolbar(props: {
    * unavailable is HIDDEN, never printed dead).
    */
   peer: PeerInfo | undefined;
+  /**
+   * The sidebar's agent-filter panel (FR-176/FR-177): its button is a two-state
+   * one — it shows whether the panel is up and asks for the opposite, like Pause
+   * does. The state itself belongs to the same pref the Settings switch writes.
+   */
+  agentFilter?: boolean;
+  onAgentFilter?: (show: boolean) => void;
   onSettings: () => void;
   onLogout: () => void;
 }): React.JSX.Element {
@@ -69,6 +76,8 @@ export function Toolbar(props: {
         return () => agentAction(name, "reload");
       case "shutdown":
         return () => agentAction(name, "shutdown");
+      case "agent-filter":
+        return async () => props.onAgentFilter?.(props.agentFilter !== true);
       case "settings":
         return async () => props.onSettings();
       case "logout":
@@ -118,6 +127,24 @@ export function Toolbar(props: {
                 />
               );
             }
+            // The agent filter carries STATE too (FR-177): the button is lit
+            // while the panel is up and its tooltip names the NEXT click — a
+            // toggle that looks the same in both states is a coin flip.
+            if (tool.id === "agent-filter") {
+              const shown = props.agentFilter === true;
+              const label = t(shown ? "Hide the agent filter" : "Show the agent filter");
+              return (
+                <ToolButton
+                  key={tool.id}
+                  tool={tool}
+                  label={label}
+                  title={label}
+                  icon={<tool.icon size={16} />}
+                  pressed={shown}
+                  onRun={run(tool)}
+                />
+              );
+            }
             return (
               <ToolButton
                 key={tool.id}
@@ -148,6 +175,8 @@ function ToolButton(props: {
   label: string;
   title: string;
   icon: React.JSX.Element;
+  /** A toggle's current state (FR-177): lit paint + `aria-pressed`. */
+  pressed?: boolean;
   onRun: () => Promise<unknown>;
 }): React.JSX.Element {
   const t = useT();
@@ -183,14 +212,15 @@ function ToolButton(props: {
 
   const state = failed !== undefined ? " failed" : armed ? " armed" : "";
   const danger = props.tool.danger === true ? " danger" : "";
+  const lit = props.pressed === true ? " active" : "";
   const title = failed ?? (armed ? `${props.label} — ${t("Sure?")}` : props.title);
   return (
     <button
       type="button"
-      className={`tool-button${danger}${state}`}
+      className={`tool-button${danger}${lit}${state}`}
       disabled={busy}
       aria-label={props.title}
-      aria-pressed={confirm ? armed : undefined}
+      aria-pressed={confirm ? armed : props.pressed}
       title={title}
       onClick={() => void click()}
     >

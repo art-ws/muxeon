@@ -27,6 +27,9 @@ export function SettingsView(props: {
   /** Sidebar layout (§15): true = flat agent list, false = group tree + Tags. */
   flat: boolean;
   onFlat: (flat: boolean) => void;
+  /** The sidebar's agent-filter panel (FR-176) — the same pref its topbar button flips. */
+  agentFilter: boolean;
+  onAgentFilter: (show: boolean) => void;
   /** Token-usage display (FR-72): true (default) shows the chat-header token meter. */
   showTokens: boolean;
   onShowTokens: (show: boolean) => void;
@@ -134,6 +137,12 @@ export function SettingsView(props: {
         </section>
         <section className="settings-section">
           <h2>{t("Agents")}</h2>
+          <SettingSwitch
+            label={t("Show the agent filter")}
+            hint={t("A name field and an all/online switch above the sidebar list")}
+            checked={props.agentFilter}
+            onChange={props.onAgentFilter}
+          />
           <SettingSwitch
             label={t("Flat agent list")}
             hint={t("ON is a plain list; OFF shows the group tree and Tags section")}

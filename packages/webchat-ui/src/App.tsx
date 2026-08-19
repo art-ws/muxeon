@@ -143,6 +143,11 @@ export function App(): React.JSX.Element {
   // lighter interface. Persisted (FR-72).
   const [showTokens, setShowTokens] = useState(() => loadPref("show-tokens", true));
   useEffect(() => savePref("show-tokens", showTokens), [showTokens]);
+  // The sidebar's agent-filter panel (§12.7, FR-176): ON by default. It lives HERE,
+  // above the panel, because two places flip it — the Settings switch inside the
+  // panel and the topbar button (FR-177) outside it — and they must flip one state.
+  const [agentFilter, setAgentFilter] = useState(() => loadPref("agent-filter", true));
+  useEffect(() => savePref("agent-filter", agentFilter), [agentFilter]);
   // The pinned toolbar tools (§12.10, FR-174): empty by default, the Settings
   // switches own the set, localStorage keeps it per browser.
   const [tools, setTools] = useState<ReadonlySet<ToolId>>(() => loadToolbar());
@@ -208,6 +213,8 @@ export function App(): React.JSX.Element {
             <Toolbar
               enabled={tools}
               peer={surface}
+              agentFilter={agentFilter}
+              onAgentFilter={setAgentFilter}
               onSettings={() => {
                 location.hash = routeHash({ view: "settings" });
               }}
@@ -257,6 +264,8 @@ export function App(): React.JSX.Element {
             onLang={setLang}
             flat={flatPeers}
             onFlat={setFlatPeers}
+            agentFilter={agentFilter}
+            onAgentFilter={setAgentFilter}
             showTokens={showTokens}
             onShowTokens={setShowTokens}
             tools={tools}
@@ -361,6 +370,9 @@ function Panel(props: {
   /** Sidebar layout (§15): true = flat agent list, false = group tree + Tags. */
   flat: boolean;
   onFlat: (flat: boolean) => void;
+  /** The sidebar's agent-filter panel (FR-176) — the Settings switch and the topbar button. */
+  agentFilter: boolean;
+  onAgentFilter: (show: boolean) => void;
   /** Token-usage display: true (default) shows the chat-header token meter, false hides it. */
   showTokens: boolean;
   onShowTokens: (show: boolean) => void;
@@ -615,6 +627,7 @@ function Panel(props: {
             : {})}
           flat={props.flat}
           collapsed={props.collapsed}
+          filterPanel={props.agentFilter}
         />
         {route.view === "transport" ? (
           <main className="chat-pane">
@@ -652,6 +665,8 @@ function Panel(props: {
               onTransport={setShowTransport}
               flat={props.flat}
               onFlat={props.onFlat}
+              agentFilter={props.agentFilter}
+              onAgentFilter={props.onAgentFilter}
               showTokens={props.showTokens}
               onShowTokens={props.onShowTokens}
               tools={props.tools}

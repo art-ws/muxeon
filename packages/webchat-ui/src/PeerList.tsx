@@ -16,9 +16,19 @@
 // 1:1 (one glyph per row, same order, respecting collapse).
 // The account button is NOT here (T234): it moved to the topbar's right corner
 // (AccountMenu.tsx), so the sidebar is a list of addressees and nothing else.
+// The agent filter (§12.7, FR-176/FR-177, T290) is: an always-expanded panel
+// between the Transport entry and the list — a name field and an all/online
+// switch — shown/hidden from Settings or its topbar button.
 
 import { useState } from "react";
 import { RzArrows } from "./RzArrows";
+import {
+  type AgentFilter,
+  NO_FILTER,
+  filterActive,
+  filterPeers,
+  participantCount,
+} from "./agent-filter";
 import { useT } from "./i18n-context";
 import { IconChevron, IconGroup, IconMonitor, IconRadio, IconTag } from "./icons";
 import { agentColor } from "./palette";
@@ -51,9 +61,25 @@ export function PeerList(props: {
   flat?: boolean;
   /** Collapsed icon rail (FR-68) — toggled by the topbar logo. */
   collapsed?: boolean;
+  /**
+   * The agent-filter panel (§12.7, FR-176): shown when the Settings switch — or
+   * its topbar button (FR-177) — says so. The filter it holds lives HERE, not in
+   * a pref: it applies exactly while its panel is on screen (see below).
+   */
+  filterPanel?: boolean;
 }): React.JSX.Element {
   const t = useT();
   const collapsed = props.collapsed === true;
+
+  // The filter (FR-176) is session state, deliberately not persisted: a hidden
+  // filter that survives a reload would silently shorten the sidebar. For the
+  // same reason it applies only while its panel is VISIBLE — hiding the panel or
+  // collapsing the sidebar to the rail restores the full list, and the typed
+  // needle is still there when the panel comes back.
+  const [filter, setFilter] = useState<AgentFilter>(NO_FILTER);
+  const showPanel = props.filterPanel === true && !collapsed;
+  const active = showPanel && filterActive(filter);
+  const peers = active ? filterPeers(props.peers, filter) : props.peers;
 
   // The broadcast tree's expanded groups (§15): absent record ⇒ every group
   // expanded (prefs.ts). Toggling one group persists the whole set.
@@ -96,18 +122,18 @@ export function PeerList(props: {
   // Federated peers (§18.4) stay out of both — they render in the Servers section.
   const flat = props.flat === true;
   const rows: readonly TreeRow[] = flat
-    ? props.peers
+    ? peers
         .filter(
           (peer) =>
             (peerKind(peer) === "agent" || peerKind(peer) === "user") && peer.server === undefined,
         )
         .map((peer) => ({ kind: "agent", name: peer.name, depth: 0, peer }))
-    : buildTree(props.peers, expanded);
-  const tags = flat ? [] : tagPeers(props.peers);
+    : buildTree(peers, expanded);
+  const tags = flat ? [] : tagPeers(peers);
   // Remote peers grouped by their import (§18.4): one sub-header per server with
   // the link marker, the actors beneath — rendered in BOTH layouts (an imported
   // actor has no local group/tag to disappear into).
-  const remote = props.peers.filter((peer) => peer.server !== undefined);
+  const remote = peers.filter((peer) => peer.server !== undefined);
   const servers = [...new Set(remote.map((peer) => peer.server as string))].sort();
 
   return (
@@ -135,8 +161,20 @@ export function PeerList(props: {
             )}
           </button>
         )}
+        {showPanel && (
+          <AgentFilterPanel
+            filter={filter}
+            onFilter={setFilter}
+            shown={participantCount(peers)}
+            total={participantCount(props.peers)}
+          />
+        )}
         {rows.length === 0 && tags.length === 0 && !collapsed && (
-          <p className="peer-empty">{t("No agents in topology")}</p>
+          /* an emptied list says WHY it is empty — the filter is a state one can
+             leave, "no agents in topology" would be a lie about the config */
+          <p className="peer-empty">
+            {t(active ? "Nothing matches the filter" : "No agents in topology")}
+          </p>
         )}
         {rows.map((row) =>
           row.kind === "group" ? (
@@ -182,6 +220,73 @@ export function PeerList(props: {
         )}
       </div>
     </nav>
+  );
+}
+
+// The agent-filter panel (§12.7, FR-176, T290 — operator request). It sits
+// between the Transport entry and the list and is ALWAYS expanded: a filter that
+// has to be unfolded first is a filter one forgets is on. It sticks to the top of
+// the scroller, so a long park cannot scroll its own filter out of reach.
+// Two controls — the name field and the all/online switch — and, whenever they
+// shorten the list, a counter: a filtered sidebar never passes for the whole park
+// (the same rule the message filter's strip keeps, FR-71).
+function AgentFilterPanel(props: {
+  filter: AgentFilter;
+  onFilter: (filter: AgentFilter) => void;
+  shown: number;
+  total: number;
+}): React.JSX.Element {
+  const t = useT();
+  const { query, onlineOnly } = props.filter;
+  return (
+    <div className="agent-filter">
+      <span className="agent-filter-search">
+        <input
+          type="search"
+          placeholder={t("Filter agents…")}
+          aria-label={t("Filter agents by name")}
+          value={query}
+          onChange={(event) => props.onFilter({ ...props.filter, query: event.target.value })}
+        />
+        {query !== "" && (
+          <button
+            type="button"
+            className="search-clear"
+            aria-label={t("Clear the agent filter")}
+            onClick={() => props.onFilter({ ...props.filter, query: "" })}
+          >
+            ×
+          </button>
+        )}
+      </span>
+      <div className="agent-filter-row">
+        {/* both sides are printed, the picked one is lit: a two-state switch that
+            shows only its current side leaves "all or online?" to be guessed */}
+        <span className="agent-filter-modes">
+          {([false, true] as const).map((only) => (
+            <button
+              key={String(only)}
+              type="button"
+              className={`agent-filter-mode${onlineOnly === only ? " picked" : ""}`}
+              aria-pressed={onlineOnly === only}
+              aria-label={t(only ? "Show only agents that are online" : "Show all agents")}
+              title={t(only ? "Show only agents that are online" : "Show all agents")}
+              onClick={() => props.onFilter({ ...props.filter, onlineOnly: only })}
+            >
+              {t(only ? "Online" : "All")}
+            </button>
+          ))}
+        </span>
+        {props.shown < props.total && (
+          <output className="agent-filter-count">
+            {/* a template key (FR-78): the whole phrase translates as one unit */}
+            {t("showing {shown} of {total}")
+              .replace("{shown}", String(props.shown))
+              .replace("{total}", String(props.total))}
+          </output>
+        )}
+      </div>
+    </div>
   );
 }
 

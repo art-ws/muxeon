@@ -220,6 +220,12 @@ body,
   color: var(--failed);
 }
 
+/* a two-state tool (FR-177): lit while the thing it toggles is on screen —
+   an icon that looks the same in both states makes the toggle a coin flip */
+.tool-button.active {
+  color: var(--accent);
+}
+
 /* armed: the next click fires (FR-172). The icon-only button has no room for
    "Sure?", so the state speaks in paint — and the tooltip spells it out. */
 .tool-button.armed {
@@ -892,6 +898,91 @@ body,
 .peer-avatar.group-avatar,
 .peer-avatar.tag-avatar {
   color: var(--text-dim);
+}
+
+/* --- the sidebar's agent filter (§12.7, FR-176, T290) -------------------- */
+
+/* the panel between the Transport entry and the list: always expanded, and
+   STICKY — a long park must not scroll its own filter out of reach. The opaque
+   raised background is what lets rows pass under it. */
+.agent-filter {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px 12px 10px;
+  background: var(--bg-raised);
+  border-bottom: 1px solid var(--border);
+}
+
+/* the name field wears the topbar search's shape, one size down */
+.agent-filter-search {
+  position: relative;
+  display: block;
+}
+
+.agent-filter-search input {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 6px 28px 6px 12px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--bg);
+  color: var(--text);
+  font: inherit;
+  font-size: 12px;
+}
+
+.agent-filter-search input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.agent-filter-search input::-webkit-search-cancel-button {
+  display: none; /* the custom × is the one clear control (as in the topbar) */
+}
+
+.agent-filter-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* the all/online switch: two sides in one pill, the picked one lit */
+.agent-filter-modes {
+  display: inline-flex;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  overflow: hidden;
+}
+
+.agent-filter-mode {
+  border: none;
+  background: none;
+  color: var(--text-dim);
+  padding: 3px 12px;
+  font: inherit;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.agent-filter-mode:hover {
+  background: var(--bg-hover);
+  color: var(--text);
+}
+
+.agent-filter-mode.picked {
+  background: var(--accent);
+  color: #fff;
+}
+
+/* how much of the park is on screen — printed only while something is hidden */
+.agent-filter-count {
+  margin-left: auto;
+  color: var(--text-dim);
+  font-size: 11px;
 }
 
 /* a collapsible section header ("Tags") over the flat tag rows */

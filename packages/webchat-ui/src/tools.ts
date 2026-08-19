@@ -18,6 +18,7 @@
 
 import {
   IconDownload,
+  IconFilter,
   IconGear,
   IconMonitor,
   IconPause,
@@ -35,6 +36,7 @@ export type ToolId =
   | "pause"
   | "reload"
   | "shutdown"
+  | "agent-filter"
   | "settings"
   | "logout";
 
@@ -132,6 +134,19 @@ export const TOOLS: readonly Tool[] = [
     danger: true,
     confirm: true,
     available: (peer) => inChat(peer) && peer.actions?.shutdown === true,
+  },
+  {
+    // The one entry whose "menu item" is a SETTINGS SWITCH, not a menu line
+    // (FR-177): it does not run an action, it flips the state that switch owns —
+    // one pref, two places to reach it, so the two can never disagree. Being a
+    // state, the button also SHOWS it: lit while the panel is on screen, and its
+    // wording says what the next click will do.
+    id: "agent-filter",
+    scope: "panel",
+    label: "Agent filter",
+    hint: "the name / online filter above the sidebar list",
+    icon: IconFilter,
+    available: () => true,
   },
   {
     id: "settings",

@@ -19,11 +19,13 @@ const AGENT: PeerInfo = {
   actions: { shutdown: true, reload: true, pause: true },
 };
 
-const bar = (enabled: readonly ToolId[], peer: PeerInfo | undefined): string =>
+const bar = (enabled: readonly ToolId[], peer: PeerInfo | undefined, agentFilter = false): string =>
   renderToStaticMarkup(
     <Toolbar
       enabled={new Set(enabled)}
       peer={peer}
+      agentFilter={agentFilter}
+      onAgentFilter={() => undefined}
       onSettings={() => undefined}
       onLogout={() => undefined}
     />,
@@ -64,6 +66,26 @@ describe("the toolbar group", () => {
     expect(bar(["pause"], { ...AGENT, paused: true })).toContain(
       'aria-label="Resume — researcher"',
     );
+  });
+
+  // FR-177: the one button that toggles a panel instead of running an action —
+  // it must say which way the next click goes and look different in each state,
+  // or the toggle is a coin flip.
+  test("the agent-filter button shows the panel's state and asks for the opposite", () => {
+    const hidden = bar(["agent-filter"], undefined, false);
+    expect(hidden).toContain('aria-label="Show the agent filter"');
+    expect(hidden).toContain('aria-pressed="false"');
+    expect(hidden).not.toContain("tool-button active");
+    const shown = bar(["agent-filter"], undefined, true);
+    expect(shown).toContain('aria-label="Hide the agent filter"');
+    expect(shown).toContain('aria-pressed="true"');
+    expect(shown).toContain("tool-button active");
+  });
+
+  test("it is a panel tool — it survives with no chat open, and never arms", () => {
+    expect(bar(["agent-filter"], undefined)).toContain("tool-button");
+    // a view toggle is not destructive: one click does it, no "Sure?" step
+    expect(bar(["agent-filter"], undefined)).not.toContain("danger");
   });
 
   test("chat tools disappear with no chat open; panel tools stay", () => {
