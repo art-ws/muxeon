@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Signal } from "@muxeon/core";
@@ -148,5 +148,57 @@ describe("TransportLog (§8.2, FR-48)", () => {
     expect(await log.listFiles()).toEqual([]);
     await log.append(record("a"));
     expect(await log.listFiles()).toEqual([logFile()]);
+  });
+});
+
+// --- amortized trimming (T287) --------------------------------------------------
+// The count cap bounds the log; it never promised an exact length. Trimming AT the
+// cap made every append past it rewrite the whole journal — O(log) per routed
+// signal, megabytes of garbage each. The slack is what keeps the append O(1).
+
+describe("TransportLog inline count cap (T287)", () => {
+  const lines = async (): Promise<string[]> =>
+    (await readFile(logFile(), "utf8")).split("\n").filter((line) => line !== "");
+  // Fresh timestamps: the default age cap is 90 days, and the shared `record`
+  // helper stamps ts: 1000 — old enough that the age sweep would eat everything.
+  const fresh = (id: string, i: number): Signal => record(id, { ts: Date.now() + i });
+  // count 20 ⇒ slack 2 ⇒ the append path trims once the log passes 22.
+  const fill = async (log: TransportLog, upTo: number): Promise<void> => {
+    for (let i = 0; i < upTo; i += 1) await log.append(fresh(`r-${i}`, i));
+  };
+
+  test("runs into the slack before trimming, then trims back to the cap", async () => {
+    const log = new TransportLog({ root, retain: { count: 20 } });
+    await fill(log, 22);
+    // past the cap and NOT yet rewritten — this is the amortization
+    expect(await lines()).toHaveLength(22);
+
+    await log.append(fresh("r-22", 22));
+    expect(await lines()).toHaveLength(20);
+    // the oldest records went, the newest survived, order preserved
+    const ids = (await log.page({ limit: 100 })).records.map((r) => r.id);
+    expect(ids[0]).toBe("r-3");
+    expect(ids.at(-1)).toBe("r-22");
+  });
+
+  test("an append does not rewrite the file — only the trim does", async () => {
+    // A rewrite is tmp+rename, so it replaces the inode; appendFile keeps it.
+    // Watching the inode is exactly how the O(log)-per-append bug was found.
+    const log = new TransportLog({ root, retain: { count: 20 } });
+    await fill(log, 21);
+    const settled = (await stat(logFile())).ino;
+
+    await log.append(fresh("within-slack", 21));
+    expect((await stat(logFile())).ino).toBe(settled); // appended, not rewritten
+
+    await log.append(fresh("over-slack", 22));
+    expect((await stat(logFile())).ino).not.toBe(settled); // the one trim
+  });
+
+  test("prune still trims to exactly the cap — the slack is the append path only", async () => {
+    const log = new TransportLog({ root, retain: { count: 20 } });
+    await fill(log, 22);
+    await log.prune();
+    expect(await lines()).toHaveLength(20);
   });
 });

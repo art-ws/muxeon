@@ -162,6 +162,25 @@ describe("retention double cap (§12.3, §5.4-style)", () => {
     expect(raw.trim().split("\n")).toHaveLength(3); // the file was rewritten, not just the cache
   });
 
+  // T287: the cap bounds the log, it never promised an exact length. Trimming AT
+  // the cap made every append past it re-serialize and rewrite the whole peer
+  // log — O(log) per message. The slack is what keeps the append O(1).
+  test("the count cap trims on the slack, not on every append past it", async () => {
+    const history = store({ retain: { count: 3 } }); // slack 1 ⇒ trims once past 4
+    const raw = (): string[] =>
+      readFileSync(join(dir, "researcher.jsonl"), "utf8").trim().split("\n");
+    for (let i = 0; i < 4; i += 1) await history.append(record(`n-${i}`, { ts: BASE + i }));
+    expect(raw()).toHaveLength(4); // over the cap and still purely appended to
+
+    await history.append(record("n-4", { ts: BASE + 4 }));
+    expect(raw()).toHaveLength(3);
+    expect((await history.page("researcher", { limit: 10 })).records.map((r) => r.id)).toEqual([
+      "n-2",
+      "n-3",
+      "n-4",
+    ]);
+  });
+
   test("the age cap drops expired records on prune()", async () => {
     let now = 1_000_000;
     const history = store({ retain: { ageMs: 100 }, now: () => now });

@@ -21,6 +21,15 @@ import type { Signal } from "@muxeon/core";
 /** §12.3 defaults — deliberately wider than the queue's done/ window (§5.4). */
 export const HISTORY_DEFAULT_AGE_MS = 90 * 24 * 60 * 60 * 1000;
 export const HISTORY_DEFAULT_COUNT = 10_000;
+/**
+ * Headroom the inline count cap runs past `count` before trimming (T287) — the
+ * same amortization the transport log uses, for the same reason: a rewrite is
+ * O(the peer's whole log), so trimming at exactly `count` would make every
+ * append past the cap re-serialize and re-write the entire file. A busy peer
+ * log is capped at `count * (1 + ratio)` between trims instead of exactly
+ * `count`, which is the bound the cap is there for.
+ */
+export const HISTORY_TRIM_SLACK_RATIO = 0.1;
 
 export interface HistoryRetain {
   readonly ageMs?: number;
@@ -53,6 +62,8 @@ export class HistoryStore {
   readonly #operator: string;
   readonly #ageMs: number;
   readonly #count: number;
+  /** Length at which the append path trims back to `#count` (see HISTORY_TRIM_SLACK_RATIO). */
+  readonly #trimAt: number;
   readonly #now: () => number;
   readonly #peers = new Map<string, PeerCache>();
   #chain: Promise<unknown> = Promise.resolve();
@@ -62,6 +73,7 @@ export class HistoryStore {
     this.#operator = options.operator;
     this.#ageMs = options.retain?.ageMs ?? HISTORY_DEFAULT_AGE_MS;
     this.#count = options.retain?.count ?? HISTORY_DEFAULT_COUNT;
+    this.#trimAt = this.#count + Math.max(1, Math.ceil(this.#count * HISTORY_TRIM_SLACK_RATIO));
     this.#now = options.now ?? Date.now;
   }
 
@@ -83,8 +95,10 @@ export class HistoryStore {
       cache.ids.add(record.id);
       await appendFile(this.#file(peer), `${JSON.stringify(record)}\n`, "utf8");
       // The count cap is enforced inline so a hot peer cannot grow unbounded
-      // between sweeps; the age cap runs on load and in prune().
-      if (cache.records.length > this.#count) await this.#rewrite(peer, cache);
+      // between sweeps; the age cap runs on load and in prune(). Trimming waits
+      // for the slack (T287) so the append stays O(1) instead of rewriting the
+      // whole peer log on every message past the cap.
+      if (cache.records.length > this.#trimAt) await this.#rewrite(peer, cache);
       return true;
     });
   }

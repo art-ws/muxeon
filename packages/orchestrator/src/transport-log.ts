@@ -14,13 +14,25 @@
 // read-only observability port (§12.4): backward-cursor pages + a live
 // subscription for the WS push.
 
-import { appendFile, mkdir, readFile, rename, unlink, writeFile } from "node:fs/promises";
+import { appendFile, mkdir, readFile, rename, stat, unlink, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import type { Signal } from "@muxeon/core";
 
 /** §5.4-spirit defaults — the log is a view, not the source of truth (§12.3). */
 export const TRANSPORT_DEFAULT_AGE_MS = 90 * 24 * 60 * 60 * 1000;
 export const TRANSPORT_DEFAULT_COUNT = 10_000;
+/**
+ * Headroom the inline count cap is allowed to run past `count` before it trims
+ * (T287). A rewrite is O(whole log) — it serializes every cached record into one
+ * string and replaces the file — so triggering it the moment the log is one over
+ * the cap makes EVERY subsequent append rewrite the entire journal: at the
+ * default cap that is ~25 MB of transient allocation and ~25 MB of disk write
+ * per routed signal, which is what made the coordinator's heap balloon. With
+ * headroom the same rewrite is amortized over `count * ratio` appends, and the
+ * bound the cap exists for still holds — the log is simply capped at
+ * `count * (1 + ratio)` between trims instead of exactly `count`.
+ */
+export const TRIM_SLACK_RATIO = 0.1;
 
 export interface TransportRetain {
   readonly ageMs?: number;
@@ -50,6 +62,8 @@ export class TransportLog {
   readonly #file: string;
   readonly #ageMs: number;
   readonly #count: number;
+  /** Length at which the append path trims back to `#count` (see TRIM_SLACK_RATIO). */
+  readonly #trimAt: number;
   readonly #now: () => number;
   readonly #listeners = new Set<(record: Signal) => void>();
   #cache: Cache | undefined;
@@ -59,6 +73,7 @@ export class TransportLog {
     this.#file = join(options.root, "observe", "transport.jsonl");
     this.#ageMs = options.retain?.ageMs ?? TRANSPORT_DEFAULT_AGE_MS;
     this.#count = options.retain?.count ?? TRANSPORT_DEFAULT_COUNT;
+    this.#trimAt = this.#count + Math.max(1, Math.ceil(this.#count * TRIM_SLACK_RATIO));
     this.#now = options.now ?? Date.now;
   }
 
@@ -78,7 +93,9 @@ export class TransportLog {
         await appendFile(this.#file, `${JSON.stringify(record)}\n`, "utf8");
         // Inline count cap (the §12.3 stance): a hot transport cannot grow
         // unbounded between sweeps; the age cap runs on load and in prune().
-        if (cache.records.length > this.#count) await this.#rewrite(cache);
+        // Trimming waits for the slack (T287) — the append itself is O(1), and
+        // paying an O(whole log) rewrite per routed signal is what it must not be.
+        if (cache.records.length > this.#trimAt) await this.#rewrite(cache);
       } catch {
         return false; // best-effort observability — never fails the route
       }
@@ -153,7 +170,9 @@ export class TransportLog {
   listFiles(): Promise<string[]> {
     return this.#serialize(async () => {
       try {
-        await readFile(this.#file, "utf8");
+        // Existence only — `stat`, not a read of the whole journal (T287): the
+        // GC sweep asks this every pass and the log is megabytes.
+        await stat(this.#file);
         return [this.#file];
       } catch {
         return []; // no log yet
