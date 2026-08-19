@@ -1,3 +1,18 @@
+## [0.1.17](https://github.com/art-ws/muxeon/compare/v0.1.16...v0.1.17) (2026-08-19)
+
+
+### Changes
+
+* **T285:** the liveness probe says what it found — an out-of-band death is news
+
+  A session that dies outside the system — a park script, a crashed CLI agent, a hand in a terminal — has exactly one witness: the liveness sweep (FR-93). It changed the status and said nothing, so "half the park is down" was a mystery with an empty log. ([6aee61c](https://github.com/art-ws/muxeon/commit/6aee61c648ba22fd2c99400581ce59ba6c3f5091))
+* **T287:** trimming a capped log is not free — amortize it, or every message pays
+
+  The transport journal and the panel history are append-only JSONL with a double age/count cap. The count cap was enforced the moment the log went one record ([cb9f345](https://github.com/art-ws/muxeon/commit/cb9f345c6e54347d08e16f606ffb8070b22004e8)), closes [#rewrite](https://github.com/art-ws/muxeon/issues/rewrite)
+* **T289:** the sweep needed the slack more than append did — it runs on a clock
+
+  T287 amortized the count cap on the append path and left prune() exact. Watching the deployed stand showed why that is not enough: the retention sweep runs every 60 s and calls prune(), which rewrote the whole journal whenever it found even one record over the cap. ([1b1db13](https://github.com/art-ws/muxeon/commit/1b1db132419ab41ab593dbc436061db18f215414))
+
 ## [0.1.16](https://github.com/art-ws/muxeon/compare/v0.1.15...v0.1.16) (2026-08-18)
 
 
