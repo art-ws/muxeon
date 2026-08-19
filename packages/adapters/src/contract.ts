@@ -84,6 +84,29 @@ export function renderAttribution(message: Signal): string {
 }
 
 /**
+ * The reply REFERENCE line (§12.7/§13.7, FR-178/FR-179, T292): a human quoted an
+ * earlier message and this one answers it. The attribution already carries
+ * `replyTo=<id>`, but an id in a header is a fact nobody acts on — this line says
+ * what the id MEANS and, for an agent with a live plane, exactly how to read the
+ * quoted message and the turns around it. The quoted text itself is deliberately
+ * NOT inlined (operator, T292): the point of the reference is that the agent
+ * fetches only what it needs, and a chat that pastes every quote back into the
+ * console pays for it twice.
+ *
+ * Rendered ONLY for a message that came from a channel (`origin` set — webchat,
+ * telegram, …). An agent answering with `send(replyTo=…)` sets the same field to
+ * correlate its ANSWER (§8.3), and pointing an agent back at the question it just
+ * asked is noise on every turn in the park.
+ */
+export function renderReplyReference(message: Signal, viaMcp: boolean): string | undefined {
+  if (message.replyTo === undefined || message.origin === undefined) return undefined;
+  const what = `[in reply to message ${message.replyTo} of this chat`;
+  return viaMcp
+    ? `${what} — read it and its context with the muxeon MCP tool: get_history(peer="${message.from}", around="${message.replyTo}")]`
+    : `${what}]`;
+}
+
+/**
  * The explicit reply hint (§8.3, T57). Live finding: bare attribution is NOT
  * enough — a model answers in its terminal and never calls the tool. The hint
  * names the exact call; an agent without an MCP client simply cannot follow it
@@ -213,13 +236,23 @@ export function makeDefaultRender(
     if (isNotificationOnly(message)) return renderNotice(message, options.blobsDir);
     if (ctx?.messageFile === undefined) {
       // Legacy shape: no exchange materialized for this turn.
-      return `${renderAttribution(message)}\n${renderPayload(message.payload, options.blobsDir)}\n${renderReplyHint(message)}`;
+      const reference = renderReplyReference(message, true);
+      return [
+        renderAttribution(message),
+        ...(reference !== undefined ? [reference] : []),
+        renderPayload(message.payload, options.blobsDir),
+        renderReplyHint(message),
+      ].join("\n");
     }
     const { text, attachments } = splitPayload(message.payload, options.blobsDir);
     const inline = text !== undefined && text.length <= inlineMax;
     const payloadInlined = inline || text === undefined;
+    // The reference sits with the attribution, BEFORE the payload: it is a header
+    // about this message, and the tail of the input belongs to the reply contract.
+    const reference = renderReplyReference(message, ctx.replyVia === "mcp");
     const parts = [
       renderAttribution(message),
+      ...(reference !== undefined ? [reference] : []),
       ...(inline && text !== undefined ? [text] : []),
       ...attachments, // resolved paths render ONLY here — message.json has opaque refs
       // Exactly one reply contract (§10.29): the compact MCP form only when the

@@ -764,7 +764,8 @@ export async function bootstrap(options: BootstrapOptions = {}): Promise<MuxeonS
                 peerPresence: (name) => (isUser(name) ? presence.presence(name) : undefined),
                 // get_history (T126, FR-87): the pair's dialogue out of the
                 // transport log (§8.2) — read-only, neighbor-scoped in the tool.
-                pairHistory: (me, peer, limit) => transportLog.pair(me, peer, limit),
+                pairHistory: (me, peer, limit, around) =>
+                  transportLog.pair(me, peer, limit, around),
                 // get_screen (T214, FR-147): a NEIGHBOUR's console as text — the
                 // same capture that primes the panel's console (FR-102), through the
                 // same read-only path (no lane, no injection — §10.8). The edge is

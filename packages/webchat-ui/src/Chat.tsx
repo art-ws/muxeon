@@ -3,7 +3,7 @@
 // Text renders through MessageText (FR-61): the constrained markdown renderer
 // (React elements only, no innerHTML — §12.6) plus copy/source hover actions.
 
-import { useEffect, useReducer, useRef, useState } from "react";
+import { useEffect, useMemo, useReducer, useRef, useState } from "react";
 import { ConsoleDialog } from "./Console";
 import { FilterNote } from "./FilterNote";
 import { MessageText } from "./MessageText";
@@ -25,6 +25,7 @@ import {
   IconPause,
   IconPlay,
   IconPower,
+  IconReply,
   IconRotate,
   IconSend,
   IconTag,
@@ -39,6 +40,7 @@ import {
   nameTooltip,
   peerLabel,
 } from "./peer-surface";
+import { quotePreview, quoteWorthShowing } from "./quote";
 import { routeHash } from "./route";
 import { type ChatThread, peerOf } from "./store";
 import { TimeStamp } from "./timestamp";
@@ -92,6 +94,12 @@ export function ChatView(props: {
   query?: string;
   /** Deep-linked message id (T107, FR-75) — scroll to it and flash it. */
   anchor?: string | undefined;
+  /**
+   * Quote a message in the composer (FR-178). Offered in 1:1 chats only — a
+   * broadcast feed (§15.6) fans out to many recipients, so "this answers that
+   * message" has no single envelope to travel in.
+   */
+  onReply?: (record: ChatRecord) => void;
 }): React.JSX.Element {
   const t = useT();
   const peer = props.peer;
@@ -176,6 +184,7 @@ export function ChatView(props: {
         {...(props.follow !== undefined ? { follow: props.follow } : {})}
         {...(props.query !== undefined ? { query: props.query } : {})}
         {...(props.anchor !== undefined ? { anchor: props.anchor } : {})}
+        {...(props.onReply !== undefined ? { onReply: props.onReply } : {})}
         reactable
       />
     </>
@@ -250,6 +259,8 @@ function MessageFeed(props: {
   anchor?: string | undefined;
   /** 1:1 feed ⇒ bubbles take reactions (§19.10); a broadcast feed does not. */
   reactable?: boolean;
+  /** Quote a message in the composer (FR-178); absent ⇒ no reply buttons. */
+  onReply?: (record: ChatRecord) => void;
 }): React.JSX.Element {
   // The self-chat (§17.7, FR-128): the open chat IS the viewer — its feed
   // aggregates every pair, so each bubble points back at its own pair chat.
@@ -261,6 +272,20 @@ function MessageFeed(props: {
   const records = filtering
     ? props.thread.records.filter((record) => matchesQuery(record, query))
     : props.thread.records;
+
+  // Quotes (FR-178): which bubbles print one, and what it shows. Both are read
+  // off the WHOLE thread, not the filtered view — a quote describes the record's
+  // place in the conversation, and the search field must not change that.
+  const all = props.thread.records;
+  const quoted = useMemo(() => {
+    const byId = new Map(all.map((record) => [record.id, record]));
+    const shown = new Map<string, { id: string; record: ChatRecord | undefined }>();
+    all.forEach((record, index) => {
+      if (!quoteWorthShowing(all, index) || record.replyTo === undefined) return;
+      shown.set(record.id, { id: record.replyTo, record: byId.get(record.replyTo) });
+    });
+    return shown;
+  }, [all]);
 
   // Pinned feed (T106): opening lands on the newest message (async media
   // included), staying near the bottom keeps following; FR-62 forces it.
@@ -336,6 +361,8 @@ function MessageFeed(props: {
                   : props.peerName
               }
               {...(props.reactable === true ? { reactable: true } : {})}
+              {...(quoted.has(record.id) ? { quote: quoted.get(record.id) } : {})}
+              {...(props.onReply !== undefined ? { onReply: () => props.onReply?.(record) } : {})}
             />
           ))}
         </div>
@@ -594,12 +621,29 @@ function Bubble(props: {
    * author to notify, so a badge there would mean nothing (decision §19.12-Q3).
    */
   reactable?: boolean;
+  /**
+   * This bubble ANSWERS an earlier message (FR-178): the quoted id and, when the
+   * thread already holds it, the record itself. Absent ⇒ no quote line — either
+   * there is no reference or it points at the bubble directly above (quote.ts).
+   */
+  quote?: { id: string; record: ChatRecord | undefined } | undefined;
+  /** Quote THIS message in the composer; absent ⇒ no reply button. */
+  onReply?: () => void;
 }): React.JSX.Element {
+  const t = useT();
   const { text, blobs } = payloadParts(props.record.payload);
   // data-msg-id is the anchor target; the hash feeds the link button
   const messageHash =
     props.chatPeer !== undefined
       ? routeHash({ view: "chat", peer: props.chatPeer, message: props.record.id })
+      : undefined;
+  // The quote is a LINK to the quoted message: the same deep-link route the link
+  // button uses (FR-75), so clicking it scrolls the feed there — paging older
+  // history first when the message is above what is loaded — and flashes it.
+  const quote = props.quote;
+  const quoteHash =
+    quote !== undefined && props.chatPeer !== undefined
+      ? routeHash({ view: "chat", peer: props.chatPeer, message: quote.id })
       : undefined;
   // A raw-mode record (FR-88, §14) renders AS-IS — monospace, no markdown
   // (origin "raw" marks the captured console, the `raw` flag the command that
@@ -610,12 +654,46 @@ function Bubble(props: {
   return (
     <div className={`bubble-row ${props.mine ? "mine" : "theirs"}`}>
       <div className="bubble" data-msg-id={props.record.id}>
+        {/* the quoted message (FR-178): author + one trimmed line, clickable —
+            a pointer to the message, never a copy of it */}
+        {quote !== undefined && (
+          <button
+            type="button"
+            className="bubble-quote"
+            title={t("Go to the quoted message")}
+            disabled={quoteHash === undefined}
+            onClick={() => {
+              if (quoteHash !== undefined) location.hash = quoteHash;
+            }}
+          >
+            <span className="bubble-quote-author">{quote.record?.from ?? t("quoted message")}</span>
+            <span className="bubble-quote-text">{quotePreview(quote.record, t)}</span>
+          </button>
+        )}
         {text !== undefined &&
           (asIs ? (
             <pre className="raw-output">{text}</pre>
           ) : (
-            <MessageText text={text} {...(messageHash !== undefined ? { messageHash } : {})} />
+            <MessageText
+              text={text}
+              {...(messageHash !== undefined ? { messageHash } : {})}
+              {...(props.onReply !== undefined ? { onReply: props.onReply } : {})}
+            />
           ))}
+        {/* a bubble with no text has no MessageText to host the actions — the
+            reply button still belongs to it (an attachment is answerable too) */}
+        {text === undefined && props.onReply !== undefined && (
+          <span className="msg-actions">
+            <button
+              type="button"
+              className="msg-action"
+              title={t("Reply to this message")}
+              onClick={props.onReply}
+            >
+              <IconReply size={12} />
+            </button>
+          </span>
+        )}
         {blobs.map((blob) => (
           <MediaBubble key={blob.blob} blob={blob} />
         ))}

@@ -26,6 +26,7 @@ import { authMode, instanceName } from "./instance";
 import { agentColor } from "./palette";
 import { chatSurface, hasConsole } from "./peer-surface";
 import { loadPref, savePref } from "./prefs";
+import { quotePreview } from "./quote";
 import { type ReactionsApi, ReactionsContext } from "./reactions-context";
 import { type Route, parseRoute, routeHash } from "./route";
 import type { ServerInfo } from "./server-info";
@@ -558,7 +559,7 @@ function Panel(props: {
     void api.fetchHistory(peer, cursor).then((page) => dispatch({ kind: "page", peer, page }));
   }, []);
 
-  const send = useCallback(async (to: string, draft: Draft): Promise<void> => {
+  const send = useCallback(async (to: string, draft: Draft, replyTo?: string): Promise<void> => {
     const id = api.newMessageId(); // §10.9: the client owns the retry id
     const blobs = draft.blobs.map((blob) => blob.id);
     await api.sendMessage({
@@ -566,6 +567,9 @@ function Panel(props: {
       id,
       ...(draft.text !== "" ? { text: draft.text } : {}),
       ...(blobs.length > 0 ? { blobs } : {}),
+      // The quote travels in the ENVELOPE (FR-178) — the payload is what was
+      // typed, nothing is pasted into it.
+      ...(replyTo !== undefined ? { replyTo } : {}),
     });
     dispatch({
       kind: "outgoing",
@@ -579,6 +583,7 @@ function Panel(props: {
         to,
         kind: "message",
         ts: Date.now(),
+        ...(replyTo !== undefined ? { replyTo } : {}),
         payload:
           blobs.length === 0
             ? draft.text
@@ -629,11 +634,18 @@ function Panel(props: {
   // do — a pinned Pause button must show the pause the WS push just brought.
   const onSurface = props.onSurface;
   useEffect(() => onSurface(openPeer), [openPeer, onSurface]);
+  // The message being answered (FR-178, T292): picked in the feed, shown as the
+  // composer's chip, sent as the envelope's `replyTo`. It lives HERE because the
+  // feed and the composer are siblings — and it is dropped when the chat changes
+  // (a quote belongs to one conversation) or when the send lands.
+  const [replyTo, setReplyTo] = useState<ChatRecord | undefined>(undefined);
   // Command-fanout modal (§15.8, FR-115): launched from a group/tag chat, seeded
   // with that target; closed automatically when the open chat changes.
   const [commandOpen, setCommandOpen] = useState(false);
   // biome-ignore lint/correctness/useExhaustiveDependencies: re-run to CLOSE the modal whenever the open chat changes (the body doesn't read openChat, it reacts to it)
   useEffect(() => setCommandOpen(false), [openChat]);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: same — a quote is dropped when the open chat changes
+  useEffect(() => setReplyTo(undefined), [openChat]);
   return (
     <ReactionsContext.Provider value={reactionsApi}>
       <div className="panel">
@@ -722,6 +734,7 @@ function Panel(props: {
               showTokens={props.showTokens}
               query={props.query}
               anchor={route.view === "chat" ? route.message : undefined}
+              onReply={setReplyTo}
             />
             {openIsBroadcast && (
               /* a group/tag can't receive a one-directional broadcast COMMAND on the
@@ -740,7 +753,20 @@ function Panel(props: {
             <Composer
               key={openChat}
               peer={openChat}
-              onSend={(draft) => send(openChat, draft)}
+              onSend={async (draft) => {
+                await send(openChat, draft, replyTo?.id);
+                setReplyTo(undefined); // the quote belongs to the message that just left
+              }}
+              {...(replyTo !== undefined
+                ? {
+                    replyTo: {
+                      id: replyTo.id,
+                      author: replyTo.from,
+                      preview: quotePreview(replyTo, t),
+                    },
+                    onCancelReply: () => setReplyTo(undefined),
+                  }
+                : {})}
               commands={openHasConsole ? (openPeer?.commands ?? []) : []}
               onCommand={(slash) => api.runAgentCommand(openChat, slash)}
               /* the pause note (§16.6, FR-120); a group/tag is never paused (§16.1) */

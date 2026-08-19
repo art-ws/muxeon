@@ -58,7 +58,13 @@ export interface AgentPlaneDeps {
    * (§8.2) read-only. Absent ⇒ get_history answers UNAVAILABLE (tests, mcp
    * off-paths) — the tool never invents an empty history.
    */
-  pairHistory?(caller: string, peer: string, limit: number): Promise<readonly Signal[]>;
+  pairHistory?(
+    caller: string,
+    peer: string,
+    limit: number,
+    /** Centre the window on this message id (FR-179) — empty result ⇒ unknown id. */
+    around?: string,
+  ): Promise<readonly Signal[]>;
   /**
    * A NEIGHBOUR's console as text (FR-147): the visible tmux pane, optionally with
    * `historyLines` of scrollback above it. Read-only observation — no lane, no
@@ -307,12 +313,17 @@ export const AGENT_TOOLS: Tool[] = [
     name: "get_history",
     description:
       "Read your message history with a NEIGHBOR (both directions, chronological, " +
-      "JSON records) — recover the dialogue after a context clear or restart. " +
-      "Restricted to the caller's neighbors.",
+      "JSON records) — recover the dialogue after a context clear or restart, or " +
+      "resolve a message you were handed by id (`around`). Restricted to the caller's neighbors.",
     inputSchema: {
       type: "object",
       properties: {
         peer: { type: "string", description: "neighbor name (agent or operator)" },
+        around: {
+          type: "string",
+          description:
+            "message id to centre the window on — pass the replyTo= id you were handed to read the quoted message and its context",
+        },
         limit: {
           type: "number",
           description: `depth: how many newest records to return (default ${HISTORY_DEFAULT_LIMIT}, max ${HISTORY_MAX_LIMIT})`,
@@ -548,8 +559,11 @@ async function dispatch(
     }
 
     case "get_history": {
-      const { peer, limit } = args;
+      const { peer, limit, around } = args;
       if (typeof peer !== "string") return fail("INVALID_ARGS", "peer must be a string");
+      if (around !== undefined && (typeof around !== "string" || around.length === 0)) {
+        return fail("INVALID_ARGS", "around must be a non-empty message id");
+      }
       if (
         limit !== undefined &&
         (typeof limit !== "number" || !Number.isInteger(limit) || limit < 1)
@@ -565,8 +579,20 @@ async function dispatch(
         return fail("UNAVAILABLE", "the history port is not wired");
       }
       const depth = Math.min(limit ?? HISTORY_DEFAULT_LIMIT, HISTORY_MAX_LIMIT);
-      const records = await deps.pairHistory(caller, peer, depth);
-      return ok({ peer, records });
+      const records = await deps.pairHistory(
+        caller,
+        peer,
+        depth,
+        ...(typeof around === "string" ? ([around] as const) : []),
+      );
+      // An `around` that matched nothing is NEWS, not an empty chat (FR-179): the
+      // id was quoted at the agent, so "I cannot find it" must not arrive dressed
+      // as "there is no history" — nor as the newest records, which answer a
+      // different question.
+      if (typeof around === "string" && records.length === 0) {
+        return fail("UNKNOWN_MESSAGE", `no message "${around}" in the chat with ${peer}`);
+      }
+      return ok({ peer, records, ...(typeof around === "string" ? { around } : {}) });
     }
 
     case "get_screen": {

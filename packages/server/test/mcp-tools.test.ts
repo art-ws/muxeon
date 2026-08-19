@@ -73,7 +73,7 @@ describe.skipIf(!LOOPBACK_DIRECT)("agent-plane tools (§8.6, §3.1)", () => {
           topology,
           router,
           peerStatus,
-          pairHistory: (me, peer, limit) => transportLog.pair(me, peer, limit),
+          pairHistory: (me, peer, limit, around) => transportLog.pair(me, peer, limit, around),
           closeTurn: async (caller, replyTo) => {
             closeTurnCalls.push({ caller, replyTo });
             return openTurns.delete(replyTo);
@@ -146,6 +146,52 @@ describe.skipIf(!LOOPBACK_DIRECT)("agent-plane tools (§8.6, §3.1)", () => {
       await alice.callTool({ name: "get_history", arguments: { peer: "bob", limit: 2 } }),
     );
     expect((last.records as { id: string }[]).map((r) => r.id)).toEqual(["h-2", "h-4"]);
+  });
+
+  // FR-179: a human quoted an older message at the agent — `around` is how the
+  // agent turns that id back into text, without the quote being pasted at it.
+  test("get_history centres its window on `around` — the quoted message + context", async () => {
+    const base = Date.now();
+    for (let i = 0; i < 5; i += 1) {
+      await seedTransport({
+        id: `q-${i}`,
+        from: i % 2 === 0 ? "alice" : "bob",
+        to: i % 2 === 0 ? "bob" : "alice",
+        kind: "message",
+        ts: base + i,
+        payload: `m-${i}`,
+      });
+    }
+    const window = sc(
+      await alice.callTool({
+        name: "get_history",
+        arguments: { peer: "bob", limit: 3, around: "q-3" },
+      }),
+    );
+    expect((window.records as { id: string }[]).map((r) => r.id)).toEqual(["q-2", "q-3", "q-4"]);
+    expect(window.around).toBe("q-3");
+  });
+
+  test("an `around` that matches nothing is UNKNOWN_MESSAGE, not the newest records", async () => {
+    await seedTransport({
+      id: "only",
+      from: "alice",
+      to: "bob",
+      kind: "message",
+      ts: Date.now(),
+      payload: "x",
+    });
+    const missing = await alice.callTool({
+      name: "get_history",
+      arguments: { peer: "bob", around: "never-existed" },
+    });
+    expect(missing.isError).toBe(true);
+    expect(sc(missing)).toEqual({ error: "UNKNOWN_MESSAGE" });
+    const junk = await alice.callTool({
+      name: "get_history",
+      arguments: { peer: "bob", around: "" },
+    });
+    expect(sc(junk)).toEqual({ error: "INVALID_ARGS" });
   });
 
   test("get_history is neighbor-scoped (§10.11) and validates its args", async () => {

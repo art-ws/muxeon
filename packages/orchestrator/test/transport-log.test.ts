@@ -3,7 +3,7 @@ import { mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Signal } from "@muxeon/core";
-import { TransportLog } from "../src/transport-log";
+import { TransportLog, windowAround } from "../src/transport-log";
 
 let root: string;
 
@@ -220,5 +220,67 @@ describe("TransportLog inline count cap (T287)", () => {
     now = 10_050; // floor 9_550: "stale" expired and goes despite the count slack
     await log.prune();
     expect((await log.page()).records.map((r) => r.id)).toEqual(["fresh"]);
+  });
+});
+
+// A quoted message is resolved BY ID (FR-179, T292): the agent is handed a
+// `replyTo=` and reads it — plus the turns around it — out of its own pair.
+describe("the window around a quoted message", () => {
+  const pairLog = async (): Promise<TransportLog> => {
+    const log = new TransportLog({ root });
+    for (let i = 0; i < 6; i += 1) {
+      await log.append(record(`p${i}`, { from: "operator", to: "dev", ts: 1000 + i }));
+      await log.append(record(`o${i}`, { from: "other", to: "dev", ts: 1000 + i })); // a different pair
+    }
+    return log;
+  };
+
+  test("centres on the id — context before AND after, this pair only", async () => {
+    const log = await pairLog();
+    const ids = (await log.pair("dev", "operator", 3, "p3")).map((r) => r.id);
+    expect(ids).toEqual(["p2", "p3", "p4"]);
+  });
+
+  test("a target near the start still returns a FULL window", async () => {
+    const log = await pairLog();
+    expect((await log.pair("dev", "operator", 3, "p0")).map((r) => r.id)).toEqual([
+      "p0",
+      "p1",
+      "p2",
+    ]);
+    expect((await log.pair("dev", "operator", 3, "p5")).map((r) => r.id)).toEqual([
+      "p3",
+      "p4",
+      "p5",
+    ]);
+  });
+
+  test("an id outside this pair is EMPTY — never the newest records instead", async () => {
+    const log = await pairLog();
+    expect(await log.pair("dev", "operator", 5, "o2")).toEqual([]); // another pair's record
+    expect(await log.pair("dev", "operator", 5, "nope")).toEqual([]);
+  });
+
+  test("without an id the tail is unchanged (FR-87)", async () => {
+    const log = await pairLog();
+    expect((await log.pair("dev", "operator", 2)).map((r) => r.id)).toEqual(["p4", "p5"]);
+  });
+});
+
+describe("windowAround", () => {
+  const items = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9];
+
+  test("an even limit leans on the side with more to say", () => {
+    expect(windowAround(items, 5, 4)).toEqual([4, 5, 6, 7]);
+  });
+
+  test("a limit past the length returns everything", () => {
+    expect(windowAround([1, 2], 1, 9)).toEqual([1, 2]);
+  });
+
+  test("nonsense in, nothing out", () => {
+    expect(windowAround(items, -1, 3)).toEqual([]);
+    expect(windowAround(items, 3, 0)).toEqual([]);
+    expect(windowAround(items, 99, 3)).toEqual([]);
   });
 });

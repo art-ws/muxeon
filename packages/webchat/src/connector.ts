@@ -846,7 +846,9 @@ export class WebchatConnector implements ChannelConnector {
     return this.#base === "" ? "/" : this.#base;
   }
 
-  // POST /api/send {to, text?, blobs?, id, raw?} → Message → router (§12.4/§12.5).
+  // POST /api/send {to, text?, blobs?, id, raw?, replyTo?} → Message → router
+  // (§12.4/§12.5). `replyTo` (FR-178) names an EARLIER message of this user's
+  // history — the envelope carries the reference, the payload stays what was typed.
   // The id is client-generated — the idempotency key for retries (§10.9). Media
   // travels as OPAQUE blob ids uploaded beforehand (§5.3); the payload carries
   // refs with their upload-time name/mime/size. Raw mode (FR-88, §14.3): `raw`
@@ -868,6 +870,25 @@ export class WebchatConnector implements ChannelConnector {
     const targetKind = me.ports?.peerType?.(to) ?? "agent";
     if (raw && targetKind !== "agent") {
       return json({ error: "raw mode does not target a group/tag (§15.6)" }, 400);
+    }
+    // Reply to an earlier message (FR-178, §12.7): the id travels in the envelope
+    // (§5.3 `replyTo`), so the agent is TOLD what this answers and can read it by
+    // id (FR-179) — no quote is pasted into the payload.
+    const replyTo = body.replyTo;
+    if (replyTo !== undefined && (typeof replyTo !== "string" || replyTo.length === 0)) {
+      return json({ error: '"replyTo" must be a non-empty message id' }, 400);
+    }
+    // Raw mode (§14.3) types the text into a console — there is no envelope on the
+    // other end to carry a reference, so a reply there would be a silent lie.
+    if (raw && typeof replyTo === "string") {
+      return json({ error: "raw mode does not carry a reply reference (§14.3)" }, 400);
+    }
+    // The quoted message must EXIST in this user's history: an id pointing at
+    // nothing reaches the agent as a promise of context it cannot fetch.
+    if (typeof replyTo === "string" && me.history !== undefined) {
+      if ((await me.history.find(replyTo, to)) === undefined) {
+        return json({ error: `unknown message "${replyTo}" — nothing to reply to` }, 422);
+      }
     }
     const blobIds = Array.isArray(body.blobs) ? body.blobs : [];
     const hasText = typeof text === "string" && text.length > 0;
@@ -900,6 +921,7 @@ export class WebchatConnector implements ChannelConnector {
       // Plain text stays a string (the baseline shape); media uses the §5.3
       // {text?, blobs} convention with opaque refs.
       payload: refs.length === 0 ? (text as string) : { ...(hasText ? { text } : {}), blobs: refs },
+      ...(typeof replyTo === "string" ? { replyTo } : {}),
       origin: "webchat",
       // Raw transport mode (FR-88, §14): the dispatcher injects the text verbatim
       // and captures the console as the reply.

@@ -238,6 +238,14 @@ export const IconChevron = (props: IconProps): React.JSX.Element => (
   </Icon>
 );
 
+/** Reply to a message (§12.7, FR-178) — an arrow curving back to the left. */
+export const IconReply = (props: IconProps): React.JSX.Element => (
+  <Icon {...props}>
+    <polyline points="9 17 4 12 9 7" />
+    <path d="M20 18v-2a4 4 0 0 0-4-4H4" />
+  </Icon>
+);
+
 /** The sidebar's agent filter (§12.7, FR-177) — a funnel; the toolbar toggle. */
 export const IconFilter = (props: IconProps): React.JSX.Element => (
   <Icon {...props}>

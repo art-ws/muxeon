@@ -228,6 +228,30 @@ export class HistoryStore {
     });
   }
 
+  /**
+   * One record by id (FR-178, T292) — the quote target of a reply. The pair the
+   * caller names is searched first (that is where a chat reply points); the other
+   * pair logs follow, because the SELF chat (§17.7) is a projection of all of them
+   * and one can quote from it. Absent ⇒ undefined: the panel refuses a reply to a
+   * message nobody can show, rather than handing the agent a dangling id.
+   */
+  find(id: string, peer?: string): Promise<Signal | undefined> {
+    return this.#serialize(async () => {
+      const names = (await this.#listFileNames()).map((name) =>
+        decodePeer(name.slice(0, -".jsonl".length)),
+      );
+      const order = peer === undefined ? names : [peer, ...names.filter((n) => n !== peer)];
+      for (const name of order) {
+        const { records } = await this.#load(name);
+        for (let i = records.length - 1; i >= 0; i -= 1) {
+          const record = records[i];
+          if (record?.id === id) return record;
+        }
+      }
+      return undefined;
+    });
+  }
+
   // --- read markers (unread badges, FR-40/§12.7) -----------------------------
   // One ts watermark per peer, persisted next to the logs (.read.json,
   // tmp+rename). Unread = inbound records newer than the watermark.

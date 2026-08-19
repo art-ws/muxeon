@@ -1291,3 +1291,113 @@ describe("slash-command endpoint (T86, FR-66)", () => {
     }
   });
 });
+
+// Reply to an earlier message (§12.7, FR-178, T292): the panel sends the QUOTED
+// ID, never the quote itself — the envelope's `replyTo` is what the agent is told
+// and what it resolves by id (FR-179).
+describe("reply reference on send (FR-178)", () => {
+  const withHistory = async (): Promise<{
+    connector: WebchatConnector;
+    history: HistoryStore;
+    token: string;
+    dir: string;
+  }> => {
+    const dir = mkdtempSync(join(tmpdir(), "muxeon-webchat-reply-"));
+    const history = new HistoryStore({ dir, operator: "operator-web" });
+    const connector = await startedConnector({ history });
+    const token = await login(connector);
+    return { connector, history, token, dir };
+  };
+
+  test("a reply to a message in the pair travels as `replyTo` in the envelope", async () => {
+    const { connector, history, token, dir } = await withHistory();
+    try {
+      await history.append({
+        id: "old-1",
+        from: "researcher",
+        to: "operator-web",
+        kind: "message",
+        ts: 1,
+        payload: "the suite is green",
+      });
+      const response = await connector.handleRequest(
+        post(
+          "/api/send",
+          { to: "researcher", text: "run it again", id: "m-2", replyTo: "old-1" },
+          asCookie(token),
+        ),
+      );
+      expect(response.status).toBe(200);
+      expect(inbound[0]?.replyTo).toBe("old-1");
+      // the payload is what was typed — the quote is a reference, not a paste
+      expect(inbound[0]?.payload).toBe("run it again");
+      const stored = (await history.page("researcher")).records.find((r) => r.id === "m-2");
+      expect(stored?.replyTo).toBe("old-1"); // the panel's own view keeps it too
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("a quoted id nobody has is refused — never delivered as a dangling pointer", async () => {
+    const { connector, token, dir } = await withHistory();
+    try {
+      const response = await connector.handleRequest(
+        post(
+          "/api/send",
+          { to: "researcher", text: "hi", id: "m-3", replyTo: "ghost" },
+          asCookie(token),
+        ),
+      );
+      expect(response.status).toBe(422);
+      expect(inbound).toHaveLength(0);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("a quote from ANOTHER pair resolves — the self-chat aggregates them all", async () => {
+    const { connector, history, token, dir } = await withHistory();
+    try {
+      await history.append({
+        id: "other-1",
+        from: "writer",
+        to: "operator-web",
+        kind: "message",
+        ts: 1,
+        payload: "draft ready",
+      });
+      const response = await connector.handleRequest(
+        post(
+          "/api/send",
+          { to: "researcher", text: "see this", id: "m-4", replyTo: "other-1" },
+          asCookie(token),
+        ),
+      );
+      expect(response.status).toBe(200);
+      expect(inbound[0]?.replyTo).toBe("other-1");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("junk and raw mode are rejected at the door", async () => {
+    const { connector, token, dir } = await withHistory();
+    try {
+      const junk = await connector.handleRequest(
+        post("/api/send", { to: "researcher", text: "hi", id: "m-5", replyTo: 7 }, asCookie(token)),
+      );
+      expect(junk.status).toBe(400);
+      const raw = await connector.handleRequest(
+        post(
+          "/api/send",
+          { to: "researcher", text: "hi", id: "m-6", raw: true, replyTo: "old-1" },
+          asCookie(token),
+        ),
+      );
+      expect(raw.status).toBe(400); // §14.3: a console has no envelope to carry it
+      expect(inbound).toHaveLength(0);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});

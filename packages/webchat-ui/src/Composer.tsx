@@ -27,7 +27,7 @@ import {
 } from "./draft";
 import { loadDraft, saveDraft } from "./draft-store";
 import { useT } from "./i18n-context";
-import { IconCamera, IconCollapse, IconExpand, IconPaperclip } from "./icons";
+import { IconCamera, IconCollapse, IconExpand, IconPaperclip, IconReply } from "./icons";
 
 export interface Draft {
   readonly text: string;
@@ -55,6 +55,13 @@ export function Composer(props: {
    * note under the composer must say that, not the agent wording.
    */
   dnd?: boolean;
+  /**
+   * The message this draft ANSWERS (FR-178): the chip above the card names it and
+   * the send carries its id. The parent owns the state — a reply survives the
+   * composer's own remounts and is cleared when the chat changes or the send lands.
+   */
+  replyTo?: { readonly id: string; readonly author: string; readonly preview: string };
+  onCancelReply?: () => void;
 }): React.JSX.Element {
   const t = useT();
   const paused = props.paused === true;
@@ -258,6 +265,25 @@ export function Composer(props: {
           </div>
           {/* as-is: monospace text, NO markdown (FR-66) */}
           <pre>{commandOutput.output}</pre>
+        </div>
+      )}
+      {/* the reply chip (FR-178): who is being answered and one trimmed line of
+          it, with the ✕ that drops the reference — the text itself is untouched,
+          cancelling a reply must never eat what was typed */}
+      {props.replyTo !== undefined && (
+        <div className="reply-chip">
+          <IconReply size={13} />
+          <span className="reply-chip-author">{props.replyTo.author}</span>
+          <span className="reply-chip-text">{props.replyTo.preview}</span>
+          <button
+            type="button"
+            className="chip-remove"
+            aria-label={t("Cancel the reply")}
+            title={t("Cancel the reply")}
+            onClick={props.onCancelReply}
+          >
+            ×
+          </button>
         </div>
       )}
       {blobs.length > 0 && (

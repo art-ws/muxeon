@@ -304,3 +304,54 @@ describe("reaction notices (§19.6, FR-164)", () => {
     expect(render(msg())).not.toContain("no reply is expected");
   });
 });
+
+// A human quoted an earlier message in the panel (§12.7, FR-178): the envelope
+// carries the id, and the render must turn it into something the agent can ACT
+// on — while staying silent on the agent-to-agent correlation that uses the very
+// same field on every answer in the park (FR-179).
+describe("reply reference (§13.7, FR-179)", () => {
+  const quoted = (extra: Partial<Message> = {}): Message =>
+    msg({ replyTo: "old-1", origin: "webchat", ...extra });
+
+  test("a channel reply names the quoted id AND how to read it (MCP form)", () => {
+    const text = makeDefaultRender()(quoted(), {
+      messageFile: "/x/inbox/abc/message.json",
+      replyVia: "mcp",
+    });
+    expect(text).toContain("in reply to message old-1");
+    expect(text).toContain('get_history(peer="researcher", around="old-1")');
+    // the quote itself is NOT pasted in — the agent fetches what it needs
+    expect(text).not.toContain("quoted text");
+  });
+
+  test("the file contract states the relation without naming a tool it cannot call", () => {
+    const text = makeDefaultRender()(quoted(), { messageFile: "/x/inbox/abc/message.json" });
+    expect(text).toContain("in reply to message old-1");
+    expect(text).not.toContain("get_history");
+  });
+
+  test("the reference sits with the header, above the payload", () => {
+    const text = makeDefaultRender()(quoted({ payload: "run it again" }), {
+      messageFile: "/x/inbox/abc/message.json",
+      replyVia: "mcp",
+    });
+    const lines = text.split("\n");
+    expect(lines[0]).toStartWith("[muxeon] from=researcher");
+    expect(lines[1]).toContain("in reply to message old-1");
+    expect(lines[2]).toBe("run it again");
+  });
+
+  test("an AGENT's answer carries replyTo too — and gets no reference line", () => {
+    // no `origin`: this is another agent's send(replyTo=…) correlating its answer,
+    // and pointing an agent back at the question it just asked is noise per turn
+    const text = makeDefaultRender()(msg({ replyTo: "old-1" }), {
+      messageFile: "/x/inbox/abc/message.json",
+      replyVia: "mcp",
+    });
+    expect(text).not.toContain("in reply to message");
+  });
+
+  test("a message with no reference is untouched", () => {
+    expect(makeDefaultRender()(msg({ origin: "webchat" }))).not.toContain("in reply to message");
+  });
+});

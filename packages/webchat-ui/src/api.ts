@@ -112,6 +112,8 @@ export async function sendMessage(options: {
   id: string;
   text?: string;
   blobs?: readonly string[];
+  /** Quoted message id (FR-178): the envelope's `replyTo`, not part of the text. */
+  replyTo?: string;
 }): Promise<void> {
   await jsonOrThrow(
     await fetch("api/send", {

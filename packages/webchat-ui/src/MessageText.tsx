@@ -8,13 +8,19 @@
 
 import { useState } from "react";
 import { useT } from "./i18n-context";
-import { IconCheck, IconCode, IconCopy, IconLink } from "./icons";
+import { IconCheck, IconCode, IconCopy, IconLink, IconReply } from "./icons";
 import { Markdown } from "./markdown";
 
 export function MessageText(props: {
   text: string;
   /** The message's deep-link hash (FR-75); absent ⇒ no link button (transport). */
   messageHash?: string;
+  /**
+   * Quote this message in the composer (FR-178); absent ⇒ no reply button — the
+   * transport journal has no composer, and a broadcast feed (§15.6) has no single
+   * message to answer.
+   */
+  onReply?: () => void;
 }): React.JSX.Element {
   const t = useT();
   const [showSource, setShowSource] = useState(false);
@@ -33,6 +39,16 @@ export function MessageText(props: {
   return (
     <>
       <span className="msg-actions">
+        {props.onReply !== undefined && (
+          <button
+            type="button"
+            className="msg-action"
+            title={t("Reply to this message")}
+            onClick={props.onReply}
+          >
+            <IconReply size={12} />
+          </button>
+        )}
         {props.messageHash !== undefined && (
           <button
             type="button"

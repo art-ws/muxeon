@@ -135,19 +135,24 @@ export class TransportLog {
    * chronological (T126, FR-87). The agent-plane history tool reads its chat
    * with a peer here: the transport log is the one place agent↔agent traffic
    * is durable (the webchat history §12.3 covers operator pairs only).
+   *
+   * With `around` (FR-179, T292) the window is CENTRED on that message id
+   * instead of on the newest record — that is how an agent resolves the
+   * `replyTo=` it was handed: the quoted message plus the turns around it. An
+   * id absent from this pair yields an empty array: the caller says
+   * UNKNOWN_MESSAGE rather than quietly handing back the newest records, which
+   * would answer a question nobody asked.
    */
-  pair(a: string, b: string, limit: number): Promise<readonly Signal[]> {
+  pair(a: string, b: string, limit: number, around?: string): Promise<readonly Signal[]> {
     return this.#serialize(async () => {
       const { records } = await this.#load();
-      const out: Signal[] = [];
-      for (let i = records.length - 1; i >= 0 && out.length < limit; i -= 1) {
-        const record = records[i];
-        if (record === undefined) continue;
-        if ((record.from === a && record.to === b) || (record.from === b && record.to === a)) {
-          out.push(record);
-        }
-      }
-      return out.reverse();
+      const mine = records.filter(
+        (record) =>
+          (record.from === a && record.to === b) || (record.from === b && record.to === a),
+      );
+      if (around === undefined) return mine.slice(Math.max(0, mine.length - limit));
+      const at = mine.findIndex((record) => record.id === around);
+      return at === -1 ? [] : windowAround(mine, at, limit);
     });
   }
 
@@ -268,4 +273,17 @@ export class TransportLog {
     await writeFile(tmp, `${body}\n`, "utf8");
     await rename(tmp, this.#file);
   }
+}
+
+/**
+ * A window of `limit` records CENTRED on index `at` (FR-179): as much context
+ * before as after, and whatever one side cannot supply the other makes up — a
+ * quoted message at the very start of a log still comes back with its full
+ * window of what followed. Pure, so the geometry is testable without a log.
+ */
+export function windowAround<T>(records: readonly T[], at: number, limit: number): readonly T[] {
+  if (limit <= 0 || at < 0 || at >= records.length) return [];
+  const before = Math.floor((limit - 1) / 2);
+  const start = Math.max(0, Math.min(at - before, records.length - limit));
+  return records.slice(start, start + limit);
 }
