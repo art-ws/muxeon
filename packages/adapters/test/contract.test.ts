@@ -355,3 +355,34 @@ describe("reply reference (§13.7, FR-179)", () => {
     expect(makeDefaultRender()(msg({ origin: "webchat" }))).not.toContain("in reply to message");
   });
 });
+
+// T294: the file-contract answer path stamps `origin: "exchange"`, so "origin is
+// set" was never the test for "a human chose to quote this" — a park of
+// file-contract agents would have grown the reference line on every answer.
+describe("who counts as having chosen the quote (T294)", () => {
+  const render = makeDefaultRender();
+  const ctx = { messageFile: "/x/inbox/abc/message.json", replyVia: "mcp" as const };
+
+  test("an agent's file-contract answer gets NO reference line", () => {
+    const answer = msg({ replyTo: "old-1", origin: "exchange" });
+    expect(render(answer, ctx)).not.toContain("in reply to message");
+  });
+
+  test("every human channel does get one", () => {
+    for (const origin of ["webchat", "web", "telegram", "slack", "console", "operator-plane"]) {
+      expect(render(msg({ replyTo: "old-1", origin }), ctx)).toContain("in reply to message old-1");
+    }
+  });
+
+  test("machinery does not: raw capture, broadcast copy, federation hop", () => {
+    for (const origin of [
+      "raw",
+      "tmux-fallback",
+      "broadcast:backend",
+      "fed:hub",
+      "outbox:admins",
+    ]) {
+      expect(render(msg({ replyTo: "old-1", origin }), ctx)).not.toContain("in reply to message");
+    }
+  });
+});

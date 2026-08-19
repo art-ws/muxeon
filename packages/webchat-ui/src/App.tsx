@@ -583,6 +583,10 @@ function Panel(props: {
         to,
         kind: "message",
         ts: Date.now(),
+        // The panel IS the origin the server will stamp (§12.4) — saying so here
+        // keeps the optimistic bubble identical to the echoed record, and a quote
+        // (FR-178) renders the moment the message appears, not a round-trip later.
+        origin: "webchat",
         ...(replyTo !== undefined ? { replyTo } : {}),
         payload:
           blobs.length === 0

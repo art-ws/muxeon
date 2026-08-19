@@ -38,18 +38,52 @@ export const quoteBlobCount = (record: ChatRecord): number =>
   payloadParts(record.payload).blobs.length;
 
 /**
- * Does this reply's quote add anything on screen (T292)? A reply whose target is
- * the record DIRECTLY above it quotes what the reader is already looking at —
- * and every agent answer carries `replyTo` for correlation (§8.3), so without
- * this rule the feed would grow a quote line on nearly every bubble. The
- * reference itself is never dropped: it stays in the record, in the envelope the
- * agent received, and in the deep link.
+ * Does this reply print a quote (T292, corrected in T294 by the operator)?
+ *
+ * A quote someone CHOSE to make always prints. That is the whole feature: the
+ * operator clicked reply, so their message must not read like an ordinary one —
+ * even when the message they answered is the bubble right above (T294: the first
+ * live reply looked like a plain message for exactly that reason). "Chosen" is
+ * `origin` against the closed HUMAN_ORIGINS list below — NOT "origin is set",
+ * which the file-contract answer path (`origin: "exchange"`) also satisfies.
+ *
+ * What stays suppressed is the MACHINE correlation: every agent answer carries
+ * `replyTo` back to the question it answers (§8.3), and when that question is the
+ * bubble directly above, the quote repeats what the reader is already looking at —
+ * on nearly every bubble of a busy chat. An agent answering something OLDER still
+ * prints its quote: there the reference is news.
+ *
+ * The reference itself is never dropped either way — it stays in the record, in
+ * the envelope the agent received, and in the deep link.
  */
 export function quoteWorthShowing(records: readonly ChatRecord[], index: number): boolean {
   const record = records[index];
   if (record?.replyTo === undefined) return false;
+  if (isHumanOrigin(record.origin)) return true; // someone chose to quote
   return records[index - 1]?.id !== record.replyTo;
 }
+
+/**
+ * Origins a HUMAN typed into — the panel's own copy of the core predicate
+ * (`@muxeon/core`, HUMAN_ORIGINS). Copied, not imported: webchat-ui is outside the
+ * §8 runtime graph and mirrors wire shapes by hand (types.ts does the same). An
+ * origin missing here counts as machinery, which is the safe direction: the quote
+ * falls back to the "is it news?" rule instead of appearing on every bubble.
+ *
+ * `exchange` is deliberately absent — that is an AGENT answering through the file
+ * contract, whose `replyTo` is correlation, not a chosen quote (T294).
+ */
+const HUMAN_ORIGINS: ReadonlySet<string> = new Set([
+  "webchat",
+  "web",
+  "telegram",
+  "slack",
+  "console",
+  "operator-plane",
+]);
+
+const isHumanOrigin = (origin: string | undefined): boolean =>
+  origin !== undefined && HUMAN_ORIGINS.has(origin);
 
 /**
  * The one line a quote prints — the composer chip and the bubble header share it

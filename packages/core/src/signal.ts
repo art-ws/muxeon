@@ -39,7 +39,7 @@ export interface Signal {
   readonly payload: unknown;
   /** `id` of the signal being replied to, if any (§8.3 attribution). */
   readonly replyTo?: string;
-  /** Producing channel or routine, if any (§5.3). */
+  /** Producing channel or routine, if any (§5.3); {@link isHumanOrigin} reads it. */
   readonly origin?: string;
   /**
    * Raw transport mode (§14, FR-88): an operator→agent turn whose payload is
@@ -78,3 +78,31 @@ export interface Signal {
 export function isNotificationOnly(signal: Signal): boolean {
   return signal.kind === "reaction" && signal.expectsReply !== true;
 }
+
+/**
+ * Origins a HUMAN typed into (§5.3): the panel, a channel bridge, an agent's own
+ * console, the operator CLI. Everything else that stamps `origin` is machinery —
+ * an agent's file-contract answer (`exchange`), its outbox, a captured console
+ * (`raw`/`tmux-fallback`), a broadcast copy, a federation hop, a reaction notice —
+ * and an MCP `send` stamps nothing at all.
+ *
+ * The distinction matters wherever `replyTo` is read as INTENT rather than as
+ * plumbing (FR-178/FR-179): every agent answer carries `replyTo` to correlate
+ * itself with the question, while a human's `replyTo` means "I chose to quote
+ * this". T294 learned the difference the hard way — the file-contract answer path
+ * stamps `origin: "exchange"`, so "origin is set" was not the test it looked like.
+ *
+ * An unknown origin counts as machinery: a new channel simply adds itself here.
+ */
+export const HUMAN_ORIGINS: ReadonlySet<string> = new Set([
+  "webchat", // the panel's own send (§12.4)
+  "web", // the web channel bridge (§7.1)
+  "telegram",
+  "slack",
+  "console", // typed into the agent's terminal by a person (FR-170)
+  "operator-plane", // the operator CLI
+]);
+
+/** Did a person write this signal, as opposed to the transport (see {@link HUMAN_ORIGINS})? */
+export const isHumanOrigin = (origin: string | undefined): boolean =>
+  origin !== undefined && HUMAN_ORIGINS.has(origin);

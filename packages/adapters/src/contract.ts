@@ -5,7 +5,7 @@
 
 import { join } from "node:path";
 import type { Session, Signal } from "@muxeon/core";
-import { isNotificationOnly } from "@muxeon/core";
+import { isHumanOrigin, isNotificationOnly } from "@muxeon/core";
 
 // Detection (§5.2, FR-11/FR-11b): readyPrompt is ALWAYS declared — output (front)
 // detection needs zero agent cooperation, and Muxeon never touches agent
@@ -93,13 +93,14 @@ export function renderAttribution(message: Signal): string {
  * fetches only what it needs, and a chat that pastes every quote back into the
  * console pays for it twice.
  *
- * Rendered ONLY for a message that came from a channel (`origin` set — webchat,
- * telegram, …). An agent answering with `send(replyTo=…)` sets the same field to
- * correlate its ANSWER (§8.3), and pointing an agent back at the question it just
- * asked is noise on every turn in the park.
+ * Rendered ONLY for a message a HUMAN wrote (isHumanOrigin, §5.3). An agent
+ * answering sets the same field to correlate its ANSWER (§8.3) — through MCP with
+ * no origin at all, through the file contract with `origin: "exchange"` (T294) —
+ * and pointing an agent back at the question it just asked is noise on every turn
+ * in the park.
  */
 export function renderReplyReference(message: Signal, viaMcp: boolean): string | undefined {
-  if (message.replyTo === undefined || message.origin === undefined) return undefined;
+  if (message.replyTo === undefined || !isHumanOrigin(message.origin)) return undefined;
   const what = `[in reply to message ${message.replyTo} of this chat`;
   return viaMcp
     ? `${what} — read it and its context with the muxeon MCP tool: get_history(peer="${message.from}", around="${message.replyTo}")]`

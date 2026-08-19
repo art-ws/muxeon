@@ -87,12 +87,25 @@ describe("the quote inside a bubble", () => {
     expect(chat(thread)).not.toContain('class="bubble-quote" disabled');
   });
 
-  test("a reply to the bubble directly above prints NO quote (T292)", () => {
+  test("an AGENT answering the bubble directly above prints NO quote (T292)", () => {
     const tight = [
       record({ id: "a", payload: "ping" }),
       record({ id: "b", from: "dev", to: "operator-web", payload: "pong", replyTo: "a" }),
     ];
     expect(chat(tight)).not.toContain("bubble-quote");
+  });
+
+  // T294: the operator's own reply to the message right above rendered as a plain
+  // bubble — a quote someone chose to make must always show, and be clickable.
+  test("a HUMAN reply to the bubble above still prints its quote", () => {
+    const tight = [
+      record({ id: "a", from: "dev", to: "operator-web", payload: "готово" }),
+      record({ id: "b", payload: "отлично получилось", replyTo: "a", origin: "webchat" }),
+    ];
+    const html = chat(tight);
+    expect(html).toContain("bubble-quote");
+    expect(html).toContain("готово");
+    expect(html).toContain('<button type="button" class="bubble-quote"');
   });
 
   test("a quote whose target is not loaded still renders, and says so", () => {

@@ -80,6 +80,7 @@ describe("the preview the chip and the bubble share", () => {
 });
 
 describe("when a quote is worth printing", () => {
+  // no `origin` ⇒ an agent's answer, whose replyTo is machine correlation (§8.3)
   const thread: readonly ChatRecord[] = [
     record({ id: "a" }),
     record({ id: "b" }),
@@ -93,12 +94,31 @@ describe("when a quote is worth printing", () => {
     expect(quoteWorthShowing(thread, 4)).toBe(false);
   });
 
-  test("a reply to the bubble ABOVE adds nothing — it is already on screen", () => {
+  test("an AGENT answering the bubble above adds nothing — it is already on screen", () => {
     expect(quoteWorthShowing(thread, 2)).toBe(false);
   });
 
-  test("a reply to an older message is exactly what a quote is for", () => {
+  test("an agent answering something OLDER prints its quote — there it is news", () => {
     expect(quoteWorthShowing(thread, 3)).toBe(true);
+  });
+
+  // T294, the operator's correction: their first live reply answered the bubble
+  // right above it and rendered as an ordinary message. A quote someone CHOSE to
+  // make is the feature — it prints regardless of what sits above.
+  test("a HUMAN reply always prints its quote, adjacent or not", () => {
+    const chosen: readonly ChatRecord[] = [
+      record({ id: "a" }),
+      record({ id: "b", replyTo: "a", origin: "webchat" }),
+    ];
+    expect(quoteWorthShowing(chosen, 1)).toBe(true);
+  });
+
+  test("any channel origin counts as chosen — console included (FR-170)", () => {
+    const typed: readonly ChatRecord[] = [
+      record({ id: "a" }),
+      record({ id: "b", replyTo: "a", origin: "console" }),
+    ];
+    expect(quoteWorthShowing(typed, 1)).toBe(true);
   });
 
   test("the first record of a loaded page keeps its quote (nothing above it)", () => {
