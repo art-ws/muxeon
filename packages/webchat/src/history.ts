@@ -172,7 +172,12 @@ export class HistoryStore {
     );
   }
 
-  /** Apply both caps to every peer log (called from the retention sweep, §5.4). */
+  /**
+   * Apply both caps to every peer log (called from the retention sweep, §5.4).
+   * The count cap carries the append path's slack here too (T287): the sweep is
+   * on a clock, so an exact cap would rewrite every at-cap peer log every minute
+   * that saw a message. The age cap stays exact.
+   */
   prune(): Promise<void> {
     return this.#serialize(async () => {
       for (const peer of (await this.#listFileNames()).map((name) =>
@@ -180,7 +185,7 @@ export class HistoryStore {
       )) {
         const cache = await this.#load(peer);
         const aged = this.#applyAge(cache); // re-check: load's floor is stale for cached peers
-        if (aged || cache.records.length > this.#count) await this.#rewrite(peer, cache);
+        if (aged || cache.records.length > this.#trimAt) await this.#rewrite(peer, cache);
       }
     });
   }

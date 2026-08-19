@@ -195,10 +195,30 @@ describe("TransportLog inline count cap (T287)", () => {
     expect((await stat(logFile())).ino).not.toBe(settled); // the one trim
   });
 
-  test("prune still trims to exactly the cap — the slack is the append path only", async () => {
+  // The sweep needs the slack MORE than append does: it runs on a 60 s clock, so
+  // an exact cap costs one full-log rewrite per minute for as long as any traffic
+  // arrives — on a stand seeing a few messages a minute that is per-message again.
+  test("the sweep honours the slack too, and cuts to exactly the cap past it", async () => {
     const log = new TransportLog({ root, retain: { count: 20 } });
     await fill(log, 22);
+    const settled = (await stat(logFile())).ino;
+
+    await log.prune(); // within the slack — nothing to do, nothing rewritten
+    expect(await lines()).toHaveLength(22);
+    expect((await stat(logFile())).ino).toBe(settled);
+
+    await log.append(fresh("r-22", 22)); // 23 > trimAt ⇒ the append trims
     await log.prune();
     expect(await lines()).toHaveLength(20);
+  });
+
+  test("the age cap stays exact on the sweep — the slack is the count cap only", async () => {
+    let now = 10_000;
+    const log = new TransportLog({ root, retain: { ageMs: 500, count: 20 }, now: () => now });
+    await log.append(record("stale", { ts: now - 600 })); // already past the floor
+    await log.append(record("fresh", { ts: now }));
+    now = 10_050; // floor 9_550: "stale" expired and goes despite the count slack
+    await log.prune();
+    expect((await log.page()).records.map((r) => r.id)).toEqual(["fresh"]);
   });
 });

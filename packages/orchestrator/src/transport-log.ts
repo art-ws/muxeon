@@ -157,12 +157,21 @@ export class TransportLog {
     return () => this.#listeners.delete(listener);
   }
 
-  /** Apply both caps (called from the retention sweep, §5.4). */
+  /**
+   * Apply both caps (called from the retention sweep, §5.4). The count cap gets
+   * the same slack as the append path (T287) — and for the sweep it matters MORE:
+   * the sweep runs on a clock (60 s), so trimming at exactly `count` means one
+   * full-log rewrite per minute for as long as any traffic arrives, which on a
+   * stand that sees a few messages a minute is a rewrite per message all over
+   * again. With the slack the rewrite is paid once per `count * ratio` records
+   * whoever notices first. The AGE cap stays exact: an expired record leaves on
+   * the sweep that finds it, and that rewrite only happens when one actually did.
+   */
   prune(): Promise<void> {
     return this.#serialize(async () => {
       const cache = await this.#load();
       const aged = this.#applyAge(cache); // re-check: load's floor goes stale
-      if (aged || cache.records.length > this.#count) await this.#rewrite(cache);
+      if (aged || cache.records.length > this.#trimAt) await this.#rewrite(cache);
     });
   }
 
