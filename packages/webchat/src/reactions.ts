@@ -538,10 +538,29 @@ export interface ReactionOwner {
   readonly reactions: ReactionStore;
 }
 
+/**
+ * The agent↔agent carrier (§19.13, FR-181). Such a pair keeps no panel history —
+ * which is why §19.10 excluded it — but it does have a record: the router is the
+ * single delivery point, so the transport journal (FR-48) holds every signal
+ * between the two, with its id. That journal answers "is there a message to mark",
+ * and the sidecar lives under its own root, ONE file per pair (both ends see each
+ * other, so there is nothing to mirror and nothing to keep isolated).
+ *
+ * Absent ⇒ an agent peer stays NOT_REACTABLE, exactly as before FR-181.
+ */
+export interface AgentPairs {
+  /** The pair's sidecar and the key that addresses it (canonical order inside). */
+  pair(a: string, b: string): { store: ReactionStore; key: string };
+  /** The marked record, if the journal still holds it on this pair. */
+  record(a: string, b: string, id: string): Promise<Signal | undefined>;
+}
+
 export interface ReactionsHubOptions {
   readonly catalog: ReactionCatalog;
   /** Resolves an owner's history + sidecar; undefined ⇒ that name has no chat. */
   ownerOf(owner: string): ReactionOwner | undefined;
+  /** The agent↔agent carrier (§19.13); absent ⇒ agent peers stay NOT_REACTABLE. */
+  readonly agentPairs?: AgentPairs;
   readonly usage: ReactionUsage;
   /** Is this participant a local AGENT (a turn taker)? Drives the notification (§19.6). */
   isAgent(name: string): boolean;
@@ -648,6 +667,13 @@ export class ReactionsHub {
     if (item === undefined) {
       return { ok: false, code: "UNKNOWN_REACTION", message: `unknown reaction "${key}"` };
     }
+    // Two AGENTS (§19.13, FR-181): no panel history, so the carrier is the
+    // transport journal and the sidecar is the pair's own. Everything else — the
+    // catalog, idempotency, the counters, the deterministic notification id — is
+    // shared with the path below, which is the point of having one hub.
+    if (this.#options.isAgent(owner) && this.#options.isAgent(peer)) {
+      return await this.#reactBetweenAgents(input, item);
+    }
     const state = this.#options.ownerOf(owner);
     if (state === undefined) {
       return {
@@ -683,6 +709,64 @@ export class ReactionsHub {
     this.#options.usage.bump(key);
     this.#broadcast(owner, peer, messageId, reactions);
     const notify = await this.#notify(record, actor, item, messageId);
+    return { ok: true, reactions, ...(notify !== undefined ? { notify } : {}) };
+  }
+
+  /**
+   * A reaction inside an agent↔agent pair (§19.13, FR-181). The shape mirrors the
+   * panel path deliberately; the three differences are all consequences of "no
+   * panel history, two turn-takers":
+   *
+   *   - the carrier is the transport journal, so an id it no longer holds is
+   *     UNKNOWN_MESSAGE (a reaction is a gesture on a live conversation);
+   *   - one sidecar for the pair, no mirroring and no socket push (neither end
+   *     has tabs — the injected notice IS how the other agent sees it);
+   *   - the notification is ALWAYS a notice: `expectsReply` of the catalog item is
+   *     ignored here (decision Q3). The instructive keys are written in the
+   *     operator's voice — their texts literally begin "Оператор…" — and a gesture
+   *     that sends a peer back to redo work would reinstate the very ack loop
+   *     §13.7 exists to end. Want work done? Send a message and pay a turn for it.
+   */
+  async #reactBetweenAgents(
+    input: {
+      readonly owner: string;
+      readonly peer: string;
+      readonly messageId: string;
+      readonly actor: string;
+      readonly key: string;
+      readonly remove?: boolean;
+    },
+    item: ReactionCatalogItem,
+  ): Promise<ReactionOutcome> {
+    const { owner, peer, messageId, actor, key } = input;
+    const pairs = this.#options.agentPairs;
+    if (pairs === undefined) {
+      return {
+        ok: false,
+        code: "NOT_REACTABLE",
+        message: `"${owner}" keeps no chat history to react in`,
+      };
+    }
+    const record = await pairs.record(owner, peer, messageId);
+    if (record === undefined) {
+      return {
+        ok: false,
+        code: "UNKNOWN_MESSAGE",
+        message: `no message "${messageId}" between "${owner}" and "${peer}"`,
+      };
+    }
+    const { store, key: pairKey } = pairs.pair(owner, peer);
+    if (input.remove === true) {
+      // Only the author removes their own (§10.31) — keyed by (message, actor, key),
+      // so "someone else's" is a different key, not a check that can be forgotten.
+      await store.remove(pairKey, messageId, actor, key);
+      return { ok: true, reactions: await store.of(pairKey, messageId, actor) };
+    }
+    const placed = await store.add(pairKey, messageId, actor, key, item.emoji);
+    const reactions = await store.of(pairKey, messageId, actor);
+    if (!placed) return { ok: true, reactions }; // idempotent repeat: no count, no notice
+    this.#options.usage.bump(key);
+    const notify = await this.#notify(record, actor, item, messageId, { asPeer: true });
     return { ok: true, reactions, ...(notify !== undefined ? { notify } : {}) };
   }
 
@@ -740,6 +824,7 @@ export class ReactionsHub {
     actor: string,
     item: ReactionCatalogItem,
     messageId: string,
+    options: { readonly asPeer?: boolean } = {},
   ): Promise<NotifyOutcome | undefined> {
     const author = record.from;
     if (author === actor) return undefined; // self-reaction (§19.6)
@@ -756,11 +841,12 @@ export class ReactionsHub {
       ts: this.#now(),
       replyTo: messageId,
       origin: `reaction:${item.key}`,
-      payload: reactionPayload(item, actor, messageId),
+      payload: reactionPayload(item, actor, messageId, options.asPeer === true),
       // The ONE switch (§19.6): a notice by default, a real turn on the operator's
-      // explicit opt-in. The dispatcher reads it to decide whether this turn gets a
-      // message.json and a reply contract at all.
-      ...(item.expectsReply === true ? { expectsReply: true } : {}),
+      // explicit opt-in — and between two agents not even that (§19.13, Q3): the
+      // opt-in belongs to the operator's voice, so a peer's gesture never becomes
+      // an errand.
+      ...(item.expectsReply === true && options.asPeer !== true ? { expectsReply: true } : {}),
     };
     try {
       const result = await route(signal);
@@ -782,9 +868,17 @@ export function reactionPayload(
   item: ReactionCatalogItem,
   actor: string,
   messageId: string,
+  /** From a peer AGENT (§19.13): the head line alone — see below. */
+  fromPeer = false,
 ): string {
   const label = item.label ?? item.key;
   const head = `[muxeon reaction] ${item.emoji} ${label} from ${actor} on your message ${messageId}`;
+  // Between two agents the head IS the whole receipt (§19.13, FR-181). `agentMessage`
+  // is not appended: the operator wrote that text to an agent, in their own voice —
+  // several entries of the standard catalog literally begin "Оператор…" — and putting
+  // it in a peer's mouth is a lie about who is speaking. The emoji and the label
+  // carry everything a receipt has to carry.
+  if (fromPeer) return head;
   // No configured text ⇒ the coordinator's own words, and those are ALWAYS English
   // — a protocol surface, like the reply contract (§13.2/T76). The operator's text,
   // when present, is whatever language the operator wrote it in.

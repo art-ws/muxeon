@@ -11,6 +11,11 @@
 // rejects only after the file has been stable for `settleTicks` ticks. An
 // invalid file becomes `<name>.rejected.json` IN PLACE + a warning — the agent
 // sees the refusal in its own folder.
+//
+// A drop is EITHER a message or a reaction (§19.13, decision Q2):
+// `{"react": {"peer", "messageId", "key", "remove"?}}` places or removes one
+// reaction through the same hub the `react` tool uses — the second door, for agents
+// that have no agent-plane session.
 
 import { createHash } from "node:crypto";
 import { mkdir, readFile, readdir, rename, stat, unlink } from "node:fs/promises";
@@ -43,6 +48,18 @@ export interface OutboxMonitorOptions {
   readonly route: (
     message: Signal,
   ) => Promise<{ ok: boolean; code?: string; limit?: number; depth?: number }>;
+  /**
+   * Place or remove a reaction (§19.13 decision Q2, FR-181): the SECOND door into
+   * the reactions hub, for the half of the park that lives on the file contract and
+   * has no agent-plane `react` tool. Same hub, same refusal codes; absent ⇒ a
+   * `react` drop is rejected like any unsupported shape.
+   */
+  readonly react?: (input: {
+    readonly peer: string;
+    readonly messageId: string;
+    readonly key: string;
+    readonly remove?: boolean;
+  }) => Promise<{ ok: boolean; code?: string; message?: string }>;
   /** Pickup cadence (§7.1 outboxPollMs, NFR-10); default 1000ms. */
   readonly pollIntervalMs?: number;
   /** Parse-failure settle window in ticks (§13.4); default 3. */
@@ -161,6 +178,41 @@ export class OutboxMonitor {
       await rename(path, claim);
     } catch {
       return; // someone consumed it first
+    }
+
+    // A reaction drop (§19.13, Q2): no routing, no payload, no id — the hub owns the
+    // whole operation, including idempotency and the ONE notice it may produce. A
+    // repeat of the same key is a no-op there, so re-dropping the same file is safe.
+    if (shape.kind === "react") {
+      const react = this.#o.react;
+      if (react === undefined) {
+        await this.#reject(claim, name, "asks for a reaction, but reactions are not available");
+        return;
+      }
+      let outcome: { ok: boolean; code?: string; message?: string };
+      try {
+        outcome = await react({
+          peer: shape.peer,
+          messageId: shape.messageId,
+          key: shape.key,
+          ...(shape.remove === true ? { remove: true } : {}),
+        });
+      } catch {
+        await rename(claim, path).catch(() => undefined); // transient — retry next tick
+        return;
+      }
+      if (!outcome.ok) {
+        await this.#reject(
+          claim,
+          name,
+          `was refused: ${outcome.code ?? "REACTION_FAILED"}${
+            outcome.message !== undefined ? ` — ${outcome.message}` : ""
+          }`,
+        );
+        return;
+      }
+      await unlink(claim).catch(() => undefined);
+      return;
     }
 
     const refs: { blob: string; name: string; mime: string; size: number }[] = [];
@@ -318,24 +370,49 @@ export class OutboxMonitor {
   }
 }
 
+/** A drop is a message (§13.4) or a reaction (§19.13) — never both. */
+type OutboxShape =
+  | {
+      readonly kind: "message";
+      readonly to?: string;
+      readonly payload: string;
+      readonly files: string[];
+      readonly expectsReply?: boolean;
+    }
+  | {
+      readonly kind: "react";
+      readonly peer: string;
+      readonly messageId: string;
+      readonly key: string;
+      readonly remove?: boolean;
+    };
+
 /**
  * Validate the §13.4 shape; returns the parsed shape or a refusal reason. `to` is
  * OPTIONAL since §17.11 (FR-135) — a file without it addresses all admin users;
  * the caller rejects it when the server has none, so the contract is unchanged for
  * a config without users.
  */
-function validateShape(
-  parsed: unknown,
-): { to?: string; payload: string; files: string[]; expectsReply?: boolean } | string {
+function validateShape(parsed: unknown): OutboxShape | string {
   if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
     return "is not a JSON object";
   }
-  const { to, payload, files, expectsReply } = parsed as {
+  const { to, payload, files, expectsReply, react } = parsed as {
     to?: unknown;
     payload?: unknown;
     files?: unknown;
     expectsReply?: unknown;
+    react?: unknown;
   };
+  // A reaction drop (§19.13, Q2) is a DIFFERENT shape, not an extra field: it routes
+  // nothing and carries no payload. Saying so explicitly beats silently ignoring one
+  // half of a file that asked for two things.
+  if (react !== undefined) {
+    if (to !== undefined || payload !== undefined || files !== undefined) {
+      return 'mixes "react" with message fields — a drop is either a message or a reaction';
+    }
+    return validateReactShape(react);
+  }
   if (to !== undefined && (typeof to !== "string" || to.length === 0)) {
     return 'has a malformed "to" (expected a non-empty peer name)';
   }
@@ -349,9 +426,42 @@ function validateShape(
     return 'has a malformed "expectsReply" (expected a boolean)';
   }
   return {
+    kind: "message",
     ...(typeof to === "string" ? { to } : {}),
     payload,
     files: (files as string[] | undefined) ?? [],
     ...(typeof expectsReply === "boolean" ? { expectsReply } : {}),
+  };
+}
+
+/** The §19.13 reaction drop: `{"react": {peer, messageId, key, remove?}}`. */
+function validateReactShape(react: unknown): OutboxShape | string {
+  if (typeof react !== "object" || react === null || Array.isArray(react)) {
+    return 'has a malformed "react" (expected an object)';
+  }
+  const { peer, messageId, key, remove } = react as {
+    peer?: unknown;
+    messageId?: unknown;
+    key?: unknown;
+    remove?: unknown;
+  };
+  for (const [field, value] of [
+    ["peer", peer],
+    ["messageId", messageId],
+    ["key", key],
+  ] as const) {
+    if (typeof value !== "string" || value.length === 0) {
+      return `has a malformed "react.${field}" (expected a non-empty string)`;
+    }
+  }
+  if (remove !== undefined && typeof remove !== "boolean") {
+    return 'has a malformed "react.remove" (expected a boolean)';
+  }
+  return {
+    kind: "react",
+    peer: peer as string,
+    messageId: messageId as string,
+    key: key as string,
+    ...(remove === true ? { remove: true } : {}),
   };
 }

@@ -905,26 +905,53 @@ Two tools join the agent plane (§8.6) for agents connected through the shim:
 
 ```
 list_reactions()                                  → the declared palette
-react({ peer, messageId, key, remove? })          → mark one message of a HUMAN neighbour
+react({ peer, messageId, key, remove? })          → mark one message of a neighbour
 ```
 
-`peer` is the person whose chat holds the message, `messageId` the id the agent
+`peer` is the neighbour whose chat holds the message, `messageId` the id the agent
 already sees in its own delivery (`[muxeon] … id=<id>`) or in `get_history`. The
 gate is the topology edge alone — the same stance as `get_screen`: a reaction is a
-mark in a conversation the agent is already allowed to have. Reacting to another
-agent's message is `NOT_REACTABLE` (an agent keeps no panel chat log of its own).
+mark in a conversation the agent is already allowed to have.
+
+#### Between two agents (§19.13)
+
+A neighbour may be another **agent**, and then the reaction is the cheapest receipt
+there is: no message, no turn of theirs, no answer owed. Two things differ from the
+human case, both on purpose:
+
+- **The carrier is the transport journal** (FR-48), because an agent pair keeps no
+  panel chat log. An id the journal has already pruned answers `UNKNOWN_MESSAGE` —
+  a reaction is a gesture on a live conversation, not an archive tool.
+- **It is always a notice.** `expectsReply: true` on a catalog item is ignored
+  between agents: those texts are written in *your* voice ("Оператор отметил…"),
+  and a gesture that sends a peer back to redo work would restart exactly the
+  receipt loop that §13.7 ends. What the peer reads is the head line alone —
+  `[muxeon reaction] 👍 Принято from tl on your message <id>` — never your
+  `agentMessage`.
+
+An agent with **no** agent-plane session reacts through its outbox instead, with the
+same hub, the same refusal codes and the same `*.rejected.json` receipt:
+
+```jsonc
+// <exchange>/outbox/anything.json — a drop is either a message or a reaction
+{ "react": { "peer": "tl", "messageId": "<id>", "key": "ok" } }   // "remove": true takes yours back
+```
 
 #### Where it is stored
 
 ```
 <config_dir>/webchat/reactions/<user>/<peer>.jsonl   # append-only events, folded on read
+<config_dir>/reactions/agents/<a>/<b>.jsonl          # agent↔agent, ONE file per pair
 <config_dir>/webchat/reactions-usage.json            # global "Recent" counters
 ```
 
 Beside the history, never inside it: the chat log stays a pure stream of message
-envelopes. Reactions are pruned together with the messages they annotate, and
-`POST /api/history/:peer/clear` drops both. The history export (FR-84) gains a
-`reactions` field and its document `version` is now `2`.
+envelopes. Reactions are pruned together with the messages they annotate — the agent
+pair's sidecar against the journal — and `POST /api/history/:peer/clear` drops both.
+The history export (FR-84) gains a `reactions` field and its document `version` is
+now `2`. The agent pair's file sits outside `webchat/` because the owner of that
+record is not a user; the two agents in the pair see each other, so there is one
+file and nothing to mirror.
 
 ### 8.1e The console writes into the chat too (§12.9.6, FR-170)
 

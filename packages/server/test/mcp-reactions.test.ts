@@ -154,6 +154,21 @@ describe.skipIf(!LOOPBACK_DIRECT)("list_reactions / react (§19.7, FR-167)", () 
     expect(calls).toEqual([]);
   });
 
+  // §19.13 / FR-181: an AGENT neighbour reaches the hub now — its carrier is the
+  // transport journal, not a panel log. The plane does not decide that: one place
+  // owns the logs, and it is the place that answers "is there a record to mark".
+  test("an agent neighbour reaches the hub — the pair is (peer, caller)", async () => {
+    const result = await alice.callTool({
+      name: "react",
+      arguments: { peer: "bob", messageId: "t1", key: "ok" },
+    });
+    expect(result.isError).toBeFalsy();
+    expect(calls).toEqual([
+      { owner: "bob", peer: "alice", actor: "alice", messageId: "t1", key: "ok" },
+    ]);
+    expect(sc(result)).toMatchObject({ peer: "bob", messageId: "t1", key: "ok" });
+  });
+
   test("the hub's refusal codes surface verbatim (§19.7)", async () => {
     for (const code of [
       "UNKNOWN_MESSAGE",

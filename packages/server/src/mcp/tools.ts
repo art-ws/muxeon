@@ -446,16 +446,19 @@ export const AGENT_TOOLS: Tool[] = [
   {
     name: "react",
     description:
-      "Mark ONE message of a human neighbour with a reaction instead of writing a " +
-      "message about it — an acknowledgement that costs no turn of theirs. The " +
-      "message must be one from your chat with that person (use the id from the " +
-      "message you were given, or from get_history). Several different keys may sit " +
-      "on one message; the same key twice is a no-op. `remove: true` takes back YOUR " +
-      "OWN reaction — never someone else's.",
+      "Mark ONE message of a neighbour — a person OR another agent — with a reaction " +
+      "instead of writing a message about it. This is the cheapest possible receipt: " +
+      "it costs the other side no answer at all. The message must be one from your " +
+      "chat with that neighbour (use the id you were given, or one from get_history). " +
+      "Several different keys may sit on one message; the same key twice is a no-op. " +
+      "`remove: true` takes back YOUR OWN reaction — never someone else's.",
     inputSchema: {
       type: "object",
       properties: {
-        peer: { type: "string", description: "neighbour name (the human whose chat holds it)" },
+        peer: {
+          type: "string",
+          description: "neighbour name — the person or agent whose chat holds it",
+        },
         messageId: { type: "string", description: "id of the message to mark" },
         key: { type: "string", description: "reaction key from list_reactions" },
         remove: { type: "boolean", description: "remove your own reaction instead of placing it" },
@@ -855,9 +858,9 @@ async function dispatch(
       if (kind === "group" || kind === "tag") {
         return fail("NOT_REACTABLE", `"${peer}" is a ${kind} — one-directional, it has no chat`);
       }
-      // A peer that is an agent falls through to the hub, which answers
-      // NOT_REACTABLE because an agent keeps no panel history: one place decides
-      // "is there a log to mark", and it is the place that owns the logs.
+      // An agent peer falls through to the hub as well — since FR-181 it lands on
+      // the transport-journal carrier (§19.13) instead of NOT_REACTABLE. One place
+      // decides "is there a record to mark", and it is the place that owns the logs.
       const outcome = await deps.reactions.react({
         owner: peer, // the human's history dir holds the pair (§19.4)
         peer: caller, // …under the caller's name: the pair is (peer, caller)

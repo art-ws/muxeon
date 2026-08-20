@@ -156,6 +156,39 @@ export class TransportLog {
     });
   }
 
+  /**
+   * ONE record of the pair, if the journal still holds it (§19.13, FR-181) — the
+   * carrier check for an agent↔agent reaction. The journal is the only place that
+   * traffic is durable, so "does this message exist between these two" is a
+   * question only this log can answer. Rolling by construction: an id that aged
+   * out of the caps is gone, and the caller says UNKNOWN_MESSAGE rather than
+   * inventing a record.
+   */
+  record(a: string, b: string, id: string): Promise<Signal | undefined> {
+    return this.#serialize(async () => {
+      const { records } = await this.#load();
+      return records.find(
+        (record) =>
+          record.id === id &&
+          ((record.from === a && record.to === b) || (record.from === b && record.to === a)),
+      );
+    });
+  }
+
+  /** Ids the journal still holds for the pair — the sidecar compaction worklist (§19.4). */
+  pairIds(a: string, b: string): Promise<Set<string>> {
+    return this.#serialize(async () => {
+      const { records } = await this.#load();
+      const ids = new Set<string>();
+      for (const record of records) {
+        if ((record.from === a && record.to === b) || (record.from === b && record.to === a)) {
+          ids.add(record.id);
+        }
+      }
+      return ids;
+    });
+  }
+
   /** Live feed for the panel's WS push (§12.4); returns the unsubscribe. */
   subscribe(listener: (record: Signal) => void): () => void {
     this.#listeners.add(listener);

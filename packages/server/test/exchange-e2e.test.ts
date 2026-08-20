@@ -5,7 +5,7 @@
 // the artifact as a §12.5 blob ref; then the agent INITIATES via outbox/.
 
 import { afterEach, beforeEach, expect, test } from "bun:test";
-import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -273,4 +273,112 @@ test("a receipt is a notice: no folder and no contract named (§13.7, FR-180)", 
   // harness (no pane to scrape), not the proof; the proof is in nudge.test.ts.
   await new Promise((resolve) => setTimeout(resolve, 100));
   expect(injected["writer-s"]).toEqual([]);
+}, 10000);
+
+// §19.13 / FR-181 end to end, through the WIRING: an agent marks a peer agent's
+// message from its outbox (decision Q2 — no agent-plane session anywhere here), the
+// journal carries the record, the sidecar lands under the pair's own root, and the
+// peer reads one notice that asks for nothing.
+test("an agent reacts to a peer agent from its outbox (§19.13, FR-181)", async () => {
+  const configFile = join(dir, "muxeon.config.json");
+  writeFileSync(
+    configFile,
+    JSON.stringify({
+      server: {
+        port: 0,
+        mcp: false,
+        queueDir: "./queue",
+        cadence: { outputPollMs: 5, outboxPollMs: 20 },
+      },
+      agents: [
+        { name: "researcher", type: "claude", tmux: "researcher-s" },
+        { name: "writer", type: "claude", tmux: "writer-s" },
+      ],
+      topology: { researcher: ["writer"], writer: ["researcher"] },
+      reactions: {
+        categories: [{ name: "feedback", title: "Отклик" }],
+        items: [
+          {
+            key: "ok",
+            emoji: "👍",
+            label: "Принято",
+            category: "feedback",
+            // Written in the operator's voice — and therefore NOT put in a peer's
+            // mouth: the notice below must carry the head line alone.
+            agentMessage: "Оператор отметил это сообщение как принятое.",
+          },
+        ],
+      },
+    }),
+  );
+  const root = join(dir, "queue");
+  await mkdir(root, { recursive: true });
+
+  const injected: Record<string, string[]> = { "researcher-s": [], "writer-s": [] };
+  const makeDriver = (session: Session): SessionDriver => ({
+    inject: async (text) => {
+      injected[session.name]?.push(text);
+    },
+    awaitTurn: async () => undefined,
+  });
+
+  server = await bootstrap({
+    configFile,
+    probe: async () => true,
+    makeDriver,
+    sessionControl: {
+      hasSession: async () => true,
+      newSession: async () => undefined,
+      killSession: async () => undefined,
+      sendLiteral: async () => undefined,
+      sendKeys: async () => undefined,
+      capturePane: async () => "",
+    },
+    startRoutines: false,
+  });
+
+  // 1) a real message on the pair — the journal is the carrier, so it must exist
+  //    before anything can be marked.
+  expect(
+    (
+      await server.router.route({
+        id: "w1",
+        from: "writer",
+        to: "researcher",
+        kind: "message",
+        ts: 0,
+        payload: "черновик на проверку",
+      })
+    ).ok,
+  ).toBe(true);
+  await waitFor(() => injected["researcher-s"]?.some((t) => t.includes("черновик")) ?? false);
+
+  // 2) the receipt: a reaction dropped into the outbox, no MCP anywhere.
+  await mkdir(join(root, "researcher-s", "exchange", "outbox"), { recursive: true });
+  await writeFile(
+    join(root, "researcher-s", "exchange", "outbox", "react.json"),
+    JSON.stringify({ react: { peer: "writer", messageId: "w1", key: "ok" } }),
+  );
+
+  await waitFor(() => injected["writer-s"]?.some((t) => t.includes("[muxeon reaction]")) ?? false);
+  const notice = injected["writer-s"]?.find((t) => t.includes("[muxeon reaction]")) ?? "";
+  expect(notice).toContain("👍 Принято from researcher on your message w1");
+  expect(notice).toContain("no reply is expected"); // always a notice between agents
+  expect(notice).not.toContain("Оператор отметил"); // the operator's voice stays theirs
+  expect(notice).not.toContain("reply contract");
+
+  // 3) the sidecar sits under the pair's own root, ONE file, canonical order.
+  await waitFor(() => existsSync(join(dir, "reactions", "agents", "researcher", "writer.jsonl")));
+  const events = readFileSync(
+    join(dir, "reactions", "agents", "researcher", "writer.jsonl"),
+    "utf8",
+  ).trim();
+  expect(JSON.parse(events)).toMatchObject({
+    op: "add",
+    message: "w1",
+    actor: "researcher",
+    key: "ok",
+    emoji: "👍",
+  });
+  expect(existsSync(join(root, "researcher-s", "exchange", "outbox", "react.json"))).toBe(false);
 }, 10000);

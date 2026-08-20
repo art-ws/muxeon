@@ -267,6 +267,51 @@ describe("the window around a quoted message", () => {
   });
 });
 
+// §19.13 / FR-181: the journal is the CARRIER of an agent↔agent reaction — the one
+// place that traffic is durable. Two questions only it can answer: "is there such a
+// message between these two" (the react gate) and "which of them are still here"
+// (the sidecar compaction worklist).
+describe("the pair carrier for reactions (§19.13, FR-181)", () => {
+  const carrier = async (): Promise<TransportLog> => {
+    const log = new TransportLog({ root });
+    await log.append(record("t1", { from: "tl", to: "dev1" }));
+    await log.append(record("t2", { from: "dev1", to: "tl" }));
+    await log.append(record("x1", { from: "dev1", to: "sherlock" })); // another pair
+    return log;
+  };
+
+  test("record() finds a message in EITHER direction of the pair", async () => {
+    const log = await carrier();
+    expect((await log.record("tl", "dev1", "t1"))?.id).toBe("t1");
+    expect((await log.record("dev1", "tl", "t1"))?.id).toBe("t1"); // argument order is free
+    expect((await log.record("dev1", "tl", "t2"))?.id).toBe("t2");
+  });
+
+  test("a record of ANOTHER pair, or none at all, is undefined — not the newest one", async () => {
+    const log = await carrier();
+    expect(await log.record("tl", "dev1", "x1")).toBeUndefined();
+    expect(await log.record("tl", "dev1", "ghost")).toBeUndefined();
+  });
+
+  test("pairIds() lists exactly this pair's ids — the compaction worklist", async () => {
+    const log = await carrier();
+    expect([...(await log.pairIds("dev1", "tl"))].sort()).toEqual(["t1", "t2"]);
+    expect([...(await log.pairIds("dev1", "sherlock"))]).toEqual(["x1"]);
+    expect([...(await log.pairIds("tl", "nobody"))]).toEqual([]);
+  });
+
+  test("a pruned record stops being reactable — the journal is rolling by design", async () => {
+    const log = new TransportLog({ root, retain: { count: 1 }, now: () => 5000 });
+    await log.append(record("old", { from: "tl", to: "dev1", ts: 1 }));
+    await log.append(record("new", { from: "tl", to: "dev1", ts: 4000 }));
+    // A reader with a tight age cap: floor = 5000 - 2000, so "old" (ts 1) is past it
+    // and "new" (ts 4000) is not.
+    const aged = new TransportLog({ root, retain: { ageMs: 2000 }, now: () => 5000 });
+    expect(await aged.record("tl", "dev1", "old")).toBeUndefined();
+    expect((await aged.record("tl", "dev1", "new"))?.id).toBe("new");
+  });
+});
+
 describe("windowAround", () => {
   const items = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9];
 

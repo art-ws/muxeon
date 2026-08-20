@@ -385,6 +385,10 @@ instructions file:
   "no reply is expected" and is given no reply path at all, so a receipt cannot
   earn a receipt back. Saying "don't answer" in the text alone does not do this:
   the reply contract is what the recipient acts on, and by default it asks.
+- Cheaper still, when a reaction catalog is configured: it drops
+  `{"react": {"peer": "...", "messageId": "...", "key": "ok"}}` — a mark on the
+  message instead of a message about it. A drop is either a message or a
+  reaction, never both.
 
 If the agent also has a live MCP session (step 11), Muxeon injects a shorter
 contract instead: reply with one `send(to, replyTo)` call, which delivers the

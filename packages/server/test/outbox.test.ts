@@ -36,11 +36,16 @@ function makeMonitor(
     admins?: readonly string[];
     /** Names the router refuses (no edge) — the per-address check of §17.11. */
     noEdge?: readonly string[];
+    /** No reaction door wired at all (§19.13, Q2) — a react drop must be rejected. */
+    noReactions?: boolean;
+    /** The hub's refusal code for a react drop. */
+    reactRefusal?: string;
   } = {},
 ) {
   const routed: Signal[] = [];
   const warnings: string[] = [];
   const blobs: Uint8Array[] = [];
+  const reactions: { peer: string; messageId: string; key: string; remove?: boolean }[] = [];
   const monitor = new OutboxMonitor({
     agent: "researcher",
     outboxDir,
@@ -65,8 +70,18 @@ function makeMonitor(
     settleTicks: opts.settleTicks ?? 2,
     now: () => 42,
     warn: (text) => warnings.push(text),
+    ...(opts.noReactions === true
+      ? {}
+      : {
+          react: async (input) => {
+            reactions.push(input);
+            return opts.reactRefusal === undefined
+              ? { ok: true }
+              : { ok: false, code: opts.reactRefusal, message: "nope" };
+          },
+        }),
   });
-  return { monitor, routed, warnings, blobs };
+  return { monitor, routed, warnings, blobs, reactions };
 }
 
 describe("outbox pickup (FR-55, §13.4)", () => {
@@ -364,5 +379,83 @@ describe("a receipt drop (§13.7, FR-180)", () => {
     expect(routed).toEqual([]);
     expect(existsSync(join(outboxDir, "bad.rejected.json"))).toBe(true);
     expect(warnings.some((w) => w.includes('malformed "expectsReply"'))).toBe(true);
+  });
+});
+
+// §19.13 decision Q2 (FR-181): the SECOND door into the reactions hub, for the half
+// of the park that has no agent-plane session. A drop is either a message or a
+// reaction — never both — and it routes nothing.
+describe("a reaction drop (§19.13, FR-181)", () => {
+  test("{react:{...}} reaches the hub and routes no message at all", async () => {
+    await writeFile(
+      join(outboxDir, "r.json"),
+      JSON.stringify({ react: { peer: "writer", messageId: "t1", key: "ok" } }),
+    );
+    const { monitor, routed, reactions } = makeMonitor();
+    await monitor.tick();
+    expect(reactions).toEqual([{ peer: "writer", messageId: "t1", key: "ok" }]);
+    expect(routed).toEqual([]); // a reaction is not a message (§19.1)
+    expect(readdirSync(outboxDir)).toEqual([]); // consumed
+  });
+
+  test("remove:true rides along; other flags do not", async () => {
+    await writeFile(
+      join(outboxDir, "r.json"),
+      JSON.stringify({ react: { peer: "writer", messageId: "t1", key: "ok", remove: true } }),
+    );
+    const { monitor, reactions } = makeMonitor();
+    await monitor.tick();
+    expect(reactions[0]).toEqual({ peer: "writer", messageId: "t1", key: "ok", remove: true });
+  });
+
+  test("the hub's refusal comes back as the agent's own .rejected.json", async () => {
+    await writeFile(
+      join(outboxDir, "r.json"),
+      JSON.stringify({ react: { peer: "writer", messageId: "ghost", key: "ok" } }),
+    );
+    const { monitor, warnings } = makeMonitor({ reactRefusal: "UNKNOWN_MESSAGE" });
+    await monitor.tick();
+    expect(existsSync(join(outboxDir, "r.rejected.json"))).toBe(true);
+    expect(warnings[0]).toContain("UNKNOWN_MESSAGE");
+  });
+
+  test("mixing react with message fields is refused — a drop is one thing or the other", async () => {
+    await writeFile(
+      join(outboxDir, "mix.json"),
+      JSON.stringify({
+        to: "writer",
+        payload: "hi",
+        react: { peer: "writer", messageId: "t1", key: "ok" },
+      }),
+    );
+    const { monitor, routed, reactions, warnings } = makeMonitor();
+    await monitor.tick();
+    await monitor.tick();
+    await monitor.tick();
+    expect(routed).toEqual([]);
+    expect(reactions).toEqual([]);
+    expect(existsSync(join(outboxDir, "mix.rejected.json"))).toBe(true);
+    expect(warnings.some((w) => w.includes("either a message or a reaction"))).toBe(true);
+  });
+
+  test("a malformed react block names the field, like every other shape error", async () => {
+    await writeFile(join(outboxDir, "bad.json"), JSON.stringify({ react: { peer: "writer" } }));
+    const { monitor, warnings } = makeMonitor();
+    await monitor.tick();
+    await monitor.tick();
+    await monitor.tick();
+    expect(existsSync(join(outboxDir, "bad.rejected.json"))).toBe(true);
+    expect(warnings.some((w) => w.includes('malformed "react.messageId"'))).toBe(true);
+  });
+
+  test("no reaction door wired ⇒ the drop is rejected, not silently dropped", async () => {
+    await writeFile(
+      join(outboxDir, "r.json"),
+      JSON.stringify({ react: { peer: "writer", messageId: "t1", key: "ok" } }),
+    );
+    const { monitor, warnings } = makeMonitor({ noReactions: true });
+    await monitor.tick();
+    expect(existsSync(join(outboxDir, "r.rejected.json"))).toBe(true);
+    expect(warnings[0]).toContain("reactions are not available");
   });
 });

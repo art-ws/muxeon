@@ -207,12 +207,15 @@ async function hub(
     catalog?: ReactionCatalog;
     agents?: readonly string[];
     users?: readonly string[];
+    /** Records the fake transport journal holds — the agent↔agent carrier (§19.13). */
+    journal?: readonly Signal[];
   } = {},
 ): Promise<{
   hub: ReactionsHub;
   routed: Signal[];
   pushes: { owner: string; messageId: string; keys: string[] }[];
   historyOf: (owner: string) => HistoryStore;
+  pairStore: (a: string, b: string) => ReactionStore;
 }> {
   const agents = new Set(options.agents ?? ["muxeon"]);
   const owners = new Map<string, { history: HistoryStore; reactions: ReactionStore }>();
@@ -222,11 +225,32 @@ async function hub(
   const routed: Signal[] = [];
   const pushes: { owner: string; messageId: string; keys: string[] }[] = [];
   const usage = new ReactionUsage({ file: join(root, "reactions-usage.json") });
+  // The agent↔agent carrier (§19.13): one sidecar per pair under its own root, and a
+  // journal lookup standing in for the transport log.
+  const pairStores = new Map<string, ReactionStore>();
+  const pairStore = (a: string, b: string): ReactionStore => {
+    const lo = a <= b ? a : b;
+    const existing = pairStores.get(lo);
+    if (existing !== undefined) return existing;
+    const created = new ReactionStore({ dir: join(root, "reactions", "agents", lo) });
+    pairStores.set(lo, created);
+    return created;
+  };
+  const journal = options.journal ?? [];
   const instance = new ReactionsHub({
     catalog: options.catalog ?? CATALOG,
     usage,
     ownerOf: (owner) => owners.get(owner),
     isAgent: (name) => agents.has(name),
+    agentPairs: {
+      pair: (a, b) => ({ store: pairStore(a, b), key: a <= b ? b : a }),
+      record: async (a, b, id) =>
+        journal.find(
+          (entry) =>
+            entry.id === id &&
+            ((entry.from === a && entry.to === b) || (entry.from === b && entry.to === a)),
+        ),
+    },
     route: async (signal) => {
       routed.push(signal);
       return { ok: true };
@@ -248,6 +272,7 @@ async function hub(
       if (found === undefined) throw new Error(`no owner ${owner}`);
       return found.history;
     },
+    pairStore,
   };
 }
 
@@ -359,7 +384,9 @@ describe("ReactionsHub — the notification asymmetry (§19.6, FR-164/FR-165)", 
       catalog: CATALOG,
       usage: new ReactionUsage({ file: join(root, "reactions-usage.json") }),
       ownerOf: () => ({ history: ctx.historyOf("shagin"), reactions: store("shagin") }),
-      isAgent: () => true,
+      // Only the peer is an agent: a pair of two agents takes the journal path
+      // (§19.13), and this case is the human→agent one.
+      isAgent: (name) => name === "muxeon",
       route: async () => ({ ok: false, code: "AGENT_PAUSED" }),
     });
     const outcome = await paused.react({
@@ -474,5 +501,122 @@ describe("the agent's payload (§19.6)", () => {
     const text = reactionPayload({ key: "fire", emoji: "🔥" }, "shagin", "m1");
     expect(text).toContain("[muxeon reaction] 🔥 fire from shagin on your message m1");
     expect(text).toContain("No instruction is attached");
+  });
+});
+
+// §19.13 / FR-181: two AGENTS. The pair keeps no panel history — that is why
+// §19.10 excluded it — but the transport journal holds every signal between them,
+// and that is the carrier. Decision Q3 rides here too: between agents a reaction is
+// ALWAYS a notice, whatever the catalog says.
+describe("ReactionsHub — reactions between agents (§19.13, FR-181)", () => {
+  const between = (id: string, from: string, to: string): Signal => ({
+    id,
+    from,
+    to,
+    kind: "message",
+    ts: BASE,
+    payload: `payload of ${id}`,
+  });
+
+  const pair = async (journal?: readonly Signal[]) =>
+    await hub({
+      agents: ["tl", "dev1"],
+      journal: journal ?? [between("t1", "dev1", "tl")],
+    });
+
+  test("a reaction on a peer agent's message notifies it exactly once", async () => {
+    const ctx = await pair();
+    const outcome = await ctx.hub.react({
+      owner: "dev1", // the peer whose side of the pair holds the record
+      peer: "tl",
+      actor: "tl",
+      messageId: "t1",
+      key: "ok",
+    });
+    expect(outcome).toMatchObject({ ok: true, notify: { delivered: true } });
+    expect(ctx.routed).toHaveLength(1);
+    const notice = ctx.routed[0] as Signal;
+    expect(notice.kind).toBe("reaction");
+    expect(notice.id).toBe("t1:react:tl:ok"); // deterministic, dedup as everywhere
+    expect(notice.from).toBe("tl");
+    expect(notice.to).toBe("dev1");
+    expect(notice.replyTo).toBe("t1");
+    expect(notice.expectsReply).toBeUndefined(); // a notice — no reply path is named
+  });
+
+  test("the payload is the HEAD LINE alone — the operator's text is not put in a peer's mouth", async () => {
+    const ctx = await pair();
+    await ctx.hub.react({ owner: "dev1", peer: "tl", actor: "tl", messageId: "t1", key: "redo" });
+    const payload = String((ctx.routed[0] as Signal).payload);
+    expect(payload).toBe("[muxeon reaction] 🔁 Переделать from tl on your message t1");
+    expect(payload).not.toContain("Переделай результат"); // that text is the operator's
+  });
+
+  test("an instructive key does NOT become an errand between agents (decision Q3)", async () => {
+    const ctx = await pair();
+    await ctx.hub.react({ owner: "dev1", peer: "tl", actor: "tl", messageId: "t1", key: "redo" });
+    // The catalog says expectsReply:true; from a peer agent it is ignored, so the
+    // receiver reads a notice and owes nothing — which is the whole point (§13.7).
+    expect((ctx.routed[0] as Signal).expectsReply).toBeUndefined();
+  });
+
+  test("ONE sidecar per pair — either side sees the same folded state", async () => {
+    const ctx = await pair();
+    await ctx.hub.react({ owner: "dev1", peer: "tl", actor: "tl", messageId: "t1", key: "ok" });
+    await ctx.hub.react({ owner: "tl", peer: "dev1", actor: "dev1", messageId: "t1", key: "ok" });
+    const store = ctx.pairStore("dev1", "tl");
+    const views = await store.of("tl", "t1", "tl"); // canonical order: dev1 < tl
+    expect(views).toHaveLength(1);
+    expect(views[0]).toMatchObject({ key: "ok", count: 2 });
+    expect(views[0]?.actors.map((actor) => actor.name)).toEqual(["tl", "dev1"]);
+  });
+
+  test("an idempotent repeat notifies once; remove takes back only your own", async () => {
+    const ctx = await pair();
+    const input = { owner: "dev1", peer: "tl", actor: "tl", messageId: "t1", key: "ok" };
+    await ctx.hub.react(input);
+    await ctx.hub.react(input);
+    expect(ctx.routed).toHaveLength(1);
+    const removed = await ctx.hub.react({ ...input, remove: true });
+    expect(removed).toMatchObject({ ok: true });
+    expect(removed.ok && removed.reactions).toEqual([]);
+    expect(ctx.routed).toHaveLength(1); // a removal notifies nobody (§19.6)
+  });
+
+  test("marking your OWN message notifies no one — nobody pings themselves", async () => {
+    const ctx = await pair([between("t2", "tl", "dev1")]);
+    const outcome = await ctx.hub.react({
+      owner: "dev1",
+      peer: "tl",
+      actor: "tl",
+      messageId: "t2", // tl's own message
+      key: "ok",
+    });
+    expect(outcome.ok).toBe(true);
+    expect(ctx.routed).toEqual([]);
+  });
+
+  test("an id the journal does not hold on THIS pair is UNKNOWN_MESSAGE", async () => {
+    const ctx = await pair([between("t1", "dev1", "tl"), between("x9", "dev1", "sherlock")]);
+    for (const messageId of ["ghost", "x9"]) {
+      expect(
+        await ctx.hub.react({ owner: "dev1", peer: "tl", actor: "tl", messageId, key: "ok" }),
+      ).toMatchObject({ ok: false, code: "UNKNOWN_MESSAGE" });
+    }
+  });
+
+  test("without a carrier wired, an agent pair is NOT_REACTABLE (the pre-FR-181 answer)", async () => {
+    const ctx = await hub({ agents: ["tl", "dev1"] });
+    // The default helper wires a carrier with an EMPTY journal, so this asserts the
+    // other half: an empty journal cannot invent a record either.
+    expect(
+      await ctx.hub.react({ owner: "dev1", peer: "tl", actor: "tl", messageId: "t1", key: "ok" }),
+    ).toMatchObject({ ok: false, code: "UNKNOWN_MESSAGE" });
+  });
+
+  test("the shared counters count agent reactions too — Recent is global (§19.8)", async () => {
+    const ctx = await pair();
+    await ctx.hub.react({ owner: "dev1", peer: "tl", actor: "tl", messageId: "t1", key: "ok" });
+    expect(ctx.hub.catalog().recent).toEqual(["ok"]);
   });
 });

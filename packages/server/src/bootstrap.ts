@@ -99,6 +99,7 @@ import {
 } from "@muxeon/orchestrator";
 import { type SchedulerHandle, createFsStateStore, startScheduler } from "@muxeon/routines";
 import {
+  type AgentPairs,
   type HistoryStore,
   type ReactionCatalog,
   type ReactionOwner,
@@ -108,6 +109,7 @@ import {
   WebchatConnector,
   type WebchatLifecycle,
   type WebchatPorts,
+  encodePeerName,
 } from "@muxeon/webchat";
 import { createBlobsAdmin } from "./admin/blobs";
 import { createChannelsAdmin } from "./admin/channels";
@@ -673,6 +675,31 @@ export async function bootstrap(options: BootstrapOptions = {}): Promise<MuxeonS
       admins: () =>
         userConfigs.filter((user) => userRole(user) === "admin").map((user) => user.name),
       route: (message) => router.route(message),
+      // The reaction door for an agent with no plane (§19.13, Q2). Read LAZILY: the
+      // hub is built further down (it needs the channels' histories), and a drop is
+      // picked up long after boot.
+      react: async (input) => {
+        if (reactionsHub === undefined) {
+          return { ok: false, code: "REACTIONS_DISABLED", message: "no reaction catalog" };
+        }
+        // The same gate as the tool (§19.7): the EDGE and nothing else. A reaction is
+        // a mark in a conversation the agent is already allowed to have — but only in
+        // one it IS allowed to have.
+        if (!topology.hasEdge(agent.name, input.peer)) {
+          return { ok: false, code: "UNKNOWN_PEER", message: `not a neighbour: ${input.peer}` };
+        }
+        const outcome = await reactionsHub.react({
+          owner: input.peer, // the peer's side of the pair (§19.4/§19.13)
+          peer: agent.name,
+          actor: agent.name,
+          messageId: input.messageId,
+          key: input.key,
+          ...(input.remove === true ? { remove: true } : {}),
+        });
+        return outcome.ok
+          ? { ok: true }
+          : { ok: false, code: outcome.code, message: outcome.message };
+      },
       ...(cadence.outboxPollMs !== undefined ? { pollIntervalMs: cadence.outboxPollMs } : {}),
     });
     if (autoStart) runs.push(outbox.run(abort.signal));
@@ -1179,6 +1206,26 @@ export async function bootstrap(options: BootstrapOptions = {}): Promise<MuxeonS
       reactionStores.set(owner, store);
       return store;
     };
+    // The agent↔agent carrier (§19.13, FR-181): ONE sidecar per pair, named by the
+    // two agents in canonical order, under a root of its own — `webchat/` belongs to
+    // users, and the owner of this record is not one. The journal (FR-48) says
+    // whether there is a record to mark: the router is the single delivery point, so
+    // it is the only place that traffic is durable.
+    const agentPairStores = new Map<string, ReactionStore>();
+    const agentPairs: AgentPairs = {
+      pair: (a, b) => {
+        const [lo, hi] = a <= b ? [a, b] : [b, a];
+        const existing = agentPairStores.get(lo);
+        const store =
+          existing ??
+          new ReactionStore({
+            dir: join(location.configDir, "reactions", "agents", encodePeerName(lo)),
+          });
+        if (existing === undefined) agentPairStores.set(lo, store);
+        return { store, key: hi };
+      },
+      record: (a, b, id) => transportLog.record(a, b, id),
+    };
     // The owner's log: a user's own (§17.7) or — in legacy mode (§12.1) — the
     // panel connector's. Resolved LAZILY: a reaction is placed long after boot, and
     // the legacy history is built inside the connector factory.
@@ -1206,8 +1253,10 @@ export async function bootstrap(options: BootstrapOptions = {}): Promise<MuxeonS
                 : { history, reactions: reactionStoreOf(owner) };
             },
             // An agent takes turns and keeps no panel log: that is what decides
-            // whether a reaction notifies through the router or through a socket.
+            // whether a reaction notifies through the router or through a socket —
+            // and, when BOTH ends are agents, that the journal carries it (§19.13).
             isAgent: (name) => agents.has(name),
+            agentPairs,
             route: async (signal) => {
               const result = await router.route(signal);
               return result.ok
@@ -1466,6 +1515,13 @@ export async function bootstrap(options: BootstrapOptions = {}): Promise<MuxeonS
                   for (const peer of await store.peers()) {
                     const live = new Set((await history.all(peer)).map((record) => record.id));
                     await store.compact(peer, live);
+                  }
+                }
+                // The agent↔agent sidecars compact against the JOURNAL (§19.13) —
+                // the log that carries those records, pruned by the sweep just above.
+                for (const [lo, store] of agentPairStores) {
+                  for (const hi of await store.peers()) {
+                    await store.compact(hi, await transportLog.pairIds(lo, hi));
                   }
                 }
               },
