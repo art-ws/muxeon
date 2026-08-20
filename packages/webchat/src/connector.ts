@@ -95,6 +95,16 @@ export type WebchatEvent =
       readonly reactions: readonly ReactionView[];
     }
   | {
+      /**
+       * An agent↔agent record's reactions changed (§19.13, FR-182) — the journal
+       * row's folded state. Admin tabs only, like the journal itself, and
+       * `mine` is always false: nobody reacts FROM the journal.
+       */
+      readonly type: "transport-reaction";
+      readonly messageId: string;
+      readonly reactions: readonly ReactionView[];
+    }
+  | {
       readonly type: "status";
       readonly peer: string;
       /** Session status (§5.1); a federated peer may read "unknown" (§18.4/§10.27). */
@@ -464,6 +474,22 @@ export class WebchatConnector implements ChannelConnector {
         },
         owner,
       );
+    });
+    // The journal's own push (§19.13, FR-182): an agent↔agent pair has no owner
+    // with tabs, so the badge goes to whoever is watching the journal — role-gated
+    // exactly like the transport feed itself (§17.7, FR-131).
+    options.reactions?.registerJournalPush((event) => {
+      for (const identity of this.#identities.values()) {
+        if (identity.role !== "admin") continue;
+        this.#push(
+          {
+            type: "transport-reaction",
+            messageId: event.messageId,
+            reactions: event.reactions,
+          },
+          identity.name,
+        );
+      }
     });
   }
 
@@ -1476,7 +1502,10 @@ export class WebchatConnector implements ChannelConnector {
     const rawLimit = Number(url.searchParams.get("limit") ?? "50");
     const limit = Number.isInteger(rawLimit) ? Math.min(Math.max(rawLimit, 1), 200) : 50;
     const page = await transport.page({ ...(before !== undefined ? { before } : {}), limit });
-    return json(page);
+    // Reactions of the rows on THIS page (§19.13, FR-182) — agent↔agent only, and
+    // folded for nobody: the journal shows what was placed, never "mine".
+    const reactions = await this.#options.reactions?.journalMap(page.records);
+    return json({ ...page, ...(reactions !== undefined ? { reactions } : {}) });
   }
 
   // POST /api/read {peer}: move the unread watermark (§12.7 badges).

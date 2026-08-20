@@ -8,16 +8,19 @@
 import { useEffect, useMemo, useState } from "react";
 import { FilterNote } from "./FilterNote";
 import { MessageText } from "./MessageText";
+import { ReactionBadges } from "./Reactions";
 import * as api from "./api";
 import { usePinnedFeed } from "./feed-pin";
 import { matchesParties, matchesQuery, partyOptions, toggleParty } from "./filter";
 import { useT } from "./i18n-context";
 import { IconCheck } from "./icons";
 import { TimeStamp } from "./timestamp";
-import { type ChatRecord, payloadParts } from "./types";
+import { type ChatRecord, type ReactionView, payloadParts } from "./types";
 
 export function TransportView(props: {
   live: readonly ChatRecord[];
+  /** Reactions pushed onto journal rows while the panel is open (§19.13, FR-182). */
+  liveReactions?: Readonly<Record<string, readonly ReactionView[]>>;
   /** Global auto-scroll switch (FR-62): ON pins the feed to the newest record. */
   follow?: boolean;
   /** Global message filter (T97, FR-71) — the topbar search field. */
@@ -31,6 +34,11 @@ export function TransportView(props: {
   const [records, setRecords] = useState<readonly ChatRecord[]>([]);
   const [nextBefore, setNextBefore] = useState<string | undefined>(undefined);
   const [loaded, setLoaded] = useState(false);
+  // Reactions of the pages fetched so far (FR-182); live pushes merge ON TOP, so a
+  // badge placed a second ago wins over the page that was loaded before it.
+  const [pageReactions, setPageReactions] = useState<
+    Readonly<Record<string, readonly ReactionView[]>>
+  >({});
   // The transport-own filter (FR-71): from/to multi-selects in THIS header.
   // The selection lives in the URL (FR-85): props carry the route's reading,
   // every change goes BACK through onFilters → location — so a reload or a
@@ -44,6 +52,7 @@ export function TransportView(props: {
     void api.fetchTransport().then((page) => {
       setRecords(page.records);
       setNextBefore(page.nextBefore);
+      setPageReactions((current) => ({ ...current, ...(page.reactions ?? {}) }));
       setLoaded(true);
     });
   }, []);
@@ -53,6 +62,7 @@ export function TransportView(props: {
     void api.fetchTransport(nextBefore).then((page) => {
       setRecords((current) => [...page.records, ...current]);
       setNextBefore(page.nextBefore);
+      setPageReactions((current) => ({ ...current, ...(page.reactions ?? {}) }));
     });
   };
 
@@ -72,6 +82,11 @@ export function TransportView(props: {
 
   // Pinned feed (T106): opening lands on the newest record (async media
   // included), staying near the bottom keeps following; FR-62 forces it.
+  // The journal's own reactions (FR-182): page state, overridden by live pushes.
+  const liveReactions = props.liveReactions ?? {};
+  const reactionsOf = (id: string): readonly ReactionView[] =>
+    liveReactions[id] ?? pageReactions[id] ?? [];
+
   const lastId = visible[visible.length - 1]?.id;
   const { feedRef, contentRef, onScroll } = usePinnedFeed(props.follow, lastId);
 
@@ -114,7 +129,7 @@ export function TransportView(props: {
             <p className="transport-empty">{t("No transport yet")}</p>
           )}
           {visible.map((record) => (
-            <TransportRow key={record.id} record={record} />
+            <TransportRow key={record.id} record={record} reactions={reactionsOf(record.id)} />
           ))}
         </div>
       </div>
@@ -194,7 +209,10 @@ function PartyFilter(props: {
   );
 }
 
-function TransportRow(props: { record: ChatRecord }): React.JSX.Element {
+function TransportRow(props: {
+  record: ChatRecord;
+  reactions: readonly ReactionView[];
+}): React.JSX.Element {
   const { record } = props;
   const { text, blobs } = payloadParts(record.payload);
   return (
@@ -206,6 +224,10 @@ function TransportRow(props: { record: ChatRecord }): React.JSX.Element {
       {/* the chat bubble's idiom (T225): who and when go UNDER the message, so
           the text owns the full width instead of hanging in a second column */}
       <span className="transport-meta">
+        {/* Read-only badges (§19.13, FR-182): the operator SEES the receipts agents
+            exchange — the journal is the only place that traffic is visible — but
+            places none here; the journal stays observation (§19.10). */}
+        {props.reactions.length > 0 && <ReactionBadges reactions={props.reactions} />}
         <span className="transport-route">{`${record.from} → ${record.to}`}</span>
         {record.kind !== "message" && <span className="transport-badge">{record.kind}</span>}
         {record.origin !== undefined && <span className="transport-badge">{record.origin}</span>}

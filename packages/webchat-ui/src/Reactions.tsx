@@ -30,6 +30,33 @@ const NOTIFY_TEXT: Readonly<Record<string, string>> = {
   ROUTE_FAILED: "the notification could not be routed",
 };
 
+/**
+ * Badges with nothing to click (§19.13, FR-182) — the transport journal's form of
+ * the same row. The journal is observation, not a chat: there is no picker, no
+ * "remove mine", and `mine` is never set, because nobody reacts from here. The
+ * classes are the chat bubble's, so the two rows read as the same object.
+ */
+export function ReactionBadges(props: {
+  reactions: readonly ReactionView[];
+}): React.JSX.Element | null {
+  if (props.reactions.length === 0) return null;
+  return (
+    <span className="reaction-bar reaction-bar-static">
+      {props.reactions.map((reaction) => (
+        <span
+          key={reaction.key}
+          className="reaction-badge static"
+          title={reaction.actors.map((actor) => actor.name).join(", ")}
+        >
+          <span className="reaction-emoji">{reaction.emoji}</span>
+          {/* No number on a single reaction (§19.9) — the emoji already says it. */}
+          {reaction.count > 1 && <span className="reaction-count">{reaction.count}</span>}
+        </span>
+      ))}
+    </span>
+  );
+}
+
 export function ReactionBar(props: {
   /** The pair whose log holds the message — the REST path's first segment (§19.5). */
   peer: string;

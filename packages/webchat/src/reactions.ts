@@ -581,6 +581,7 @@ export class ReactionsHub {
   readonly #options: ReactionsHubOptions;
   readonly #now: () => number;
   #push: ((owner: string, event: ReactionPush) => void) | undefined;
+  #journalPush: ((event: ReactionPush) => void) | undefined;
 
   constructor(options: ReactionsHubOptions) {
     this.#options = options;
@@ -596,6 +597,44 @@ export class ReactionsHub {
    */
   registerPush(push: (owner: string, event: ReactionPush) => void): void {
     this.#push = push;
+  }
+
+  /**
+   * The panel's JOURNAL push (§19.13/FR-182): an agent↔agent pair has no owner
+   * with tabs, and the operator sees that traffic only in the transport journal —
+   * so a receipt they cannot see did not happen for them. Read-only by
+   * construction: this is a push OUT, and no journal surface places anything.
+   */
+  registerJournalPush(push: (event: ReactionPush) => void): void {
+    this.#journalPush = push;
+  }
+
+  /**
+   * The folded reactions of journal RECORDS (FR-182) — agent↔agent pairs only.
+   * A user's pair is deliberately skipped: those reactions belong to that user's
+   * chat (§10.31), and the journal is not a place to enumerate them from.
+   */
+  async journalMap(records: readonly Signal[]): Promise<ReactionMap> {
+    const pairs = this.#options.agentPairs;
+    if (!this.enabled || pairs === undefined) return {};
+    // Group by pair first: one sidecar read per pair, not one per record.
+    const byPair = new Map<string, { a: string; b: string; ids: string[] }>();
+    for (const record of records) {
+      const { from, to } = record;
+      if (!this.#options.isAgent(from) || !this.#options.isAgent(to)) continue;
+      const [lo, hi] = from <= to ? [from, to] : [to, from];
+      const group = byPair.get(`${lo}\u0000${hi}`) ?? { a: lo, b: hi, ids: [] };
+      group.ids.push(record.id);
+      byPair.set(`${lo}\u0000${hi}`, group);
+    }
+    const map: ReactionMap = {};
+    for (const { a, b, ids } of byPair.values()) {
+      const { store, key } = pairs.pair(a, b);
+      // The viewer is nobody: the journal shows what was placed, never "mine" —
+      // the operator does not react there (decision Q1).
+      Object.assign(map, await store.map(key, ids, ""));
+    }
+    return map;
   }
 
   get enabled(): boolean {
@@ -759,15 +798,34 @@ export class ReactionsHub {
     if (input.remove === true) {
       // Only the author removes their own (§10.31) — keyed by (message, actor, key),
       // so "someone else's" is a different key, not a check that can be forgotten.
-      await store.remove(pairKey, messageId, actor, key);
-      return { ok: true, reactions: await store.of(pairKey, messageId, actor) };
+      const changed = await store.remove(pairKey, messageId, actor, key);
+      const reactions = await store.of(pairKey, messageId, actor);
+      if (changed) await this.#pushJournal(store, pairKey, owner, messageId);
+      return { ok: true, reactions };
     }
     const placed = await store.add(pairKey, messageId, actor, key, item.emoji);
     const reactions = await store.of(pairKey, messageId, actor);
     if (!placed) return { ok: true, reactions }; // idempotent repeat: no count, no notice
     this.#options.usage.bump(key);
+    await this.#pushJournal(store, pairKey, owner, messageId);
     const notify = await this.#notify(record, actor, item, messageId, { asPeer: true });
     return { ok: true, reactions, ...(notify !== undefined ? { notify } : {}) };
+  }
+
+  /**
+   * Push the pair's folded state to the journal watchers (FR-182). Folded for
+   * NOBODY on purpose: `mine` on a journal row would claim the operator placed
+   * something they cannot place.
+   */
+  async #pushJournal(
+    store: ReactionStore,
+    pairKey: string,
+    peer: string,
+    messageId: string,
+  ): Promise<void> {
+    const push = this.#journalPush;
+    if (push === undefined) return;
+    push({ peer, messageId, reactions: await store.of(pairKey, messageId, "") });
   }
 
   /**

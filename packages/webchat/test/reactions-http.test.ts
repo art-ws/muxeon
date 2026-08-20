@@ -70,21 +70,44 @@ interface Harness {
   routed: Signal[];
   token: string;
   console: ReturnType<typeof fakeConsolePort>;
+  hub: ReactionsHub;
   request(path: string, init?: RequestInit): Promise<Response>;
 }
 
-async function harness(options: { catalog?: ReactionCatalog } = {}): Promise<Harness> {
+async function harness(
+  options: { catalog?: ReactionCatalog; journal?: readonly Signal[] } = {},
+): Promise<Harness> {
   const history = new HistoryStore({
     dir: join(root, "history", "shagin"),
     operator: "shagin",
   });
   const reactionsStore = new ReactionStore({ dir: join(root, "reactions", "shagin") });
   const routed: Signal[] = [];
+  // The agent↔agent carrier (§19.13): a fake journal standing in for the transport
+  // log, and one sidecar per pair under its own root.
+  const journal = options.journal ?? [];
+  const pairStores = new Map<string, ReactionStore>();
+  const pairStore = (lo: string): ReactionStore => {
+    const existing = pairStores.get(lo);
+    if (existing !== undefined) return existing;
+    const created = new ReactionStore({ dir: join(root, "reactions", "agents", lo) });
+    pairStores.set(lo, created);
+    return created;
+  };
   const hub = new ReactionsHub({
     catalog: options.catalog ?? CATALOG,
     usage: new ReactionUsage({ file: join(root, "reactions-usage.json") }),
     ownerOf: (owner) => (owner === "shagin" ? { history, reactions: reactionsStore } : undefined),
-    isAgent: (name) => name === "muxeon",
+    isAgent: (name) => name === "muxeon" || name === "dev1",
+    agentPairs: {
+      pair: (a, b) => ({ store: pairStore(a <= b ? a : b), key: a <= b ? b : a }),
+      record: async (a, b, id) =>
+        journal.find(
+          (entry) =>
+            entry.id === id &&
+            ((entry.from === a && entry.to === b) || (entry.from === b && entry.to === a)),
+        ),
+    },
     route: async (signal) => {
       routed.push(signal);
       return { ok: true };
@@ -104,6 +127,10 @@ async function harness(options: { catalog?: ReactionCatalog } = {}): Promise<Har
       },
     ],
     reactions: hub,
+    transport: {
+      page: async () => ({ records: journal }),
+      subscribe: () => () => undefined,
+    },
   });
   await connector.start(async () => undefined);
   const request = (path: string, init: RequestInit = {}): Promise<Response> =>
@@ -120,6 +147,7 @@ async function harness(options: { catalog?: ReactionCatalog } = {}): Promise<Har
     routed,
     token,
     console: console_,
+    hub,
     request: (path, init = {}) =>
       request(path, {
         ...init,
@@ -399,6 +427,95 @@ describe("console input becomes history (§12.9.6, FR-170)", () => {
       type("\r");
       await untilRecorded(h, 1);
       expect((await h.history.all("muxeon"))[0]?.payload).toBe("half typed");
+    } finally {
+      await h.connector.stop();
+    }
+  });
+});
+
+// §19.13 / FR-182 (decision Q1): the journal is where an operator sees agent↔agent
+// traffic, so it is where the receipts have to show up too. Read-only: badges come
+// with the page and the push, and nothing places one from here.
+describe("reactions on journal rows (§19.13, FR-182)", () => {
+  const between = (id: string, from: string, to: string): Signal => ({
+    id,
+    from,
+    to,
+    kind: "message",
+    ts: 1000,
+    payload: `routed ${id}`,
+  });
+
+  test("GET /api/transport carries the pair's folded state, never `mine`", async () => {
+    const h = await harness({ journal: [between("t1", "dev1", "muxeon")] });
+    try {
+      await h.hub.react({
+        owner: "dev1",
+        peer: "muxeon",
+        actor: "muxeon",
+        messageId: "t1",
+        key: "ok",
+      });
+      const body = (await (await h.request("/api/transport")).json()) as {
+        records: Signal[];
+        reactions?: Record<string, { key: string; count: number; mine: boolean }[]>;
+      };
+      expect(body.records.map((record) => record.id)).toEqual(["t1"]);
+      expect(body.reactions?.t1).toMatchObject([{ key: "ok", count: 1 }]);
+      // The actor was muxeon, but the journal never claims the VIEWER placed it.
+      expect(body.reactions?.t1?.[0]?.mine).toBe(false);
+    } finally {
+      await h.connector.stop();
+    }
+  });
+
+  test("a user's own pair is NOT enumerated from the journal (§10.31 stays intact)", async () => {
+    const h = await harness({ journal: [between("m1", "muxeon", "shagin")] });
+    try {
+      await h.history.append(record("m1"));
+      await h.hub.react({
+        owner: "shagin",
+        peer: "muxeon",
+        actor: "shagin",
+        messageId: "m1",
+        key: "ok",
+      });
+      const body = (await (await h.request("/api/transport")).json()) as {
+        reactions?: Record<string, unknown>;
+      };
+      expect(body.reactions ?? {}).toEqual({}); // that badge lives in shagin's chat
+    } finally {
+      await h.connector.stop();
+    }
+  });
+
+  test("a live placement pushes `transport-reaction` to the admin's tabs", async () => {
+    const h = await harness({ journal: [between("t1", "dev1", "muxeon")] });
+    const events: { type: string; messageId?: string }[] = [];
+    try {
+      const socket = new WebSocket(`ws://127.0.0.1:${h.connector.port}/api/ws`, {
+        headers: { cookie: `${SESSION_COOKIE}=${h.token}` },
+      });
+      socket.addEventListener("message", (event) => {
+        events.push(JSON.parse(String(event.data)) as { type: string; messageId?: string });
+      });
+      await new Promise((resolve, reject) => {
+        socket.addEventListener("open", resolve, { once: true });
+        socket.addEventListener("error", reject, { once: true });
+      });
+      await h.hub.react({
+        owner: "dev1",
+        peer: "muxeon",
+        actor: "muxeon",
+        messageId: "t1",
+        key: "ok",
+      });
+      const deadline = Date.now() + 5000;
+      while (!events.some((e) => e.type === "transport-reaction" && e.messageId === "t1")) {
+        if (Date.now() > deadline) throw new Error("timeout waiting for the journal push");
+        await new Promise((resolve) => setTimeout(resolve, 5));
+      }
+      socket.close();
     } finally {
       await h.connector.stop();
     }

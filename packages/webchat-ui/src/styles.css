@@ -2714,6 +2714,20 @@ dialog.cmdfan-dialog::backdrop {
   cursor: pointer;
 }
 
+/* The journal's form (§19.13, FR-182): the same badge with nothing to click. It
+   rides INSIDE the meta line of a transport row, so it neither adds a row nor
+   pretends to be a place where a reaction can be placed. */
+.reaction-bar-static {
+  margin-top: 0;
+  gap: 3px;
+}
+
+.reaction-badge.static {
+  cursor: default;
+  padding: 0 5px;
+  font-size: 11px;
+}
+
 /* What the viewer placed themselves — otherwise nobody can tell (§19.9). */
 .reaction-badge.mine {
   border-color: var(--agent-color, var(--accent));

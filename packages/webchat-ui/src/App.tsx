@@ -441,6 +441,12 @@ function Panel(props: {
   // The transport view (FR-48): live rows from the WS push; the page fetch
   // inside TransportView covers history and reconnect catch-up.
   const [transportLive, setTransportLive] = useState<readonly ChatRecord[]>([]);
+  // Reactions that landed on journal rows while the panel was open (FR-182). The
+  // page fetch carries the rest; this map only has to win over it, so it is keyed
+  // by message id and merged on top.
+  const [transportReactions, setTransportReactions] = useState<
+    Readonly<Record<string, readonly ReactionView[]>>
+  >({});
   // Routing (FR-60): the hash is the source of truth for the open view — deep
   // links and back/forward come for free; navigation just writes the hash.
   const [route, setRoute] = useState<Route>(() => parseRoute(location.hash));
@@ -520,6 +526,10 @@ function Panel(props: {
       onEvent: (event) => {
         if (event.type === "transport") {
           setTransportLive((live) => [...live.slice(-(TRANSPORT_LIVE_CAP - 1)), event.record]);
+          return;
+        }
+        if (event.type === "transport-reaction") {
+          setTransportReactions((map) => ({ ...map, [event.messageId]: event.reactions }));
           return;
         }
         dispatch({ kind: "event", event });
@@ -671,6 +681,7 @@ function Panel(props: {
           <main className="chat-pane">
             <TransportView
               live={transportLive}
+              liveReactions={transportReactions}
               follow={props.follow}
               query={props.query}
               {...(route.from !== undefined ? { from: route.from } : {})}

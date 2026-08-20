@@ -199,6 +199,12 @@ export type PanelEvent =
       readonly reactions: readonly ReactionView[];
     }
   | {
+      /** A journal row's reactions changed (§19.13, FR-182) — agent↔agent, read-only. */
+      readonly type: "transport-reaction";
+      readonly messageId: string;
+      readonly reactions: readonly ReactionView[];
+    }
+  | {
       readonly type: "status";
       readonly peer: string;
       /** Absent for a federated user (their availability is `presence`). */

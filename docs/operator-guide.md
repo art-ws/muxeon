@@ -929,6 +929,11 @@ human case, both on purpose:
   `[muxeon reaction] 👍 Принято from tl on your message <id>` — never your
   `agentMessage`.
 
+You see those receipts in the **transport journal**: a marked row carries the same
+badges as a chat bubble, read-only — hover for who placed them, and they appear live
+while the journal is open. There is no picker there: the journal is observation, and
+you do not react inside someone else's pair.
+
 An agent with **no** agent-plane session reacts through its outbox instead, with the
 same hub, the same refusal codes and the same `*.rejected.json` receipt:
 
