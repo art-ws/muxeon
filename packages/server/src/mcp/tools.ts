@@ -272,7 +272,10 @@ export const AGENT_TOOLS: Tool[] = [
     description:
       "Send a message to a neighbor via the router (topology edge required). " +
       "The payload is delivered AS-IS and is exactly what the recipient reads. " +
-      "A `to` naming a group/tag broadcasts one-directionally to its members.",
+      "A `to` naming a group/tag broadcasts one-directionally to its members. " +
+      'Sending a pure receipt ("ok", "принято", "closing this")? Pass ' +
+      "expectsReply:false — the recipient is then told no answer is expected, " +
+      "which is the only way to keep a receipt from earning a receipt.",
     inputSchema: {
       type: "object",
       properties: {
@@ -285,6 +288,15 @@ export const AGENT_TOOLS: Tool[] = [
         },
         replyTo: { type: "string", description: "id of the message being answered" },
         kind: { type: "string", description: 'signal kind; default "message"' },
+        expectsReply: {
+          type: "boolean",
+          description:
+            "does this message ask for an answer? Default true. Pass false for a " +
+            "receipt or a closing note: the recipient gets your text plus " +
+            '"no reply is expected", is given no reply path at all, and owes you ' +
+            "nothing back. Use it whenever your text says «don't answer» — " +
+            "saying so in the text alone does not stop the reply contract.",
+        },
         id: { type: "string", description: "idempotency key; the server generates one if omitted" },
         files: {
           type: "array",
@@ -633,12 +645,19 @@ async function dispatch(
     }
 
     case "send": {
-      const { to, payload, replyTo, id, kind, files } = args;
+      const { to, payload, replyTo, id, kind, files, expectsReply } = args;
       if (typeof to !== "string") return fail("INVALID_ARGS", "to must be a string");
       if (payload === undefined) return fail("INVALID_ARGS", "payload is required");
       // forward-compat kinds (§5.3/FR-25b): the closed set grows by requirement (R3)
       if (kind !== undefined && kind !== "message" && kind !== "reaction") {
         return fail("INVALID_ARGS", `unsupported kind "${String(kind)}"`);
+      }
+      // The receipt modifier (§13.7, FR-180): `false` delivers this message as a
+      // NOTICE — the recipient reads it and is told no answer is expected, so an
+      // "ok"/"принято" cannot start an ack chain. Not a kind: what changes is the
+      // instruction the recipient reads, not the route this message takes.
+      if (expectsReply !== undefined && typeof expectsReply !== "boolean") {
+        return fail("INVALID_ARGS", "expectsReply must be a boolean");
       }
       // Attachments (FR-159, §12.5). Ingested BEFORE routing: a refusal must not
       // leave a delivered message whose promised files are missing.
@@ -662,6 +681,7 @@ async function dispatch(
         ts: (deps.now ?? Date.now)(),
         payload: withAttachments(payload, refs),
         ...(typeof replyTo === "string" ? { replyTo } : {}),
+        ...(typeof expectsReply === "boolean" ? { expectsReply } : {}),
       };
       // A `to` naming a group/tag fans out in the router (§15.4); an agent/operator
       // takes the single-delivery path. The router classifies — the caller need not.

@@ -314,3 +314,55 @@ describe("no-recipient initiative → the admins (§17.11, FR-135)", () => {
     expect(warnings.some((w) => w.includes('malformed "to"'))).toBe(true);
   });
 });
+
+// §13.7 / FR-180: the receipt an agent on the FILE contract can send. `reply.md`
+// carries no flags and will not get one (a second reserved name in the turn folder
+// is a second named reply path, §10.29/T267), so the drop file is the whole story
+// for that half of the park.
+describe("a receipt drop (§13.7, FR-180)", () => {
+  test("expectsReply:false rides the envelope of an ordinary drop", async () => {
+    await writeFile(
+      join(outboxDir, "ack.json"),
+      JSON.stringify({ to: "writer", payload: "принято", expectsReply: false }),
+    );
+    const { monitor, routed } = makeMonitor();
+    await monitor.tick();
+    expect(routed[0]).toMatchObject({
+      to: "writer",
+      kind: "message", // a modifier, not a kind
+      payload: "принято",
+      expectsReply: false,
+    });
+  });
+
+  test("a drop without the field carries none — the envelope shape is unchanged", async () => {
+    await writeFile(join(outboxDir, "plain.json"), JSON.stringify({ to: "writer", payload: "hi" }));
+    const { monitor, routed } = makeMonitor();
+    await monitor.tick();
+    expect(routed[0]).not.toHaveProperty("expectsReply");
+  });
+
+  test("the admin fan-out carries the flag too (§17.11)", async () => {
+    await writeFile(
+      join(outboxDir, "ack.json"),
+      JSON.stringify({ payload: "готово, ответ не нужен", expectsReply: false }),
+    );
+    const { monitor, routed } = makeMonitor({ admins: ["alex", "kim"] });
+    await monitor.tick();
+    expect(routed.map((m) => m.expectsReply)).toEqual([false, false]);
+  });
+
+  test("a non-boolean flag is rejected, not ignored — a silent 'ok' would be a lie", async () => {
+    await writeFile(
+      join(outboxDir, "bad.json"),
+      JSON.stringify({ to: "writer", payload: "hi", expectsReply: "no" }),
+    );
+    const { monitor, routed, warnings } = makeMonitor();
+    await monitor.tick();
+    await monitor.tick();
+    await monitor.tick();
+    expect(routed).toEqual([]);
+    expect(existsSync(join(outboxDir, "bad.rejected.json"))).toBe(true);
+    expect(warnings.some((w) => w.includes('malformed "expectsReply"'))).toBe(true);
+  });
+});

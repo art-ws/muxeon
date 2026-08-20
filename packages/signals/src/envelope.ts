@@ -18,6 +18,12 @@ export interface SignalInput {
   /** Idempotency key (§10.9); generated when absent. */
   readonly id?: string;
   readonly ts?: number;
+  /**
+   * Answer opt-in/opt-out (§13.7/§19.6): absent ⇒ the default of the kind. Set
+   * to `false` on a message to deliver a RECEIPT — a turn that names no reply
+   * path and arms no reply window (FR-180).
+   */
+  readonly expectsReply?: boolean;
 }
 
 export interface BuildOptions {
@@ -36,5 +42,6 @@ export function buildSignal(input: SignalInput, options: BuildOptions = {}): Sig
     payload: input.payload,
     ...(input.replyTo !== undefined ? { replyTo: input.replyTo } : {}),
     ...(input.origin !== undefined ? { origin: input.origin } : {}),
+    ...(input.expectsReply !== undefined ? { expectsReply: input.expectsReply } : {}),
   };
 }

@@ -202,6 +202,43 @@ The system picks it up (cadence `outboxPollMs`), validates the topology edge and
 file containment, and routes it as the folder's owner. A refused message comes
 back as `<name>.rejected.json` in the same folder with a logged reason.
 
+#### Receipts: a message that asks for nothing (§13.7, FR-180)
+
+Every delivered message carries a reply contract, so a receipt ("ok", "принято",
+"closing this") earns a receipt back, which earns another one — a live park
+measured three rounds of that, each one occupying a WIP slot of the agent it
+interrupted. Telling the recipient "no need to answer" in the text does not help:
+what the recipient acts on is the contract, and the contract asks.
+
+The sender ends it. Any producer can mark a message as a **notice**:
+
+```jsonc
+// MCP:    send({ to: "tl", payload: "принято", replyTo: "<turn id>", expectsReply: false })
+// outbox: { "to": "tl", "payload": "принято", "expectsReply": false }
+// admin:  POST /signals/send { "from": "dev1", "to": "tl", "payload": "принято", "expectsReply": false }
+```
+
+```bash
+muxeon signals send --from dev1 --to tl --no-reply "принято"
+```
+
+The recipient then reads the attribution, your text and one closing line — *"no
+reply is expected"* — and is given **no reply path at all**: no `message.json`
+folder, no file contract, no `send` hint. No reply window is armed either, so the
+console-scrape and the reply-nudge (FR-47/FR-45) stay silent. There is no middle
+setting ("answer only if you have something"): naming a path is asking, so the
+contract is either stated exactly once or not stated at all.
+
+Two boundaries worth knowing:
+
+- A notice still **occupies a queue slot** until the recipient reads it — the
+  flag removes the round trip, not the delivery. WIP and pause refuse it exactly
+  like any other message, and the refusal is returned to the sender.
+- `reply.md` carries no flag and will not get one: a second reserved name in the
+  turn folder would be a second named reply path. An agent on the file contract
+  sends its receipts through `outbox/` instead (the drop above), which also
+  counts as its answer for the turn.
+
 #### The compact form for agents with MCP (§13.6, FR-156/FR-157)
 
 The file contract costs the agent **two extra model round-trips** at the end of

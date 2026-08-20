@@ -16,6 +16,7 @@
 // peer message would FORCE a reply to every reply — the ack ping-pong §8.2 forbids.
 
 import type { Signal } from "@muxeon/core";
+import { isNotificationOnly } from "@muxeon/core";
 
 export interface NudgerOptions {
   /** Operator nodes (§7.5) — only operator-origin messages expect a reply. */
@@ -55,9 +56,19 @@ export class ReplyNudger {
    * message does — operator or peer agent — but never a scrape: a
    * `tmux-fallback` message opening its own window would let two console-only
    * agents ping-pong scrapes forever.
+   *
+   * And never a NOTICE (§13.7, FR-180): the receiver of a receipt was told in so
+   * many words that no answer is expected, so there is nothing to remind it of —
+   * and, more importantly, nothing to scrape. Without this the console-fallback
+   * would take whatever the receiver printed and route it to the sender AS its
+   * reply, which is the ack loop returning through the back door.
    */
   expectsReply(message: Signal): boolean {
-    return message.kind === "message" && message.origin !== "tmux-fallback";
+    return (
+      message.kind === "message" &&
+      !isNotificationOnly(message) &&
+      message.origin !== "tmux-fallback"
+    );
   }
 
   /** Router hook: a send was routed (called for EVERY successful route, §8.2). */

@@ -245,6 +245,26 @@ describe("operator-plane: signals.send (§8.5, FR-19, §8.7)", () => {
     expect(unknown.status).toBe(400);
     expect(unknown.json.code).toBe("BAD_KIND");
   });
+
+  test("expectsReply:false delivers a NOTICE, and a non-boolean is refused (§13.7, FR-180)", async () => {
+    await boot();
+    const notice = await post("/signals/send", {
+      from: "researcher",
+      to: "writer",
+      payload: "принято",
+      expectsReply: false,
+    });
+    expect(notice.status).toBe(200);
+    expect(notice.json.queued).toBe(true);
+    const bad = await post("/signals/send", {
+      from: "researcher",
+      to: "writer",
+      payload: "hi",
+      expectsReply: "false",
+    });
+    expect(bad.status).toBe(400);
+    expect(bad.json.code).toBe("BAD_REQUEST");
+  });
 });
 
 describe("operator-plane: agents/pause (§16.5, §10.19/§10.20, FR-117/FR-119)", () => {

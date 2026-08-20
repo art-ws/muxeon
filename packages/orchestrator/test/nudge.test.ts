@@ -174,3 +174,47 @@ describe("inter-agent fallback scope (§8.2, FR-47, T61)", () => {
     expect(routed).toHaveLength(0); // one fallback hop max per genuine message
   });
 });
+
+// The receipt (§13.7, FR-180). A notice owes nothing back, so no window opens —
+// and the scrape is the one that MATTERS: without this guard the receiver's
+// terminal output would be routed to the sender as "the reply", which is exactly
+// the ack loop the flag exists to end.
+describe("a notice opens no window (§13.7, FR-180)", () => {
+  const notice = (overrides: Partial<Signal> = {}): Signal =>
+    operatorMsg({ from: "tl", to: "dev1", expectsReply: false, payload: "принято", ...overrides });
+
+  test("expectsReply:false is not a message that expects a reply", () => {
+    const { nudger } = makeNudger();
+    expect(nudger.expectsReply(notice())).toBe(false);
+    expect(nudger.expectsReply(operatorMsg({ from: "tl", to: "dev1" }))).toBe(true);
+  });
+
+  test("a receipt left unanswered is NEVER scraped — the loop's back door", async () => {
+    const { nudger, routed } = makeNudger();
+    const msg = notice();
+    let scraped = false;
+    nudger.beginTurn("dev1", msg);
+    await nudger.afterTurn("dev1", msg, async () => {
+      scraped = true;
+      return "ветка закрыта, спасибо"; // what dev1 printed while working
+    });
+    expect(scraped).toBe(false); // the scrape is not even attempted
+    expect(routed).toHaveLength(0);
+  });
+
+  test("an operator receipt earns no nudge either", async () => {
+    const { nudger, routed } = makeNudger();
+    const msg = notice({ from: "operator-web", to: "qwen" });
+    nudger.beginTurn("qwen", msg);
+    await nudger.afterTurn("qwen", msg);
+    expect(routed).toHaveLength(0);
+  });
+
+  test("expectsReply:true is the ordinary turn, flag or no flag", async () => {
+    const { nudger, routed } = makeNudger();
+    const msg = operatorMsg({ expectsReply: true });
+    nudger.beginTurn("qwen", msg);
+    await nudger.afterTurn("qwen", msg);
+    expect(routed).toHaveLength(1);
+  });
+});

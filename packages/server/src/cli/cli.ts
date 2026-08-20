@@ -45,12 +45,23 @@ interface ParsedArgs {
   readonly flags: Map<string, string>;
 }
 
+/**
+ * Flags that stand alone — they take NO value. Every other flag consumes the next
+ * argv element, so a valueless one would silently eat the message text
+ * (`--no-reply принято` → the text is gone and the flag holds it).
+ */
+const BOOLEAN_FLAGS = new Set(["no-reply"]);
+
 function parseArgs(argv: readonly string[]): ParsedArgs {
   const positional: string[] = [];
   const flags = new Map<string, string>();
   for (let i = 0; i < argv.length; i += 1) {
     const arg = argv[i];
     if (arg?.startsWith("--")) {
+      if (BOOLEAN_FLAGS.has(arg.slice(2))) {
+        flags.set(arg.slice(2), "");
+        continue;
+      }
       const value = argv[i + 1];
       if (value === undefined) throw new CliError(`flag ${arg} needs a value`);
       flags.set(arg.slice(2), value);
@@ -89,7 +100,7 @@ const USAGE = `usage:
   muxeon pause|resume <agent>                 # block/unblock message delivery to the agent (FR-119)
   muxeon command <slash> <selector…>          # slash-command to group/tag/agent INTERSECTION (FR-115)
   muxeon channels
-  muxeon signals send --from <node> --to <node> [--blob <path>] <text…>
+  muxeon signals send --from <node> --to <node> [--blob <path>] [--no-reply] <text…>
   muxeon queues peek|cancel|requeue <participant> [<id>]
   muxeon routines list [<owner>]
   muxeon routines get|delete|enable|disable|run-once <owner> <id>
@@ -236,12 +247,18 @@ async function dispatch(args: ParsedArgs, admin: Admin, io: CliIO): Promise<void
       const payload = blobPath === undefined ? text : await blobPayload(blobPath, text, admin);
       const replyTo = args.flags.get("reply-to");
       const id = args.flags.get("id");
+      // --no-reply (§13.7, FR-180): deliver this as a NOTICE — the recipient reads
+      // it, is told no answer is expected and is given no reply path, so a receipt
+      // cannot earn a receipt back. A standalone flag (BOOLEAN_FLAGS), so the text
+      // after it stays the text.
+      const notice = args.flags.has("no-reply");
       const json = await admin("POST", "/signals/send", {
         from,
         to,
         payload,
         ...(replyTo !== undefined ? { replyTo } : {}),
         ...(id !== undefined ? { id } : {}),
+        ...(notice ? { expectsReply: false } : {}),
       });
       io.stdout(`queued ${String(json.id)} → ${to}`);
       return;

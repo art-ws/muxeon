@@ -242,6 +242,40 @@ describe.skipIf(!LOOPBACK_DIRECT)("agent-plane tools (§8.6, §3.1)", () => {
     expect(enqueued.kind).toBe("message");
   });
 
+  // --- T298 (FR-180, §13.7): the receipt that earns no receipt -----------------
+
+  test("expectsReply:false rides the envelope — the receiver's contract reads it", async () => {
+    const result = await alice.callTool({
+      name: "send",
+      arguments: { to: "bob", payload: "принято", id: "ack1", expectsReply: false },
+    });
+    expect(sc(result)).toEqual({ id: "ack1", queued: true });
+    const enqueued = readOnly(root, "bob-s");
+    expect(enqueued.kind).toBe("message"); // a modifier, never a kind of its own
+    expect(enqueued.expectsReply).toBe(false);
+  });
+
+  test("a receipt can also close the caller's turn — one call ends the round", async () => {
+    const result = await alice.callTool({
+      name: "send",
+      arguments: { to: "op", payload: "ok", id: "ack2", replyTo: "turn-1", expectsReply: false },
+    });
+    expect(sc(result)).toEqual({ id: "ack2", queued: true, turnClosed: true });
+  });
+
+  test("an ordinary send carries no flag at all — the envelope shape is unchanged", async () => {
+    await alice.callTool({ name: "send", arguments: { to: "bob", payload: "hi", id: "plain1" } });
+    expect(readOnly(root, "bob-s")).not.toHaveProperty("expectsReply");
+  });
+
+  test("a non-boolean expectsReply is INVALID_ARGS, not a silently ignored field", async () => {
+    const result = await alice.callTool({
+      name: "send",
+      arguments: { to: "bob", payload: "hi", id: "bad1", expectsReply: "false" },
+    });
+    expect(sc(result)).toEqual({ error: "INVALID_ARGS" });
+  });
+
   // --- T261 (FR-157, §13.6): a delivered reply also ends the caller's turn ------
 
   test("a reply closes the caller's own turn and says so in the receipt", async () => {

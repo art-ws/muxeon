@@ -305,6 +305,59 @@ describe("reaction notices (§19.6, FR-164)", () => {
   });
 });
 
+// The receipt (§13.7, FR-180): the same notice render, reached by a MESSAGE whose
+// sender said no answer is expected. This is the whole feature — between agents
+// there was no free "принято", because the contract asks even when the text says
+// not to, and the receiver honours the contract, not the text.
+describe("message receipts (§13.7, FR-180)", () => {
+  const receipt = (overrides: Partial<Signal> = {}): Signal => ({
+    ...msg(),
+    from: "tl",
+    payload: "принято, ветка закрыта",
+    expectsReply: false,
+    ...overrides,
+  });
+
+  test("names no reply path at all — with or without an exchange context", () => {
+    const render = makeDefaultRender();
+    for (const ctx of [undefined, { messageFile: "/x/inbox/abc/message.json" }]) {
+      const text = render(receipt(), ctx);
+      expect(text).toContain("[muxeon] from=tl id=abc-123");
+      expect(text).toContain("принято, ветка закрыта");
+      expect(text).toContain("no reply is expected");
+      expect(text).not.toContain("reply.md");
+      expect(text).not.toContain("message.json");
+      expect(text).not.toContain("send(");
+    }
+  });
+
+  test("the compact form does not leak in either — a notice has no contract to pick", () => {
+    const render = makeDefaultRender();
+    const text = render(receipt(), {
+      messageFile: "/x/inbox/abc/message.json",
+      replyVia: "mcp",
+    });
+    expect(text).toContain("no reply is expected");
+    expect(text).not.toContain("send(");
+  });
+
+  test("attachments still render — a receipt may carry a file (§12.5)", () => {
+    const render = makeDefaultRender({ blobsDir: "/blobs" });
+    const text = render(
+      receipt({ payload: { text: "принято", blobs: [{ blob: "b1", name: "log.txt" }] } }),
+    );
+    expect(text).toContain("[attachment] log.txt → /blobs/b1");
+    expect(text).toContain("no reply is expected");
+  });
+
+  test("expectsReply:true (or absent) is the ordinary contract — the default is unchanged", () => {
+    const render = makeDefaultRender();
+    const ctx = { messageFile: "/x/inbox/abc/message.json" };
+    expect(render(receipt({ expectsReply: true }), ctx)).toContain("reply contract:");
+    expect(render(msg(), ctx)).toContain("reply contract:");
+  });
+});
+
 // A human quoted an earlier message in the panel (§12.7, FR-178): the envelope
 // carries the id, and the render must turn it into something the agent can ACT
 // on — while staying silent on the agent-to-agent correlation that uses the very

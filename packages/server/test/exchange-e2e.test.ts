@@ -207,3 +207,70 @@ test("contract-order violation (T75): early deletion ends the turn but does NOT 
   // so the late file is inspectable instead of silently destroyed.
   expect(existsSync(join(msgDir, "reply.md"))).toBe(true);
 }, 10000);
+
+// §13.7 / FR-180 end to end: a receipt is delivered as a NOTICE — the receiver
+// reads it, is told no answer is expected, and gets no folder to answer in. The
+// window/scrape half of the guard is unit-covered (nudge.test.ts): this harness
+// drives no real pane, so a scrape assertion here would be vacuous.
+test("a receipt is a notice: no folder and no contract named (§13.7, FR-180)", async () => {
+  const configFile = join(dir, "muxeon.config.json");
+  writeFileSync(
+    configFile,
+    JSON.stringify({
+      server: { port: 0, mcp: false, queueDir: "./queue", cadence: { outputPollMs: 5 } },
+      agents: [
+        { name: "researcher", type: "claude", tmux: "researcher-s" },
+        { name: "writer", type: "claude", tmux: "writer-s" },
+      ],
+      topology: { researcher: ["writer"], writer: ["researcher"] },
+    }),
+  );
+  const root = join(dir, "queue");
+  await mkdir(root, { recursive: true });
+
+  const injected: Record<string, string[]> = { "researcher-s": [], "writer-s": [] };
+  const makeDriver = (session: Session): SessionDriver => ({
+    inject: async (text) => {
+      injected[session.name]?.push(text);
+    },
+    awaitTurn: async () => undefined, // the turn ends by output detection
+  });
+
+  server = await bootstrap({
+    configFile,
+    probe: async () => true,
+    makeDriver,
+    sessionControl: {
+      hasSession: async () => true,
+      newSession: async () => undefined,
+      killSession: async () => undefined,
+      sendLiteral: async () => undefined,
+      sendKeys: async () => undefined,
+      capturePane: async () => "",
+    },
+    startRoutines: false,
+  });
+
+  const result = await server.router.route({
+    id: "ack-1",
+    from: "writer",
+    to: "researcher",
+    kind: "message",
+    ts: 0,
+    payload: "принято, ветка закрыта",
+    expectsReply: false,
+  });
+  expect(result.ok).toBe(true);
+
+  await waitFor(() => injected["researcher-s"]?.some((t) => t.includes("принято")) ?? false);
+  const notice = injected["researcher-s"]?.find((t) => t.includes("принято"));
+  expect(notice).toContain("no reply is expected");
+  expect(notice).not.toContain("reply contract");
+  expect(notice).not.toContain("message.json"); // no path is named, not even to forbid it
+  // Nothing was materialized: there is no folder because there is no answer to collect.
+  expect(existsSync(join(root, "researcher-s", "exchange", "inbox", "ack-1"))).toBe(false);
+  // The sender is not injected anything in return here either — but that is the
+  // harness (no pane to scrape), not the proof; the proof is in nudge.test.ts.
+  await new Promise((resolve) => setTimeout(resolve, 100));
+  expect(injected["writer-s"]).toEqual([]);
+}, 10000);

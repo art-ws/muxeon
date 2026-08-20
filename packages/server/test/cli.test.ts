@@ -249,6 +249,37 @@ describe("signals send --blob (§8.5, FR-46)", () => {
     expect(ref.size).toBe(Buffer.byteLength(stored));
   });
 
+  // §13.7 / FR-180: --no-reply stands alone. Every other flag eats the next argv
+  // element, so the text after it is exactly where the bug would be.
+  test("--no-reply marks the signal a notice and does NOT swallow the text", async () => {
+    await server.adminFetch(
+      new Request(`${server.adminUrl}/agents/writer/kill`, { method: "POST" }),
+    ); // writer down → the record stays on disk to inspect
+    out = [];
+    expect(
+      await cli(
+        "signals",
+        "send",
+        "--from",
+        "researcher",
+        "--to",
+        "writer",
+        "--no-reply",
+        "принято",
+      ),
+    ).toBe(0);
+    const pendingDir = join(dir, "queue", "writer-s", "pending");
+    const recordFile = readdirSync(pendingDir).find((f) => f.endsWith(".json")) ?? "";
+    const record = JSON.parse(readFileSync(join(pendingDir, recordFile), "utf8")) as {
+      payload: string;
+      expectsReply?: boolean;
+      kind: string;
+    };
+    expect(record.payload).toBe("принято"); // the text survived the flag
+    expect(record.expectsReply).toBe(false);
+    expect(record.kind).toBe("message"); // a modifier, not a kind
+  });
+
   test("--blob without text is allowed; a missing file is a clear error", async () => {
     expect(await cli("signals", "send", "--from", "researcher", "--to", "writer")).toBe(1);
     expect(err[0]).toContain("missing <text…> (or --blob <path>)");

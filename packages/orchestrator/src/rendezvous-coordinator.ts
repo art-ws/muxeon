@@ -13,6 +13,7 @@
 // (concurrent tick, redelivery) collapses in the done/ dedup window (§10.9).
 
 import type { AgentStatus, Signal } from "@muxeon/core";
+import { isNotificationOnly } from "@muxeon/core";
 import type { RendezvousStore } from "./rendezvous";
 import type { RendezvousStateStore } from "./rendezvous-state";
 
@@ -105,6 +106,13 @@ export class RendezvousCoordinator {
     // input-only channel). The fan-out path already avoids firing onRefused for copies;
     // this guard makes the decoupling robust regardless of the caller.
     if (message.kind === "broadcast") return;
+    // A NOTICE that bounced off the WIP gate is not an errand to resume (§13.7,
+    // §19.6): the sender asked for nothing, so telling it later that the recipient
+    // is free would only invite the receipt to be sent again. This is also what
+    // makes invariant §10.30 literally true for reactions — a refused reaction
+    // notification used to register an intent here, which "no reply windows" says
+    // it must not.
+    if (isNotificationOnly(message)) return;
     const { from, to } = message;
     if (from === to) return;
     if (this.#statusOf(from) === undefined || this.#statusOf(to) === undefined) return;

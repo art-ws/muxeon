@@ -1,5 +1,5 @@
 // Outbox monitor (FR-55, §13.4) — agent initiative WITHOUT an MCP client: the
-// agent drops `{ "to": ..., "payload": ... [, "files": [...] ] }` into its
+// agent drops `{ "to": ..., "payload": ... [, "files": [...], "expectsReply": false ] }` into its
 // <exchange>/outbox/ and the system routes it. Identity is free and stronger
 // than the cooperative MCP claim (§8.1): the folder belongs to the agent, so
 // `from` is ALWAYS the owner. One monitor per agent, run by the server (§8.2).
@@ -204,6 +204,7 @@ export class OutboxMonitor {
           ts,
           payload,
           origin: "outbox:admins",
+          ...(shape.expectsReply !== undefined ? { expectsReply: shape.expectsReply } : {}),
         };
         try {
           const result = await this.#route(copy);
@@ -240,6 +241,11 @@ export class OutboxMonitor {
       ts,
       payload,
       origin: "exchange-outbox",
+      // The receipt modifier (§13.7, FR-180) rides the drop file: this is the ONLY
+      // way an agent on the file contract sends a receipt that earns no receipt —
+      // `reply.md` carries no flags and will not get one (a second reserved name in
+      // the turn folder is a second named reply path, §10.29/T267).
+      ...(shape.expectsReply !== undefined ? { expectsReply: shape.expectsReply } : {}),
     };
     let routed: { ok: boolean; code?: string; limit?: number; depth?: number };
     try {
@@ -320,11 +326,16 @@ export class OutboxMonitor {
  */
 function validateShape(
   parsed: unknown,
-): { to?: string; payload: string; files: string[] } | string {
+): { to?: string; payload: string; files: string[]; expectsReply?: boolean } | string {
   if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
     return "is not a JSON object";
   }
-  const { to, payload, files } = parsed as { to?: unknown; payload?: unknown; files?: unknown };
+  const { to, payload, files, expectsReply } = parsed as {
+    to?: unknown;
+    payload?: unknown;
+    files?: unknown;
+    expectsReply?: unknown;
+  };
   if (to !== undefined && (typeof to !== "string" || to.length === 0)) {
     return 'has a malformed "to" (expected a non-empty peer name)';
   }
@@ -334,9 +345,13 @@ function validateShape(
       return 'has a malformed "files" (expected an array of paths)';
     }
   }
+  if (expectsReply !== undefined && typeof expectsReply !== "boolean") {
+    return 'has a malformed "expectsReply" (expected a boolean)';
+  }
   return {
     ...(typeof to === "string" ? { to } : {}),
     payload,
     files: (files as string[] | undefined) ?? [],
+    ...(typeof expectsReply === "boolean" ? { expectsReply } : {}),
   };
 }

@@ -380,6 +380,11 @@ instructions file:
 - The agent then **deletes `message.json`** — that ends its turn.
 - To start a conversation, it drops `{"to": "...", "payload": "..."}` as a JSON
   file into `.muxeon/outbox/`.
+- To send a **receipt** — "ok", "принято", "closing this" — it adds
+  `"expectsReply": false` to that drop. The recipient then reads the text plus
+  "no reply is expected" and is given no reply path at all, so a receipt cannot
+  earn a receipt back. Saying "don't answer" in the text alone does not do this:
+  the reply contract is what the recipient acts on, and by default it asks.
 
 If the agent also has a live MCP session (step 11), Muxeon injects a shorter
 contract instead: reply with one `send(to, replyTo)` call, which delivers the

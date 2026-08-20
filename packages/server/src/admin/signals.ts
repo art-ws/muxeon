@@ -15,6 +15,12 @@ export interface SignalSendInput {
   readonly replyTo?: string;
   /** Idempotency key (§10.9); generated when absent. */
   readonly id?: string;
+  /**
+   * Answer opt-out (§13.7, FR-180): `false` delivers the signal as a NOTICE —
+   * the recipient reads it, is told no answer is expected and is given no reply
+   * path. Absent ⇒ the default of the kind.
+   */
+  readonly expectsReply?: boolean;
 }
 
 export interface SignalsAdmin {
@@ -44,6 +50,9 @@ export function createSignalsAdmin(deps: SignalsAdminDeps): SignalsAdmin {
         // the closed kind set (§5.3); new kinds arrive by requirement (R3, FR-25b)
         throw new AdminError(400, `unsupported signal kind "${input.kind}"`, "BAD_KIND");
       }
+      if (input.expectsReply !== undefined && typeof input.expectsReply !== "boolean") {
+        throw new AdminError(400, '"expectsReply" must be a boolean', "BAD_REQUEST");
+      }
       const message = buildSignal({
         from: input.from,
         to: input.to,
@@ -52,6 +61,7 @@ export function createSignalsAdmin(deps: SignalsAdminDeps): SignalsAdmin {
         ...(input.kind !== undefined ? { kind: input.kind } : {}),
         ...(input.replyTo !== undefined ? { replyTo: input.replyTo } : {}),
         ...(input.id !== undefined ? { id: input.id } : {}),
+        ...(input.expectsReply !== undefined ? { expectsReply: input.expectsReply } : {}),
       });
       const result = await deps.router.route(message);
       if (!result.ok) {

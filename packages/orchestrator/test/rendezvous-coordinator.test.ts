@@ -251,4 +251,42 @@ describe("RendezvousCoordinator (§8.2, FR-105)", () => {
       expect(h.store.has("b", "a")).toBe(false);
     });
   });
+
+  // §10.30 / §13.7: a NOTICE asks for nothing, so a refused one is not an errand
+  // to resume — telling the sender later that the recipient is free would only
+  // invite the receipt to be sent again.
+  describe("notices arm no rendezvous (§13.7/§10.30)", () => {
+    test("a refused receipt (expectsReply:false) registers NO intent", async () => {
+      const h = makeCoord();
+      h.coord.onRefused({ ...msg("a", "b"), expectsReply: false }, wip);
+      await settle();
+      expect(h.store.has("a", "b")).toBe(false);
+      expect(h.notices).toHaveLength(0);
+    });
+
+    test("a refused reaction notification registers NO intent either", async () => {
+      const h = makeCoord();
+      h.coord.onRefused(msg("a", "b", "reaction"), wip);
+      await settle();
+      expect(h.store.has("a", "b")).toBe(false);
+      expect(h.notices).toHaveLength(0);
+    });
+
+    test("a reaction the operator opted into a real turn DOES register", async () => {
+      const h = makeCoord();
+      h.coord.onRefused({ ...msg("a", "b", "reaction"), expectsReply: true }, wip);
+      await settle();
+      expect(h.store.has("a", "b")).toBe(true);
+    });
+
+    test("a receipt still RESOLVES an intent — it is contact, and contact is the point", async () => {
+      const h = makeCoord();
+      h.coord.onRefused(msg("b", "a"), wip);
+      await settle();
+      expect(h.store.has("b", "a")).toBe(true);
+      h.coord.onRouted({ ...msg("a", "b"), expectsReply: false });
+      await settle();
+      expect(h.store.has("b", "a")).toBe(false);
+    });
+  });
 });

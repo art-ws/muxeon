@@ -52,31 +52,45 @@ export interface Signal {
    */
   readonly raw?: boolean;
   /**
-   * Explicit answer opt-in for a non-message kind (§19.6, FR-164). A reaction
-   * notification is a notice by default — no inbox projection, no reply contract,
-   * "no answer required" spelled out — because the operator's default reaction
-   * texts are notices and an answer chain would be pure noise (§10.30). When the
-   * operator configures a reaction whose text is real WORK (`expectsReply: true`,
-   * §19.2), this flag rides along and the turn is rendered exactly like a message:
-   * one materialized message.json and exactly one reply contract (§10.29).
+   * Does this turn ask for an answer? Absent ⇒ the DEFAULT OF THE KIND: a
+   * "message" asks, a "reaction" notifies (§13.7, §19.6). Set, it overrides that
+   * default in either direction, and it is the only switch that does.
+   *
+   *   - `true` on a reaction (FR-164): the operator configured a reaction whose
+   *     text is real WORK (§19.2), so the turn renders exactly like a message —
+   *     one materialized message.json, exactly one reply contract (§10.29).
+   *   - `false` on a message (FR-180): a RECEIPT — "принято", "ok", "closed" —
+   *     that must not start an ack chain. The receiver gets attribution, payload
+   *     and "no reply is expected"; no inbox folder, no contract named at all,
+   *     and no reply window armed (FR-45/FR-47/FR-105). Between agents there was
+   *     no free receipt before this flag: `kind:"ack"` is rejected (the kind set
+   *     is closed) and the injected contract asks for an answer even when the
+   *     text says "don't answer", so a disciplined receiver answered anyway —
+   *     three rounds of it, in the live measurement that produced §13.7.
    *
    * A transport modifier, like `raw` — never a kind of its own: what changes is
    * the instruction the agent reads, not the routing, the queue or the receipt.
-   * Meaningless on `kind:"message"` (a message always asks) and ignored there.
+   * A new terminal kind would have to be taught to every switch on kind (router,
+   * dedup, history, connectors, channels, federation) to change one instruction.
    */
   readonly expectsReply?: boolean;
 }
 
 /**
- * Is this signal a NOTICE — delivered as a turn, but asking for nothing (§19.6,
- * FR-164)? Only a reaction can be one, and only until the operator opts that
- * reaction into a real turn. The predicate lives here because two layers must
- * agree on it byte-for-byte: the render (which must not name a reply path —
- * §10.29/T267: naming one is asking) and the exchange (which must not create a
- * folder for an answer nobody wants).
+ * Is this signal a NOTICE — delivered as a turn, but asking for nothing (§13.7,
+ * §19.6)? The rule is one line: the flag when the producer set it, otherwise the
+ * default of the kind (a message asks, a reaction notifies).
+ *
+ * The predicate lives here because four layers must agree on it byte-for-byte:
+ * the render (which must not name a reply path — §10.29/T267: naming one is
+ * asking), the exchange (which must not create a folder for an answer nobody
+ * wants), the nudger (which must not scrape the console of a receiver that owes
+ * nothing — that is the ack loop coming back through the door §13.7 closed) and
+ * the rendezvous coordinator (which must not resurrect a refused notice).
  */
 export function isNotificationOnly(signal: Signal): boolean {
-  return signal.kind === "reaction" && signal.expectsReply !== true;
+  if (signal.expectsReply !== undefined) return !signal.expectsReply;
+  return signal.kind === "reaction";
 }
 
 /**
