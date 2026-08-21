@@ -234,6 +234,30 @@ export type PanelEvent =
       readonly phase: Exclude<MessagePhase, "queued">;
     };
 
+/** One prompt on a shelf (§20.1, FR-183) — the server's record, verbatim. */
+export interface PromptRecord {
+  readonly id: string;
+  readonly name: string;
+  readonly text: string;
+  readonly created: number;
+  readonly updated: number;
+}
+
+/** One shelf of the rack: a name, a manual order and the prompts on it (§20.1). */
+export interface PromptShelf {
+  readonly id: string;
+  readonly name: string;
+  readonly created: number;
+  readonly updated: number;
+  readonly prompts: readonly PromptRecord[];
+}
+
+/** The signed-in user's whole rack (§20.1) — the shape every rack endpoint answers with. */
+export interface PromptLibrary {
+  readonly version: 1;
+  readonly shelves: readonly PromptShelf[];
+}
+
 /** The peer's kind (§15) — an absent `type` is an ordinary agent (backward-compat). */
 export function peerKind(peer: Pick<PeerInfo, "type">): PeerKind {
   return peer.type ?? "agent";

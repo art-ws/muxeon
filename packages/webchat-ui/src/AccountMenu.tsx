@@ -7,7 +7,7 @@
 
 import { useState } from "react";
 import { useT } from "./i18n-context";
-import { IconGear, IconPower, IconUser } from "./icons";
+import { IconGear, IconPower, IconShelf, IconUser } from "./icons";
 
 export function AccountMenu(props: {
   /**
@@ -25,6 +25,8 @@ export function AccountMenu(props: {
   onLogout: () => void;
   /** Opens the settings page (T110, FR-76) — an account-menu item. */
   onSettings?: (() => void) | undefined;
+  /** Opens the prompt rack page (§20.6, FR-187) — an account-menu item. */
+  onPrompts?: (() => void) | undefined;
 }): React.JSX.Element {
   const t = useT();
   const [open, setOpen] = useState(false);
@@ -56,6 +58,19 @@ export function AccountMenu(props: {
           {/* biome-ignore lint/a11y/useKeyWithClickEvents: a transparent click-away backdrop, the menu buttons carry the keyboard path */}
           <span className="menu-backdrop" onClick={() => setOpen(false)} />
           <span className="account-menu" role="menu">
+            {props.onPrompts !== undefined && (
+              <button
+                type="button"
+                role="menuitem"
+                className="filter-option"
+                onClick={() => {
+                  setOpen(false);
+                  props.onPrompts?.();
+                }}
+              >
+                <IconShelf size={14} /> {t("Prompts")}
+              </button>
+            )}
             {props.onSettings !== undefined && (
               <button
                 type="button"

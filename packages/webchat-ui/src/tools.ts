@@ -25,6 +25,7 @@ import {
   IconPower,
   IconRadio,
   IconRotate,
+  IconShelf,
   IconTrash,
 } from "./icons";
 import { chatSurface, hasConsole } from "./peer-surface";
@@ -39,6 +40,7 @@ export type ToolId =
   | "shutdown"
   | "transport"
   | "agent-filter"
+  | "prompts"
   | "settings"
   | "logout";
 
@@ -171,6 +173,16 @@ export const TOOLS: readonly Tool[] = [
     label: "Agent filter",
     hint: "the name / online filter above the sidebar list",
     icon: IconFilter,
+    available: () => true,
+  },
+  {
+    // The rack page (§20.6, FR-187). Its "menu item" is the account-menu line of
+    // the same name — one source, as everywhere in this catalogue (FR-171).
+    id: "prompts",
+    scope: "panel",
+    label: "Prompts",
+    hint: "the shelves of reusable prompts",
+    icon: IconShelf,
     available: () => true,
   },
   {

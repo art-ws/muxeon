@@ -16,11 +16,13 @@
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { CameraDialog } from "./Camera";
+import { PromptRackItems, SavePromptDialog } from "./PromptRack";
 import { blobUrl, uploadBlob } from "./api";
 import {
   type Attachment,
   VOICE_MIME_CANDIDATES,
   addAttachment,
+  appendPrompt,
   captureName,
   pickRecorderMime,
   removeAttachment,
@@ -62,6 +64,8 @@ export function Composer(props: {
    */
   replyTo?: { readonly id: string; readonly author: string; readonly preview: string };
   onCancelReply?: () => void;
+  /** Opens the prompt rack page (§20.6, FR-187) — the menu's "Manage shelves…". */
+  onManagePrompts?: (() => void) | undefined;
 }): React.JSX.Element {
   const t = useT();
   const paused = props.paused === true;
@@ -81,6 +85,12 @@ export function Composer(props: {
   const [running, setRunning] = useState<string | undefined>(undefined);
   const [menuOpen, setMenuOpen] = useState(false);
   const [commandsOpen, setCommandsOpen] = useState(false);
+  // The save dialog of the rack (§20.4). It lives HERE and not in the menu: the
+  // menu closes on the very click that opens the dialog, and a dialog inside it
+  // would close with it. `shelf: undefined` ⇒ save onto a new shelf.
+  const [saveTo, setSaveTo] = useState<{ shelf?: string } | undefined>(undefined);
+  // Set by an insert (FR-186) — the caret goes to the end AFTER the text renders.
+  const [caretToEnd, setCaretToEnd] = useState(0);
   // Full-screen mode for long messages (FR-70, T222): the composer card itself
   // GROWS to fill the feed (the Gemini idiom) — no separate editor window. The
   // same textarea and the same text state, so drafts persist; Esc, the corner
@@ -119,6 +129,16 @@ export function Composer(props: {
     textareaRef.current?.focus();
   }, [expanded]);
 
+  // A prompt taken from the shelf lands at the END, and so does the caret: the
+  // next thing typed continues the message, it does not overwrite it.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: the counter is the trigger; `text` is read, not watched
+  useEffect(() => {
+    if (caretToEnd === 0) return;
+    const area = textareaRef.current;
+    area?.focus();
+    area?.setSelectionRange(text.length, text.length);
+  }, [caretToEnd]);
+
   const closeMenu = (): void => {
     setMenuOpen(false);
     setCommandsOpen(false);
@@ -154,6 +174,12 @@ export function Composer(props: {
     } finally {
       setRunning(undefined);
     }
+  };
+
+  // §20.5: append, never replace — the draft persists as usual (FR-69).
+  const insertPrompt = (prompt: string): void => {
+    setText((current) => appendPrompt(current, prompt));
+    setCaretToEnd((count) => count + 1);
   };
 
   const attach = async (files: Iterable<File>): Promise<void> => {
@@ -387,6 +413,15 @@ export function Composer(props: {
                     {t("Camera")}
                   </button>
                 )}
+                {/* the prompt rack (§20.4/§20.5): take one from a shelf, put this
+                    one on a shelf, or go manage them (FR-185/FR-186/FR-187) */}
+                <PromptRackItems
+                  text={text}
+                  onInsert={insertPrompt}
+                  onSave={(shelf) => setSaveTo({ ...(shelf !== undefined ? { shelf } : {}) })}
+                  onManage={props.onManagePrompts}
+                  closeMenu={closeMenu}
+                />
                 {commands.length > 0 && (
                   <>
                     {/* always divided from the item(s) above — expand is always present */}
@@ -536,6 +571,15 @@ export function Composer(props: {
               void attach([file]);
             }}
             onClose={() => setCamera(false)}
+          />,
+          document.body,
+        )}
+      {saveTo !== undefined &&
+        createPortal(
+          <SavePromptDialog
+            text={text}
+            {...(saveTo.shelf !== undefined ? { shelf: saveTo.shelf } : {})}
+            onClose={() => setSaveTo(undefined)}
           />,
           document.body,
         )}

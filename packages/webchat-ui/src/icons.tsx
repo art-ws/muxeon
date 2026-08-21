@@ -264,3 +264,13 @@ export const IconReaction = (props: IconProps): React.JSX.Element => (
     <line x1="16" y1="5" x2="22" y2="5" />
   </Icon>
 );
+
+/** The prompt rack (§20.6, FR-187) — books standing on a shelf. */
+export const IconShelf = (props: IconProps): React.JSX.Element => (
+  <Icon {...props}>
+    <rect x="4" y="4" width="4" height="13" rx="1" />
+    <rect x="10" y="7" width="4" height="10" rx="1" />
+    <path d="M17.5 7.2l3 .8-2.4 9-3-.8z" />
+    <line x1="3" y1="20" x2="21" y2="20" />
+  </Icon>
+);

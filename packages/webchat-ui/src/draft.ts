@@ -44,3 +44,15 @@ export function pickRecorderMime(
 
 export const VOICE_MIME_CANDIDATES = ["audio/webm;codecs=opus", "audio/webm", "audio/mp4"];
 export const CLIP_MIME_CANDIDATES = ["video/webm;codecs=vp9,opus", "video/webm", "video/mp4"];
+
+/**
+ * How a prompt from the rack joins the draft (§20.5, FR-186): APPENDED, never
+ * replacing what was typed, with exactly one blank line between the two. A
+ * separator that is already there is not doubled, and an empty draft gets no
+ * leading blank line — the prompt simply becomes the message.
+ */
+export function appendPrompt(draft: string, prompt: string): string {
+  const body = prompt.replace(/\s+$/u, "");
+  const head = draft.replace(/\s+$/u, "");
+  return head === "" ? body : `${head}\n\n${body}`;
+}

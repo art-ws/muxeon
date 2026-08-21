@@ -133,11 +133,17 @@ describe("what the bar prints (FR-172)", () => {
   });
 
   test("no chat open ⇒ chat tools vanish, panel tools stay", () => {
-    expect(ids(ALL, undefined)).toEqual(["transport", "agent-filter", "settings", "logout"]);
+    expect(ids(ALL, undefined)).toEqual([
+      "transport",
+      "agent-filter",
+      "prompts",
+      "settings",
+      "logout",
+    ]);
   });
 
   test("a broadcast target has no status and no lifecycle — no chat tools", () => {
-    expect(ids(ALL, group)).toEqual(["transport", "agent-filter", "settings", "logout"]);
+    expect(ids(ALL, group)).toEqual(["transport", "agent-filter", "prompts", "settings", "logout"]);
   });
 
   test("a person has history and DND but no terminal and no lifecycle", () => {
@@ -147,6 +153,7 @@ describe("what the bar prints (FR-172)", () => {
       "pause",
       "transport",
       "agent-filter",
+      "prompts",
       "settings",
       "logout",
     ]);
@@ -163,6 +170,7 @@ describe("what the bar prints (FR-172)", () => {
       "clear",
       "transport",
       "agent-filter",
+      "prompts",
       "settings",
       "logout",
     ]);

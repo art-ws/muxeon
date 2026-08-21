@@ -9,6 +9,7 @@ describe("route codec (FR-60)", () => {
     [{ view: "home" }, "#/"],
     [{ view: "transport" }, "#/transport"],
     [{ view: "settings" }, "#/settings"],
+    [{ view: "prompts" }, "#/prompts"],
     [{ view: "chat", peer: "sherlock" }, "#/chat/sherlock"],
     [{ view: "chat", peer: "sherlock", message: "m-1" }, "#/chat/sherlock/m/m-1"],
   ])("routeHash(%j) → %p and parses back", (route, hash) => {
@@ -95,6 +96,7 @@ describe("transport filters in the URL (FR-85)", () => {
 
   test("a query on a non-transport view is dropped, not a crash", () => {
     expect(parseRoute("#/settings?from=x")).toEqual({ view: "settings" });
+    expect(parseRoute("#/prompts?x=1")).toEqual({ view: "prompts" });
     expect(parseRoute("#/chat/dev?x=1")).toEqual({ view: "chat", peer: "dev" });
   });
 });

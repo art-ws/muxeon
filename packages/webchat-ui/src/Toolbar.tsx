@@ -44,6 +44,8 @@ export function Toolbar(props: {
    */
   viewerRole?: "admin" | "user";
   onSettings: () => void;
+  /** Opens the prompt rack page (§20.6, FR-187) — the account-menu item's shortcut. */
+  onPrompts?: (() => void) | undefined;
   onLogout: () => void;
 }): React.JSX.Element {
   const t = useT();
@@ -107,6 +109,8 @@ export function Toolbar(props: {
         return async () => props.onAgentFilter?.(props.agentFilter !== true);
       case "transport":
         return async () => props.onTransport?.(props.transport !== true);
+      case "prompts":
+        return async () => props.onPrompts?.();
       case "settings":
         return async () => props.onSettings();
       case "logout":

@@ -2849,3 +2849,226 @@ dialog.reaction-dialog {
   color: var(--text-dim);
   font-size: 12px;
 }
+
+/* --- the prompt rack (§20.6, FR-185…FR-187) ------------------------------ */
+
+/* The page: shelves on the left, the selected shelf on the right. The pane
+   scrolls per column, so a long shelf list never pushes the editor off screen. */
+.rack {
+  display: grid;
+  grid-template-columns: minmax(200px, 280px) 1fr;
+  gap: 16px;
+  padding: 16px;
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
+}
+.rack-shelves,
+.rack-prompts {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-height: 0;
+  overflow-y: auto;
+}
+.rack-shelves {
+  border-right: 1px solid var(--border);
+  padding-right: 14px;
+}
+.rack-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.rack-new-shelf,
+.rack-filter,
+.rack-rename {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.rack-new-shelf input,
+.rack-filter input,
+.rack-rename input,
+.prompt-field input,
+.prompt-field select,
+.prompt-field textarea {
+  flex: 1;
+  padding: 6px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg);
+  color: var(--text);
+  font: inherit;
+}
+.prompt-field textarea {
+  resize: vertical;
+  font-size: 13.5px;
+  line-height: 1.45;
+}
+.rack-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.rack-list li {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  border-radius: 10px;
+  padding: 2px 4px;
+}
+.rack-list li:hover {
+  background: var(--bg-hover);
+}
+.rack-list li.selected {
+  background: var(--bg-raised);
+}
+.rack-row {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-width: 0;
+  border: none;
+  background: none;
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+  padding: 6px 6px;
+  cursor: pointer;
+}
+.rack-row-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.rack-row-actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex-shrink: 0;
+}
+.rack-count {
+  color: var(--text-dim);
+  font-size: 12px;
+}
+.rack-empty {
+  color: var(--text-dim);
+  font-size: 13px;
+  margin: 0;
+}
+.ghost-button {
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: none;
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+  padding: 4px 8px;
+  cursor: pointer;
+}
+.ghost-button:hover:not(:disabled) {
+  background: var(--bg-hover);
+}
+.ghost-button:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+.ghost-button.danger {
+  color: #e06c6c;
+}
+/* armed = the next click really deletes (§12.10.2) */
+.ghost-button.danger.armed {
+  border-color: #e06c6c;
+  background: rgb(224 108 108 / 12%);
+}
+.primary-button {
+  padding: 6px 16px;
+  border: none;
+  border-radius: 8px;
+  background: var(--accent);
+  color: #fff;
+  font: inherit;
+  cursor: pointer;
+}
+.primary-button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.rack-editor {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  border-top: 1px solid var(--border);
+  padding-top: 12px;
+}
+.prompt-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12.5px;
+  color: var(--text-dim);
+}
+
+/* The save dialog (§20.4) — the fan-out modal's language, one size smaller. */
+dialog.prompt-dialog {
+  width: min(460px, 92vw);
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--bg-raised);
+  color: var(--text);
+  box-shadow: 0 12px 40px rgb(0 0 0 / 35%);
+}
+dialog.prompt-dialog::backdrop {
+  background: rgb(0 0 0 / 45%);
+}
+.prompt-dialog-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 16px 18px;
+}
+.prompt-dialog-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.prompt-dialog-note {
+  margin: 0;
+  font-size: 12.5px;
+  color: var(--text-dim);
+}
+.prompt-dialog-foot {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+/* A leaf submenu can be long (a shelf holds up to 500) — it scrolls on its own,
+   while the branch levels above must NOT clip their children. */
+.composer-menu.submenu.leaf {
+  max-height: 320px;
+  overflow-y: auto;
+}
+
+@media (max-width: 720px) {
+  .rack {
+    grid-template-columns: 1fr;
+    grid-template-rows: auto 1fr;
+  }
+  .rack-shelves {
+    border-right: none;
+    border-bottom: 1px solid var(--border);
+    padding-right: 0;
+    padding-bottom: 10px;
+    max-height: 40vh;
+  }
+}

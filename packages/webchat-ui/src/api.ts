@@ -8,6 +8,7 @@ import type {
   HistoryPage,
   PanelEvent,
   PeerInfo,
+  PromptLibrary,
   ReactionCatalog,
   ReactionNotify,
   ReactionView,
@@ -173,6 +174,51 @@ export async function removeReaction(
     }),
   );
 }
+
+// --- the prompt rack (§20.3, FR-184) ------------------------------------------
+//
+// Seven pointwise calls, every one of them answering with the rack AFTER the
+// change: the panel draws the server's truth instead of merging locally. No call
+// names an owner — it is the session's, which is what makes a foreign rack
+// unaddressable (§10.32).
+
+const rack = async (path: string, init?: RequestInit): Promise<PromptLibrary> =>
+  (await jsonOrThrow<{ library: PromptLibrary }>(await fetch(path, init))).library;
+
+const withBody = (method: string, payload: unknown): RequestInit => ({
+  method,
+  headers: { "content-type": "application/json" },
+  body: JSON.stringify(payload),
+});
+
+export const fetchPromptLibrary = (): Promise<PromptLibrary> => rack("api/prompts");
+
+export const createShelf = (name: string): Promise<PromptLibrary> =>
+  rack("api/prompts/shelves", withBody("POST", { name }));
+
+export const updateShelf = (
+  id: string,
+  patch: { name?: string; position?: number },
+): Promise<PromptLibrary> =>
+  rack(`api/prompts/shelves/${encodeURIComponent(id)}`, withBody("PATCH", patch));
+
+export const deleteShelf = (id: string): Promise<PromptLibrary> =>
+  rack(`api/prompts/shelves/${encodeURIComponent(id)}`, { method: "DELETE" });
+
+export const createPrompt = (draft: {
+  shelf: string;
+  name: string;
+  text: string;
+}): Promise<PromptLibrary> => rack("api/prompts/items", withBody("POST", draft));
+
+export const updatePrompt = (
+  id: string,
+  patch: { name?: string; text?: string; shelf?: string; position?: number },
+): Promise<PromptLibrary> =>
+  rack(`api/prompts/items/${encodeURIComponent(id)}`, withBody("PATCH", patch));
+
+export const deletePrompt = (id: string): Promise<PromptLibrary> =>
+  rack(`api/prompts/items/${encodeURIComponent(id)}`, { method: "DELETE" });
 
 /** The server-wide transport log page (FR-48, §12.4) — read-only. */
 export async function fetchTransport(before?: string): Promise<HistoryPage> {

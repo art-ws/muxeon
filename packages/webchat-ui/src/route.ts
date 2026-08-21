@@ -1,5 +1,6 @@
 // Hash routing (§12.7, FR-60): `#/` (home) | `#/chat/<peer>` | `#/transport`
-// (+ `?from=…&to=…` filter projection, T124/FR-85) | `#/settings` (T110, FR-76),
+// (+ `?from=…&to=…` filter projection, T124/FR-85) | `#/settings` (T110, FR-76)
+// | `#/prompts` (the prompt rack, §20.6/FR-187),
 // plus the per-message deep link `#/chat/<peer>/m/<id>` (T107, FR-75) — opening
 // it lands the chat on that message and flashes it. Hash — NOT history paths —
 // because the SPA ships with RELATIVE asset paths (§12.6) and must work behind
@@ -23,7 +24,9 @@ export type Route =
       /** To-filter names (FR-85), canonical; absent = all. */
       readonly to?: readonly string[];
     }
-  | { readonly view: "settings" };
+  | { readonly view: "settings" }
+  /** The prompt rack page (§20.6, FR-187) — one page, no parameters. */
+  | { readonly view: "prompts" };
 
 export const HOME: Route = { view: "home" };
 
@@ -54,6 +57,7 @@ export function parseRoute(hash: string): Route {
     };
   }
   if (path === "settings") return { view: "settings" };
+  if (path === "prompts") return { view: "prompts" };
   if (path.startsWith("chat/")) {
     try {
       const rest = path.slice("chat/".length);
@@ -91,6 +95,8 @@ export function routeHash(route: Route): string {
     }
     case "settings":
       return "#/settings";
+    case "prompts":
+      return "#/prompts";
     default:
       return "#/";
   }

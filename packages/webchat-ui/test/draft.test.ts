@@ -5,6 +5,7 @@ import {
   CLIP_MIME_CANDIDATES,
   VOICE_MIME_CANDIDATES,
   addAttachment,
+  appendPrompt,
   captureName,
   pickRecorderMime,
   removeAttachment,
@@ -44,5 +45,25 @@ describe("recorder mime negotiation", () => {
     );
     expect(pickRecorderMime(CLIP_MIME_CANDIDATES, () => true)).toBe("video/webm;codecs=vp9,opus");
     expect(pickRecorderMime(VOICE_MIME_CANDIDATES, () => false)).toBeUndefined();
+  });
+});
+
+describe("appendPrompt (§20.5, FR-186)", () => {
+  test("an empty draft simply becomes the prompt", () => {
+    expect(appendPrompt("", "тело промпта")).toBe("тело промпта");
+    expect(appendPrompt("   \n", "тело промпта")).toBe("тело промпта");
+  });
+
+  test("what was typed stays, and the prompt goes AFTER it", () => {
+    expect(appendPrompt("моя строка", "промпт")).toBe("моя строка\n\nпромпт");
+  });
+
+  test("exactly one blank line between them — an existing separator is not doubled", () => {
+    expect(appendPrompt("строка\n\n", "промпт")).toBe("строка\n\nпромпт");
+    expect(appendPrompt("строка\n\n\n\n", "промпт")).toBe("строка\n\nпромпт");
+  });
+
+  test("the prompt's own inner blank lines are untouched — the body is verbatim", () => {
+    expect(appendPrompt("a", "первый\n\nвторой")).toBe("a\n\nпервый\n\nвторой");
   });
 });
