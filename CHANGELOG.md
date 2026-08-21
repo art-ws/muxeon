@@ -1,3 +1,12 @@
+## [0.1.21](https://github.com/art-ws/muxeon/compare/v0.1.20...v0.1.21) (2026-08-21)
+
+
+### Changes
+
+* **T309:** the reply button moves to the bottom row, beside the reaction trigger
+
+  Operator request: "кнопку reply удобнее иметь внизу рядом с кнопкой реакций". ([7cc3520](https://github.com/art-ws/muxeon/commit/7cc35202e20eda539347f07da310bc8c7f0fed85))
+
 ## [0.1.20](https://github.com/art-ws/muxeon/compare/v0.1.19...v0.1.20) (2026-08-21)
 
 
