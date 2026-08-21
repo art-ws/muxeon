@@ -23,13 +23,7 @@
 
 import { useState } from "react";
 import { RzArrows } from "./RzArrows";
-import {
-  type AgentFilter,
-  NO_FILTER,
-  filterActive,
-  filterPeers,
-  participantCount,
-} from "./agent-filter";
+import { type AgentFilter, filterActive, filterPeers, participantCount } from "./agent-filter";
 import { useT } from "./i18n-context";
 import { IconChevron, IconGroup, IconMonitor, IconRadio, IconTag } from "./icons";
 import { agentColor } from "./palette";
@@ -41,7 +35,14 @@ import {
   statusLabel,
   unknownReason,
 } from "./peer-surface";
-import { loadExpandedGroups, loadPref, saveExpandedGroups, savePref } from "./prefs";
+import {
+  loadAgentFilter,
+  loadExpandedGroups,
+  loadPref,
+  saveAgentFilter,
+  saveExpandedGroups,
+  savePref,
+} from "./prefs";
 import { type TreeRow, buildTree, tagPeers } from "./tree";
 import { type PeerInfo, peerKind } from "./types";
 
@@ -64,20 +65,26 @@ export function PeerList(props: {
   collapsed?: boolean;
   /**
    * The agent-filter panel (§12.7, FR-176): shown when the Settings switch — or
-   * its topbar button (FR-177) — says so. The filter it holds lives HERE, not in
-   * a pref: it applies exactly while its panel is on screen (see below).
+   * its topbar button (FR-177) — says so. The filter it holds is persisted
+   * (FR-72) but applies exactly while its panel is on screen (see below).
    */
   filterPanel?: boolean;
 }): React.JSX.Element {
   const t = useT();
   const collapsed = props.collapsed === true;
 
-  // The filter (FR-176) is session state, deliberately not persisted: a hidden
-  // filter that survives a reload would silently shorten the sidebar. For the
-  // same reason it applies only while its panel is VISIBLE — hiding the panel or
-  // collapsing the sidebar to the rail restores the full list, and the typed
-  // needle is still there when the panel comes back.
-  const [filter, setFilter] = useState<AgentFilter>(NO_FILTER);
+  // The filter (FR-176) persists like every other panel switch (FR-72, T313):
+  // the needle and the all/online side come back on reload. What makes that safe
+  // is the rule below — it applies only while its panel is VISIBLE, so a restored
+  // filter always returns WITH the field, the lit side and the "N of M" counter
+  // that account for the shortened list. Hiding the panel or collapsing the
+  // sidebar to the rail restores the full park, and the needle waits, typed, for
+  // the panel to come back.
+  const [filter, setFilterState] = useState<AgentFilter>(() => loadAgentFilter());
+  const setFilter = (next: AgentFilter): void => {
+    setFilterState(next);
+    saveAgentFilter(next);
+  };
   const showPanel = props.filterPanel === true && !collapsed;
   const active = showPanel && filterActive(filter);
   const peers = active ? filterPeers(props.peers, filter) : props.peers;

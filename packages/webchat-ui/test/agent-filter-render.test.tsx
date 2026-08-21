@@ -82,3 +82,40 @@ describe("the filter panel", () => {
     expect(html).toContain(">writer<");
   });
 });
+
+// Persisted across reloads (T313, operator request) — the storage round-trip
+// itself is prefs.test.ts; what only the markup can answer is that a restored
+// filter comes back VISIBLE, and that it still cannot act with its panel off.
+describe("the filter restored from storage (T313)", () => {
+  const seed = (record: string): void =>
+    localStorage.setItem("muxeon-pref:agent-filter-state", record);
+
+  test("comes back with the needle in the field and the list already short", () => {
+    seed('{"query":"dev","onlineOnly":false}');
+    const html = sidebar({ filterPanel: true });
+    expect(html).toContain('value="dev"');
+    expect(html).toContain(">dev<");
+    expect(html).not.toContain(">writer<");
+    expect(html).toContain("agent-filter-count"); // the list says it is short
+  });
+
+  test("the restored ONLINE side lights its own button", () => {
+    seed('{"query":"","onlineOnly":true}');
+    const html = sidebar({ filterPanel: true });
+    // "writer" is down — the restored switch is doing the work, not a needle
+    expect(html).toContain(">dev<");
+    expect(html).not.toContain(">writer<");
+    // and the lit side is the ONLINE one, not "All" as at rest
+    expect(html).toContain(
+      'class="agent-filter-mode picked" aria-pressed="true" aria-label="Show only agents that are online"',
+    );
+  });
+
+  test("with the panel off it restores NOTHING — the whole park is listed", () => {
+    seed('{"query":"dev","onlineOnly":true}');
+    const html = sidebar();
+    expect(html).not.toContain("agent-filter");
+    expect(html).toContain(">dev<");
+    expect(html).toContain(">writer<");
+  });
+});

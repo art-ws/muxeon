@@ -2,7 +2,15 @@
 // collapsed, auto-scroll) behind loadPref/savePref. DOM-free.
 
 import { describe, expect, test } from "bun:test";
-import { loadExpandedGroups, loadPref, saveExpandedGroups, savePref } from "../src/prefs";
+import { NO_FILTER } from "../src/agent-filter";
+import {
+  loadAgentFilter,
+  loadExpandedGroups,
+  loadPref,
+  saveAgentFilter,
+  saveExpandedGroups,
+  savePref,
+} from "../src/prefs";
 
 function memoryStorage(initial: Record<string, string> = {}): {
   getItem(key: string): string | null;
@@ -109,5 +117,59 @@ describe("expanded-groups pref (§15)", () => {
     };
     expect(loadExpandedGroups(broken)).toBeUndefined();
     expect(() => saveExpandedGroups(new Set(["x"]), broken)).not.toThrow();
+  });
+});
+
+describe("the agent filter survives a reload (§12.7, FR-176, T313)", () => {
+  test("round-trips both halves — the needle AND the all/online side", () => {
+    const storage = memoryStorage();
+    saveAgentFilter({ query: "dev", onlineOnly: true }, storage);
+    expect(storage.data["muxeon-pref:agent-filter-state"]).toBe(
+      '{"query":"dev","onlineOnly":true}',
+    );
+    expect(loadAgentFilter(storage)).toEqual({ query: "dev", onlineOnly: true });
+  });
+
+  test("each half persists on its own — an empty needle is not 'no record'", () => {
+    const storage = memoryStorage();
+    saveAgentFilter({ query: "", onlineOnly: true }, storage);
+    expect(loadAgentFilter(storage)).toEqual({ query: "", onlineOnly: true });
+    saveAgentFilter({ query: "tl", onlineOnly: false }, storage);
+    expect(loadAgentFilter(storage)).toEqual({ query: "tl", onlineOnly: false });
+  });
+
+  test("a fresh browser gets the resting filter — the sidebar it always had", () => {
+    expect(loadAgentFilter(memoryStorage())).toEqual(NO_FILTER);
+  });
+
+  // Half-restoring is the one outcome nobody can account for on screen: a needle
+  // with no switch (or the reverse) filters the park for a reason the panel does
+  // not show. Junk of every shape lands on the resting filter instead.
+  test("junk of any shape yields the resting filter, never half of one", () => {
+    const key = "muxeon-pref:agent-filter-state";
+    expect(loadAgentFilter(memoryStorage({ [key]: "not json" }))).toEqual(NO_FILTER);
+    expect(loadAgentFilter(memoryStorage({ [key]: "null" }))).toEqual(NO_FILTER);
+    expect(loadAgentFilter(memoryStorage({ [key]: '["dev",true]' }))).toEqual(NO_FILTER);
+    expect(loadAgentFilter(memoryStorage({ [key]: '{"query":"dev"}' }))).toEqual(NO_FILTER);
+    expect(loadAgentFilter(memoryStorage({ [key]: '{"onlineOnly":true}' }))).toEqual(NO_FILTER);
+    expect(loadAgentFilter(memoryStorage({ [key]: '{"query":7,"onlineOnly":true}' }))).toEqual(
+      NO_FILTER,
+    );
+    expect(loadAgentFilter(memoryStorage({ [key]: '{"query":"dev","onlineOnly":"yes"}' }))).toEqual(
+      NO_FILTER,
+    );
+  });
+
+  test("a throwing storage degrades silently — the panel still filters", () => {
+    const broken = {
+      getItem: (): string | null => {
+        throw new Error("blocked");
+      },
+      setItem: (): void => {
+        throw new Error("blocked");
+      },
+    };
+    expect(loadAgentFilter(broken)).toEqual(NO_FILTER);
+    expect(() => saveAgentFilter({ query: "dev", onlineOnly: true }, broken)).not.toThrow();
   });
 });
