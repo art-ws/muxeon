@@ -8,6 +8,7 @@ import { describe, expect, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
 import { PromptRackItems, SavePromptDialog } from "../src/PromptRack";
 import { type PromptsApi, PromptsContext } from "../src/prompts-context";
+import { TOOLS } from "../src/tools";
 import type { PromptShelf } from "../src/types";
 
 const shelf = (name: string, prompts: readonly string[]): PromptShelf => ({
@@ -58,7 +59,16 @@ describe("the rack items in the composer menu (§20.4/§20.5)", () => {
 
   test("an empty rack with an empty composer prints nothing but the way to manage it", () => {
     expect(items(rack([]), "")).toBe("");
-    expect(items(rack([]), "", () => undefined)).toContain("Manage shelves…");
+    expect(items(rack([]), "", () => undefined)).toContain("Prompts");
+  });
+
+  // One destination, one name (FR-171/FR-187): the composer's line, the account
+  // menu's and the toolbar entry all open #/prompts, so the reader must not have
+  // to guess whether three different names mean three different pages.
+  test("the way to the rack page is named exactly as the toolbar entry", () => {
+    const entry = TOOLS.find((tool) => tool.id === "prompts");
+    expect(entry?.label).toBe("Prompts");
+    expect(items(rack([]), "", () => undefined)).toContain(`${entry?.label}</button>`);
   });
 
   test("«Save to shelf» appears exactly when there IS something to save", () => {

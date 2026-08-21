@@ -64,7 +64,7 @@ export function Composer(props: {
    */
   replyTo?: { readonly id: string; readonly author: string; readonly preview: string };
   onCancelReply?: () => void;
-  /** Opens the prompt rack page (§20.6, FR-187) — the menu's "Manage shelves…". */
+  /** Opens the prompt rack page (§20.6, FR-187) — the menu's "Prompts" line. */
   onManagePrompts?: (() => void) | undefined;
 }): React.JSX.Element {
   const t = useT();

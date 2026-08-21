@@ -265,6 +265,17 @@ export const IconReaction = (props: IconProps): React.JSX.Element => (
   </Icon>
 );
 
+/** Taking a prompt off a shelf into the draft (§20.5, FR-186) — an arrow into
+ *  the field. NOT the shelf mark: that one names the rack PAGE, and the same
+ *  glyph on a gesture and on a destination reads as the same thing twice. */
+export const IconInsert = (props: IconProps): React.JSX.Element => (
+  <Icon {...props}>
+    <polyline points="9 8 13 12 9 16" />
+    <line x1="13" y1="12" x2="3" y2="12" />
+    <path d="M17 3h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-2" />
+  </Icon>
+);
+
 /** Putting the draft onto a shelf (§20.4, FR-185) — a bookmark. */
 export const IconBookmark = (props: IconProps): React.JSX.Element => (
   <Icon {...props}>

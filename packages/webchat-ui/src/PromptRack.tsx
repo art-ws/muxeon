@@ -10,7 +10,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useT } from "./i18n-context";
-import { IconBookmark, IconGear, IconShelf } from "./icons";
+import { IconBookmark, IconInsert, IconShelf } from "./icons";
 import { autoPromptName } from "./prompt-name";
 import { usePrompts } from "./prompts-context";
 
@@ -60,7 +60,7 @@ export function PromptRackItems(props: {
             }}
           >
             <span className="menu-icon">
-              <IconShelf size={14} />
+              <IconInsert size={14} />
             </span>{" "}
             {t("Insert from shelf")}
             <span className="submenu-arrow">›</span>
@@ -166,10 +166,13 @@ export function PromptRackItems(props: {
             props.onManage?.();
           }}
         >
+          {/* the SAME name and the SAME mark as the account-menu line and the
+              toolbar entry (FR-171/FR-187): one destination must not answer to
+              three names — the reader cannot tell whether they lead to one page */}
           <span className="menu-icon">
-            <IconGear size={14} />
+            <IconShelf size={14} />
           </span>{" "}
-          {t("Manage shelves…")}
+          {t("Prompts")}
         </button>
       )}
     </>
