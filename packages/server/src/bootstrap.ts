@@ -101,6 +101,7 @@ import { type SchedulerHandle, createFsStateStore, startScheduler } from "@muxeo
 import {
   type AgentPairs,
   type HistoryStore,
+  PromptStore,
   type ReactionCatalog,
   type ReactionOwner,
   ReactionStore,
@@ -1266,11 +1267,19 @@ export async function bootstrap(options: BootstrapOptions = {}): Promise<MuxeonS
           });
     if (reactionsHub !== undefined) await usage.load();
 
+    // The prompt library (§20, FR-183/FR-184): ONE store for the whole instance,
+    // keyed by owner — the rack a request touches is the one its session names, so
+    // there is nothing per-user to build at boot (§10.32).
+    const promptStore = new PromptStore({
+      dir: join(location.configDir, "webchat", "prompts"),
+    });
+
     channelsHandle = await wireChannels({
       channels: config.channels,
       router,
       root,
       configDir: location.configDir,
+      prompts: promptStore,
       ...(reactionsHub !== undefined ? { reactions: reactionsHub } : {}),
       usersOf: (channel) =>
         bindingsOf(channel).map((runtime) => ({

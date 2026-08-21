@@ -47,6 +47,7 @@ import type {
   WebchatPorts,
   WebchatRole,
 } from "./ports";
+import { PromptError, type PromptLibrary, type PromptStore } from "./prompts";
 import type { ReactionView, ReactionsHub } from "./reactions";
 
 export const SESSION_COOKIE = "muxeon_webchat";
@@ -213,6 +214,13 @@ export interface WebchatConnectorOptions {
    * REACTIONS_DISABLED and the panel renders no picker.
    */
   readonly reactions?: ReactionsHub;
+  /**
+   * Prompt library (§20, FR-183/FR-184): the per-user rack of reusable prompts.
+   * One store for every owner — it keys files by the signed-in name, which is why
+   * no path here carries an owner. Absent ⇒ `/api/prompts*` answers 503 and the
+   * panel offers neither the composer items nor the page.
+   */
+  readonly prompts?: PromptStore;
   /** Built SPA dir (§12.7, the @muxeon/webchat-ui dist); absent ⇒ non-API 404. */
   readonly staticDir?: string;
   /**
@@ -687,9 +695,11 @@ export class WebchatConnector implements ChannelConnector {
       if (req.method === "GET" || req.method === "HEAD") return this.serveStatic(url.pathname, req);
       return json({ error: "not found" }, 404);
     }
-    // CSRF (§12.6): a browser POST carries Origin; a mismatched one is rejected
-    // for every endpoint, login included.
-    if (req.method === "POST" && !originAllowed(req)) {
+    // CSRF (§12.6): a browser request that CHANGES something carries Origin; a
+    // mismatched one is rejected for every endpoint, login included. Every
+    // mutating verb is covered, not POST alone — the prompt library (§20.3) edits
+    // with PATCH and DELETE, and a gate that only knows one verb is not a gate.
+    if (req.method !== "GET" && req.method !== "HEAD" && !originAllowed(req)) {
       return json({ error: "cross-origin request rejected" }, 403);
     }
     if (url.pathname === "/api/login") return this.handleLogin(req, clientIp);
@@ -715,6 +725,13 @@ export class WebchatConnector implements ChannelConnector {
     if (url.pathname === "/api/reactions" && req.method === "GET") {
       return this.handleReactionCatalog();
     }
+    // Prompt library (§20.3, FR-184): the rack of the SIGNED-IN user — the owner
+    // comes from `me`, never from the path, so a foreign rack has no address.
+    if (url.pathname === "/api/prompts" && req.method === "GET") {
+      return this.handlePromptLibrary(me);
+    }
+    const promptTarget = promptRoute(url.pathname);
+    if (promptTarget !== null) return this.handlePrompts(promptTarget, req, me);
     const reaction = reactionRoute(url.pathname);
     if (reaction !== null && (req.method === "POST" || req.method === "DELETE")) {
       return this.handleReaction(reaction, req, me);
@@ -1438,6 +1455,81 @@ export class WebchatConnector implements ChannelConnector {
     });
   }
 
+  // GET /api/prompts (§20.3, FR-184): the signed-in user's whole rack.
+  async handlePromptLibrary(me: Identity): Promise<Response> {
+    const store = this.#options.prompts;
+    if (store === undefined) return json({ error: "prompt library is not wired" }, 503);
+    try {
+      return json({ library: await store.library(me.name) });
+    } catch (error) {
+      return promptFailure(error);
+    }
+  }
+
+  /**
+   * The six mutations of the rack (§20.3, FR-184). Pointwise on purpose — a whole
+   * document PUT would let one tab of a user overwrite what another just added.
+   * Every answer carries the rack AFTER the change: both the composer menu and the
+   * page draw the server's truth, with no client-side merge to disagree with it.
+   */
+  async handlePrompts(
+    route: { kind: "shelves" | "items"; id?: string },
+    req: Request,
+    me: Identity,
+  ): Promise<Response> {
+    const store = this.#options.prompts;
+    if (store === undefined) return json({ error: "prompt library is not wired" }, 503);
+    const owner = me.name;
+    const wantsBody = req.method === "POST" || req.method === "PATCH";
+    if (!wantsBody && req.method !== "DELETE") return json({ error: "not found" }, 404);
+    if (req.method === "POST" && route.id !== undefined) return json({ error: "not found" }, 404);
+    if (req.method !== "POST" && route.id === undefined) return json({ error: "not found" }, 404);
+    let body: Record<string, unknown> = {};
+    if (wantsBody) {
+      const parsed = await readJsonObject(req);
+      if (parsed === undefined) return json({ error: "a JSON object body is required" }, 400);
+      body = parsed;
+    }
+    try {
+      const library = await this.#applyPrompt(store, owner, route, req.method, body);
+      return json({ library });
+    } catch (error) {
+      return promptFailure(error);
+    }
+  }
+
+  #applyPrompt(
+    store: PromptStore,
+    owner: string,
+    route: { kind: "shelves" | "items"; id?: string },
+    method: string,
+    body: Record<string, unknown>,
+  ): Promise<PromptLibrary> {
+    const id = route.id ?? "";
+    if (route.kind === "shelves") {
+      if (method === "POST") return store.createShelf(owner, asName(body.name));
+      if (method === "DELETE") return store.deleteShelf(owner, id);
+      return store.updateShelf(owner, id, {
+        ...(body.name !== undefined ? { name: asName(body.name) } : {}),
+        ...(body.position !== undefined ? { position: asPosition(body.position) } : {}),
+      });
+    }
+    if (method === "POST") {
+      return store.createPrompt(owner, {
+        shelf: asId(body.shelf, "shelf"),
+        name: asName(body.name),
+        text: asText(body.text),
+      });
+    }
+    if (method === "DELETE") return store.deletePrompt(owner, id);
+    return store.updatePrompt(owner, id, {
+      ...(body.name !== undefined ? { name: asName(body.name) } : {}),
+      ...(body.text !== undefined ? { text: asText(body.text) } : {}),
+      ...(body.shelf !== undefined ? { shelf: asId(body.shelf, "shelf") } : {}),
+      ...(body.position !== undefined ? { position: asPosition(body.position) } : {}),
+    });
+  }
+
   // GET /api/history/:agent/export (FR-84, §12.3): the peer's FULL log as a
   // downloadable JSON document — records verbatim plus enough metadata to know
   // what (and when) was saved. Behind the auth gate like everything else.
@@ -1853,6 +1945,64 @@ function reactionRoute(pathname: string): { peer: string; messageId: string; key
   const key = segments.length === 5 ? decodeURIComponent(segments[4] ?? "") : undefined;
   if (segments.length === 5 && (key === undefined || key.length === 0)) return null;
   return { peer, messageId, ...(key !== undefined ? { key } : {}) };
+}
+
+/**
+ * /api/prompts/(shelves|items)[/<id>] by segments (§20.3); null = not a rack route.
+ * No owner segment exists by design (§10.32) — the rack is the session's.
+ */
+function promptRoute(pathname: string): { kind: "shelves" | "items"; id?: string } | null {
+  if (!pathname.startsWith("/api/prompts/")) return null;
+  const segments = pathname.slice("/api/prompts/".length).split("/");
+  if (segments.length !== 1 && segments.length !== 2) return null;
+  const kind = segments[0];
+  if (kind !== "shelves" && kind !== "items") return null;
+  if (segments.length === 1) return { kind };
+  const id = decodeURIComponent(segments[1] ?? "");
+  return id.length === 0 ? null : { kind, id };
+}
+
+/** A refusal of the rack (§20.3) as a status: unknown → 404, bad input → 422, broken file → 500. */
+function promptFailure(error: unknown): Response {
+  if (!(error instanceof PromptError)) throw error;
+  const status =
+    error.code === "UNKNOWN_SHELF" || error.code === "UNKNOWN_PROMPT"
+      ? 404
+      : error.code === "LIBRARY_UNREADABLE"
+        ? 500
+        : 422;
+  return json(
+    {
+      error: error.message,
+      code: error.code,
+      ...(error.field !== undefined ? { field: error.field } : {}),
+    },
+    status,
+  );
+}
+
+function asName(raw: unknown): string {
+  if (typeof raw !== "string") throw new PromptError("INVALID", '"name" must be a string', "name");
+  return raw;
+}
+
+function asText(raw: unknown): string {
+  if (typeof raw !== "string") throw new PromptError("INVALID", '"text" must be a string', "text");
+  return raw;
+}
+
+function asId(raw: unknown, field: string): string {
+  if (typeof raw !== "string" || raw.length === 0) {
+    throw new PromptError("INVALID", `"${field}" (non-empty string) is required`, field);
+  }
+  return raw;
+}
+
+function asPosition(raw: unknown): number {
+  if (typeof raw !== "number" || !Number.isFinite(raw) || raw < 0) {
+    throw new PromptError("INVALID", '"position" must be a non-negative number', "position");
+  }
+  return raw;
 }
 
 /** /api/history/<peer>/(export|clear) by segments (FR-84); null = not a sub-route. */

@@ -4,4 +4,5 @@ export * from "./auth";
 export * from "./connector";
 export * from "./history";
 export * from "./ports";
+export * from "./prompts";
 export * from "./reactions";
