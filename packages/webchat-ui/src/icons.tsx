@@ -265,6 +265,13 @@ export const IconReaction = (props: IconProps): React.JSX.Element => (
   </Icon>
 );
 
+/** Putting the draft onto a shelf (§20.4, FR-185) — a bookmark. */
+export const IconBookmark = (props: IconProps): React.JSX.Element => (
+  <Icon {...props}>
+    <path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z" />
+  </Icon>
+);
+
 /** The prompt rack (§20.6, FR-187) — books standing on a shelf. */
 export const IconShelf = (props: IconProps): React.JSX.Element => (
   <Icon {...props}>

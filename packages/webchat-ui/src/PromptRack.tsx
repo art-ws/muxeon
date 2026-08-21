@@ -10,6 +10,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useT } from "./i18n-context";
+import { IconBookmark, IconGear, IconShelf } from "./icons";
 import { autoPromptName } from "./prompt-name";
 import { usePrompts } from "./prompts-context";
 
@@ -58,7 +59,10 @@ export function PromptRackItems(props: {
               setOpenShelf(undefined);
             }}
           >
-            <span className="menu-icon">📚</span> {t("Insert from shelf")}
+            <span className="menu-icon">
+              <IconShelf size={14} />
+            </span>{" "}
+            {t("Insert from shelf")}
             <span className="submenu-arrow">›</span>
           </button>
           {open === "insert" && (
@@ -114,7 +118,10 @@ export function PromptRackItems(props: {
             aria-expanded={open === "save"}
             onClick={() => setOpen(open === "save" ? undefined : "save")}
           >
-            <span className="menu-icon">🔖</span> {t("Save to shelf")}
+            <span className="menu-icon">
+              <IconBookmark size={14} />
+            </span>{" "}
+            {t("Save to shelf")}
             <span className="submenu-arrow">›</span>
           </button>
           {open === "save" && (
@@ -159,7 +166,10 @@ export function PromptRackItems(props: {
             props.onManage?.();
           }}
         >
-          <span className="menu-icon">⚙</span> {t("Manage shelves…")}
+          <span className="menu-icon">
+            <IconGear size={14} />
+          </span>{" "}
+          {t("Manage shelves…")}
         </button>
       )}
     </>
