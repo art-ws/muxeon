@@ -1,3 +1,15 @@
+## [0.1.20](https://github.com/art-ws/muxeon/compare/v0.1.19...v0.1.20) (2026-08-21)
+
+
+### Changes
+
+* **T305:** prompt library — the per-user rack and its API
+
+  The server half of the prompt rack: shelves holding prompts, stored beside the history as one JSON file per owner, reachable through seven pointwise endpoints. ([4cd3975](https://github.com/art-ws/muxeon/commit/4cd3975df51a44600ea2ee2406ac26a2e9971a6d))
+* **T306:** the prompt rack in the panel — two composer gestures and the rack page
+
+  The panel half of the rack. One loaded copy of the library (prompts-context) serves both surfaces, so the composer menu and the page can never disagree; it is PULLED — when the "+" menu opens and when the page mounts — because §20.3 adds no WS event and every mutation answers with the whole rack. ([0e1b397](https://github.com/art-ws/muxeon/commit/0e1b3974eef4006f293e5391e8a64899253e176c))
+
 ## [0.1.19](https://github.com/art-ws/muxeon/compare/v0.1.18...v0.1.19) (2026-08-21)
 
 
