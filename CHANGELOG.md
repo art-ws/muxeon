@@ -1,3 +1,18 @@
+## [0.1.19](https://github.com/art-ws/muxeon/compare/v0.1.18...v0.1.19) (2026-08-21)
+
+
+### Changes
+
+* **T298:** a receipt that earns no receipt — expectsReply:false delivers a notice
+
+  Between agents there was no free "принято". kind:"ack" is rejected (the kind set is closed), reactions live only in chats with a human, and every delivered message carries a reply contract — so a disciplined receiver answers even when the text says "don't answer". ([f4232cf](https://github.com/art-ws/muxeon/commit/f4232cff69eb212c1ba51aceb28d493cce249e13))
+* **T299:** reactions between agents — the journal is the carrier
+
+  §19.10 excluded an agent↔agent pair for a structural reason: a reaction needs a record to sit on, and such a pair keeps no panel history. That was true about the PANEL log and false about the existence of a record — the router is the single delivery point, so the transport journal (FR-48) holds every signal between two… ([5586aa2](https://github.com/art-ws/muxeon/commit/5586aa2c8f849b6fd880b9680ef29f10444e414e))
+* **T300:** reaction badges on the transport journal, read-only
+
+  Agent↔agent traffic is visible to the operator in exactly one place — the journal — so that is where the receipts agents exchange have to show up. A receipt nobody can see did not happen for them. ([db40fed](https://github.com/art-ws/muxeon/commit/db40fed3f4964a087c35ad4556ee3d4317c93135))
+
 ## [0.1.18](https://github.com/art-ws/muxeon/compare/v0.1.17...v0.1.18) (2026-08-19)
 
 
