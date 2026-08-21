@@ -1,3 +1,18 @@
+## [0.1.22](https://github.com/art-ws/muxeon/compare/v0.1.21...v0.1.22) (2026-08-21)
+
+
+### Changes
+
+* **T311:** the rack's menu items get SVG icons, not emoji
+
+  The "+" menu spoke two languages at once: Full screen / Attach files / Camera carried stroke SVGs from the shared set (icons.tsx — a 24 grid, strokeWidth 2, currentColor), while the rack items carried colour emoji that inherit no theme colour, disagree in weight and render differently across platforms. ([64b7181](https://github.com/art-ws/muxeon/commit/64b7181438d0a6973548840229483cbc9ca4c181))
+* **T312:** one page, one name — the composer's "Manage shelves…" becomes "Prompts"
+
+  Three entrances led to #/prompts under two names: "Prompts" in the account menu and in the toolbar catalogue (FR-171, the single-source rule) — and "Manage shelves…" in the composer. From the menu one cannot tell whether the items lead to the same place; ([a97fe22](https://github.com/art-ws/muxeon/commit/a97fe22529242cec37c50fbd7376808d343f5c8e))
+* **T313:** the sidebar filter survives a reload
+
+  The needle and the All/Online side now persist like every other panel switch: key muxeon-pref:agent-filter-state, JSON {query, onlineOnly}. ([840190d](https://github.com/art-ws/muxeon/commit/840190d19f6b9cf416bf0b661ddc71f35fa5160d))
+
 ## [0.1.21](https://github.com/art-ws/muxeon/compare/v0.1.20...v0.1.21) (2026-08-21)
 
 
