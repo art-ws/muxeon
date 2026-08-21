@@ -25,7 +25,6 @@ import {
   IconPause,
   IconPlay,
   IconPower,
-  IconReply,
   IconRotate,
   IconSend,
   IconTag,
@@ -674,33 +673,21 @@ function Bubble(props: {
           (asIs ? (
             <pre className="raw-output">{text}</pre>
           ) : (
-            <MessageText
-              text={text}
-              {...(messageHash !== undefined ? { messageHash } : {})}
-              {...(props.onReply !== undefined ? { onReply: props.onReply } : {})}
-            />
+            <MessageText text={text} {...(messageHash !== undefined ? { messageHash } : {})} />
           ))}
-        {/* a bubble with no text has no MessageText to host the actions — the
-            reply button still belongs to it (an attachment is answerable too) */}
-        {text === undefined && props.onReply !== undefined && (
-          <span className="msg-actions">
-            <button
-              type="button"
-              className="msg-action"
-              title={t("Reply to this message")}
-              onClick={props.onReply}
-            >
-              <IconReply size={12} />
-            </button>
-          </span>
-        )}
         {blobs.map((blob) => (
           <MediaBubble key={blob.blob} blob={blob} />
         ))}
-        {/* Badges under the content, above the meta line (§19.9) — the emoji, a
-            count only from 2 up, and the hover trigger that opens the picker. */}
+        {/* The bottom row under the content, above the meta line (§19.9): badges
+            (a count only from 2 up), the trigger that opens the picker — and,
+            since the operator's request of 2026-08-21, the REPLY button (FR-178).
+            An attachment-only bubble gets the row too: it is answerable as well. */}
         {props.reactable === true && props.chatPeer !== undefined && (
-          <ReactionBar peer={props.chatPeer} messageId={props.record.id} />
+          <ReactionBar
+            peer={props.chatPeer}
+            messageId={props.record.id}
+            {...(props.onReply !== undefined ? { onReply: props.onReply } : {})}
+          />
         )}
         <span className="bubble-meta">
           {/* Route in front of the time (FR-148): the bubble side alone says who

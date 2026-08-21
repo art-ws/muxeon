@@ -1,6 +1,9 @@
 // Shared message body (FR-61, §12.7): the constrained markdown view plus the
 // per-message hover actions — copy the raw source to the clipboard and toggle
-// between rendered markdown and the source. Used by chat bubbles and transport
+// between rendered markdown and the source. The REPLY button used to live here
+// too; since the operator's request of 2026-08-21 it sits in the bottom row of
+// the bubble, next to the reaction trigger (FR-178) — the two answers to one
+// message, cheap and full, belong side by side. Used by chat bubbles and transport
 // rows alike; the host container provides position:relative for the actions.
 // Chat bubbles also pass `messageHash` (T107/T108, FR-75) — the deep-link
 // button NAVIGATES to the message's URL (the address bar is then ready to
@@ -8,19 +11,13 @@
 
 import { useState } from "react";
 import { useT } from "./i18n-context";
-import { IconCheck, IconCode, IconCopy, IconLink, IconReply } from "./icons";
+import { IconCheck, IconCode, IconCopy, IconLink } from "./icons";
 import { Markdown } from "./markdown";
 
 export function MessageText(props: {
   text: string;
   /** The message's deep-link hash (FR-75); absent ⇒ no link button (transport). */
   messageHash?: string;
-  /**
-   * Quote this message in the composer (FR-178); absent ⇒ no reply button — the
-   * transport journal has no composer, and a broadcast feed (§15.6) has no single
-   * message to answer.
-   */
-  onReply?: () => void;
 }): React.JSX.Element {
   const t = useT();
   const [showSource, setShowSource] = useState(false);
@@ -39,16 +36,6 @@ export function MessageText(props: {
   return (
     <>
       <span className="msg-actions">
-        {props.onReply !== undefined && (
-          <button
-            type="button"
-            className="msg-action"
-            title={t("Reply to this message")}
-            onClick={props.onReply}
-          >
-            <IconReply size={12} />
-          </button>
-        )}
         {props.messageHash !== undefined && (
           <button
             type="button"

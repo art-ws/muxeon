@@ -17,7 +17,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { fetchReactionCatalog, placeReaction, removeReaction } from "./api";
 import { useT } from "./i18n-context";
-import { IconReaction } from "./icons";
+import { IconReaction, IconReply } from "./icons";
 import { useReactions } from "./reactions-context";
 import { TimeStamp } from "./timestamp";
 import type { ReactionCatalog, ReactionNotify, ReactionView } from "./types";
@@ -61,6 +61,15 @@ export function ReactionBar(props: {
   /** The pair whose log holds the message — the REST path's first segment (§19.5). */
   peer: string;
   messageId: string;
+  /**
+   * Quote this message in the composer (FR-178). The reply button lives HERE,
+   * next to the reaction trigger (operator request 2026-08-21): both are answers
+   * to the same bubble — the cheap one and the full one — and keeping them in one
+   * row means one place to look, at the bottom edge where the eye already ends up.
+   * Absent ⇒ no button (the transport journal has no composer, a broadcast feed
+   * §15.6 has no single envelope to answer).
+   */
+  onReply?: (() => void) | undefined;
 }): React.JSX.Element | null {
   const t = useT();
   const api = useReactions();
@@ -70,7 +79,10 @@ export function ReactionBar(props: {
   const [notify, setNotify] = useState<ReactionNotify | null>(null);
   const [failed, setFailed] = useState<string | null>(null);
 
-  if (!api.enabled && reactions.length === 0) return null;
+  // The row exists for whatever it can offer: badges, the picker trigger, or the
+  // reply button alone — a stand with no reaction catalog (§19.2) must not lose
+  // the ability to answer a message.
+  if (!api.enabled && reactions.length === 0 && props.onReply === undefined) return null;
 
   const act = async (key: string, remove: boolean): Promise<void> => {
     setFailed(null);
@@ -109,6 +121,17 @@ export function ReactionBar(props: {
           onClick={() => setPicking(true)}
         >
           <IconReaction size={13} />
+        </button>
+      )}
+      {props.onReply !== undefined && (
+        <button
+          type="button"
+          className="reaction-add reply"
+          title={t("Reply to this message")}
+          aria-label={t("Reply to this message")}
+          onClick={props.onReply}
+        >
+          <IconReply size={13} />
         </button>
       )}
       {failed !== null && <span className="reaction-error">{failed}</span>}

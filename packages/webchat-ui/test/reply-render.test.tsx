@@ -131,6 +131,27 @@ describe("the reply affordance", () => {
     );
   });
 
+  test("it sits in the BOTTOM row, next to the reaction trigger (operator request 2026-08-21)", () => {
+    const html = chat([record({ id: "a" })]);
+    // the button carries the reaction row's own class…
+    expect(html).toContain('class="reaction-add reply"');
+    // …and stands after the row opens, not up in the copy/source hover strip
+    expect(html.indexOf("Reply to this message")).toBeGreaterThan(html.indexOf("reaction-bar"));
+    const hoverStrip = html.slice(
+      html.indexOf('class="msg-actions"'),
+      html.indexOf("reaction-bar"),
+    );
+    expect(hoverStrip).not.toContain("Reply to this message");
+  });
+
+  test("a stand with NO reaction catalog still offers it — the row exists for the button alone", () => {
+    // the tests render with the default (disabled) reactions context, so this is
+    // literally the catalog-less panel: the badges and picker are gone, reply is not
+    const html = chat([record({ id: "a" })]);
+    expect(html).not.toContain("Add reaction");
+    expect(html).toContain("Reply to this message");
+  });
+
   test("without the callback there is no button at all", () => {
     expect(chat([record({ id: "a" })], { reply: false })).not.toContain("Reply to this message");
   });
