@@ -159,12 +159,13 @@ export function App(): React.JSX.Element {
   // URL, exactly as the Transport entry below.
   const [showPrompts, setShowPrompts] = useState(() => loadPref("prompts", false));
   useEffect(() => savePref("prompts", showPrompts), [showPrompts]);
-  /** Handed to the surfaces that OFFER the rack — withheld hides their entry. */
-  const openPromptsPage = showPrompts
-    ? (): void => {
-        location.hash = routeHash({ view: "prompts" });
-      }
-    : undefined;
+  const openPromptsPage = (): void => {
+    location.hash = routeHash({ view: "prompts" });
+  };
+  /** Handed to the MENUS that offer the rack — withheld hides their entry. The
+   *  toolbar is deliberately not one of them (T327): pinning its button IS the
+   *  configuration, and it costs only the person who pinned it. */
+  const promptsMenuEntry = showPrompts ? openPromptsPage : undefined;
   // The sidebar Transport entry (T115): shown by default, hideable; the direct
   // #/transport URL keeps working either way.
   const [showTransport, setShowTransport] = useState(() => loadPref("transport", true));
@@ -245,7 +246,7 @@ export function App(): React.JSX.Element {
               onSettings={() => {
                 location.hash = routeHash({ view: "settings" });
               }}
-              {...(openPromptsPage !== undefined ? { onPrompts: openPromptsPage } : {})}
+              onPrompts={openPromptsPage}
               onLogout={logout}
             />
           )}
@@ -279,7 +280,7 @@ export function App(): React.JSX.Element {
               onSettings={() => {
                 location.hash = routeHash({ view: "settings" });
               }}
-              {...(openPromptsPage !== undefined ? { onPrompts: openPromptsPage } : {})}
+              {...(promptsMenuEntry !== undefined ? { onPrompts: promptsMenuEntry } : {})}
             />
           )}
         </header>

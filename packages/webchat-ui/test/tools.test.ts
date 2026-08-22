@@ -44,13 +44,10 @@ const group: PeerInfo = {
   unread: 0,
 };
 
-// The rack is hidden unless the context says otherwise (FR-189), and these
-// cases are about the PEER, so they all run with it offered — the pref itself
-// gets its own case below.
 const ids = (
   enabled: readonly ToolId[],
   peer: PeerInfo | undefined,
-  ctx: { role?: "admin" | "user"; prompts?: boolean } = { prompts: true },
+  ctx: { role?: "admin" | "user" } = {},
 ): readonly string[] => visibleTools(new Set(enabled), peer, ctx).map((tool) => tool.id);
 
 const ALL: readonly ToolId[] = TOOLS.map((tool) => tool.id);
@@ -182,13 +179,13 @@ describe("what the bar prints (FR-172)", () => {
     ]);
   });
 
-  // FR-189: the button repeats a menu item, so it must not outlive it. An ABSENT
-  // flag hides the entry — the pref is read before the first paint, so "not told"
-  // means off, not "not told yet" (which is what an absent ROLE means above).
-  test("a hidden prompt rack takes its toolbar shortcut with it", () => {
-    expect(ids(ALL, undefined, { prompts: false })).not.toContain("prompts");
-    expect(ids(ALL, undefined, {})).not.toContain("prompts");
-    expect(ids(ALL, undefined, { prompts: true })).toContain("prompts");
+  // T327: the rack switch (FR-189) governs the MENUS; the toolbar entry is
+  // configured by PINNING it. A menu entry costs everyone who opens the menu, a
+  // pinned button costs only the person who put it there — and putting it there
+  // is already an explicit act of wanting the rack.
+  test("the rack shortcut is offered whatever the menus carry — the pin IS the switch", () => {
+    expect(ids(ALL, undefined)).toContain("prompts");
+    expect(ids([], undefined)).not.toContain("prompts"); // …and unpinned means absent
   });
 
   test("lifecycle tools follow the server's action flags, not a guess", () => {

@@ -65,11 +65,8 @@ export function Toolbar(props: {
     );
   }, [openName]);
 
-  // The rack shortcut exists exactly when its action does (FR-189): App withholds
-  // `onPrompts` while the rack is hidden, so no second flag has to agree with it.
   const tools = visibleTools(props.enabled, peer, {
     ...(props.viewerRole !== undefined ? { role: props.viewerRole } : {}),
-    prompts: props.onPrompts !== undefined,
   });
 
   // A chat tool says WHOM it will act on; a panel tool says what it does.

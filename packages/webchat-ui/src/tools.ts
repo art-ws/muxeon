@@ -54,8 +54,6 @@ export type ToolScope = "chat" | "panel";
  */
 export interface ToolContext {
   readonly role?: "admin" | "user";
-  /** Is the prompt rack offered at all (FR-189)? Hidden ⇒ its shortcut is too. */
-  readonly prompts?: boolean;
 }
 
 export interface Tool {
@@ -185,11 +183,14 @@ export const TOOLS: readonly Tool[] = [
     label: "Prompts",
     hint: "the shelves of reusable prompts",
     icon: IconShelf,
-    // Hidden rack ⇒ hidden shortcut (FR-189): the button repeats a menu item,
-    // and a shortcut must not outlive the item it repeats. Unlike `role` above,
-    // an ABSENT flag hides it: the preference is read from localStorage before
-    // the first paint, so "not told" means off, not "not told yet".
-    available: (_peer, ctx) => ctx?.prompts === true,
+    // Always offered — because PINNING IT IS the configuration (T327, operator
+    // request). The rack switch (FR-189) governs the MENUS, where an unused
+    // entry costs everyone who opens them; a toolbar button costs only the
+    // person who put it there, and putting it there is already an explicit act
+    // of wanting the rack. So a pinned button works whether the menus carry the
+    // rack or not — that is one entry configured on purpose, not half a feature
+    // left showing.
+    available: () => true,
   },
   {
     id: "settings",
