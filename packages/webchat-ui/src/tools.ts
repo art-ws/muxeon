@@ -54,6 +54,8 @@ export type ToolScope = "chat" | "panel";
  */
 export interface ToolContext {
   readonly role?: "admin" | "user";
+  /** Is the prompt rack offered at all (FR-189)? Hidden ⇒ its shortcut is too. */
+  readonly prompts?: boolean;
 }
 
 export interface Tool {
@@ -183,7 +185,11 @@ export const TOOLS: readonly Tool[] = [
     label: "Prompts",
     hint: "the shelves of reusable prompts",
     icon: IconShelf,
-    available: () => true,
+    // Hidden rack ⇒ hidden shortcut (FR-189): the button repeats a menu item,
+    // and a shortcut must not outlive the item it repeats. Unlike `role` above,
+    // an ABSENT flag hides it: the preference is read from localStorage before
+    // the first paint, so "not told" means off, not "not told yet".
+    available: (_peer, ctx) => ctx?.prompts === true,
   },
   {
     id: "settings",

@@ -133,6 +133,8 @@
   "Show only agents that are online": "Показать только агентов в сети",
   "Show only selected agents": "Показывать только выбранных агентов",
   "Show the agent filter": "Показать фильтр агентов",
+  "Show the prompt rack": "Показывать стеллаж промптов",
+  "Shelves of reusable prompts — the composer menu, the account menu and the toolbar entry": "Полки с промптами для повторного использования — пункты меню композера, меню аккаунта и запись тулбара",
   "Show the Transport page": "Показывать страницу Транспорт",
   "showing": "показано",
   "showing {shown} of {total}": "показано {shown} из {total}",

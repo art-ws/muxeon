@@ -26,6 +26,14 @@ export type BoolPref =
   // Token-usage display: ON (the default) shows the per-agent token meter in the
   // chat header; OFF hides it for a lighter interface. Persisted (FR-72).
   | "show-tokens"
+  // The prompt rack (§20, FR-189): ON offers its entries — the two composer
+  // gestures, the way to its page from the composer, the account menu and the
+  // toolbar. OFF is the DEFAULT (operator, T319): the rack is a tool not every
+  // panel needs, and menus are the one place where an unused entry costs
+  // everybody. It hides ENTRIES, not the feature: the rack keeps its data and
+  // #/prompts keeps working from the URL, the same bargain the Transport entry
+  // strikes.
+  | "prompts"
   // The sidebar's agent-filter panel (§12.7, FR-176): ON prints the name field +
   // all/online switch at the top of the sidebar; OFF is the default (T291) — a
   // fresh browser gets the sidebar it always had. This is the panel's VISIBILITY;

@@ -23,6 +23,12 @@ export function PromptRackItems(props: {
   onSave: (shelf: string | undefined) => void;
   /** Opens the rack page (§20.6); absent ⇒ the item is not printed. */
   onManage?: (() => void) | undefined;
+  /**
+   * Is the rack offered at all (FR-189)? `false` — the panel hid it by
+   * preference — prints NOTHING, the same silence a server without a rack gets:
+   * both reasons end in "this menu has no rack in it", and one place decides.
+   */
+  offered?: boolean;
   closeMenu: () => void;
 }): React.JSX.Element | null {
   const t = useT();
@@ -35,7 +41,7 @@ export function PromptRackItems(props: {
     void refresh();
   }, [refresh]);
 
-  if (!rack.enabled) return null;
+  if (props.offered === false || !rack.enabled) return null;
   const filled = props.text.trim() !== "";
   const stocked = rack.shelves.filter((shelf) => shelf.prompts.length > 0);
   // An empty rack prints no "insert" item at all (§20.5): an item that can only

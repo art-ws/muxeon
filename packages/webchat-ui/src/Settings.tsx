@@ -30,6 +30,9 @@ export function SettingsView(props: {
   /** The sidebar's agent-filter panel (FR-176) — the same pref its topbar button flips. */
   agentFilter: boolean;
   onAgentFilter: (show: boolean) => void;
+  /** The prompt rack (§20, FR-189): OFF (the default) hides every entry to it. */
+  prompts: boolean;
+  onPrompts: (show: boolean) => void;
   /** Token-usage display (FR-72): true (default) shows the chat-header token meter. */
   showTokens: boolean;
   onShowTokens: (show: boolean) => void;
@@ -70,6 +73,16 @@ export function SettingsView(props: {
             hint={t("The all-routed-messages feed in the sidebar")}
             checked={props.transport}
             onChange={props.onTransport}
+          />
+          {/* FR-189: a rack nobody keeps prompts in is three menu entries nobody
+              reads — off by default, and off means the ENTRIES, not the data */}
+          <SettingSwitch
+            label={t("Show the prompt rack")}
+            hint={t(
+              "Shelves of reusable prompts — the composer menu, the account menu and the toolbar entry",
+            )}
+            checked={props.prompts}
+            onChange={props.onPrompts}
           />
           <SettingSwitch
             label={t("Show token usage")}

@@ -39,7 +39,7 @@ const rack = (shelves: readonly PromptShelf[], enabled = true): PromptsApi => ({
   removePrompt: async () => undefined,
 });
 
-const items = (api: PromptsApi, text: string, onManage?: () => void): string =>
+const items = (api: PromptsApi, text: string, onManage?: () => void, offered = true): string =>
   renderToStaticMarkup(
     <PromptsContext.Provider value={api}>
       <PromptRackItems
@@ -47,6 +47,7 @@ const items = (api: PromptsApi, text: string, onManage?: () => void): string =>
         onInsert={() => undefined}
         onSave={() => undefined}
         {...(onManage !== undefined ? { onManage } : {})}
+        offered={offered}
         closeMenu={() => undefined}
       />
     </PromptsContext.Provider>,
@@ -55,6 +56,16 @@ const items = (api: PromptsApi, text: string, onManage?: () => void): string =>
 describe("the rack items in the composer menu (§20.4/§20.5)", () => {
   test("a server without a rack prints nothing — not a menu that always fails", () => {
     expect(items(rack([shelf("Разбор", ["Ревью"])], false), "текст", () => undefined)).toBe("");
+  });
+
+  // FR-189: hidden by preference is the same silence as "the server has no rack"
+  // — a full rack, a filled composer and a way to the page still print NOTHING,
+  // because the point of hiding is a menu without these entries in it.
+  test("a rack hidden by preference prints nothing either — every entry, not some", () => {
+    const full = rack([shelf("Разбор", ["Ревью"])]);
+    expect(items(full, "черновик", () => undefined, false)).toBe("");
+    // …and the same call with it offered is not empty, so the case proves something
+    expect(items(full, "черновик", () => undefined, true)).not.toBe("");
   });
 
   test("an empty rack with an empty composer prints nothing but the way to manage it", () => {

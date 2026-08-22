@@ -44,8 +44,14 @@ const group: PeerInfo = {
   unread: 0,
 };
 
-const ids = (enabled: readonly ToolId[], peer: PeerInfo | undefined): readonly string[] =>
-  visibleTools(new Set(enabled), peer).map((tool) => tool.id);
+// The rack is hidden unless the context says otherwise (FR-189), and these
+// cases are about the PEER, so they all run with it offered — the pref itself
+// gets its own case below.
+const ids = (
+  enabled: readonly ToolId[],
+  peer: PeerInfo | undefined,
+  ctx: { role?: "admin" | "user"; prompts?: boolean } = { prompts: true },
+): readonly string[] => visibleTools(new Set(enabled), peer, ctx).map((tool) => tool.id);
 
 const ALL: readonly ToolId[] = TOOLS.map((tool) => tool.id);
 
@@ -174,6 +180,15 @@ describe("what the bar prints (FR-172)", () => {
       "settings",
       "logout",
     ]);
+  });
+
+  // FR-189: the button repeats a menu item, so it must not outlive it. An ABSENT
+  // flag hides the entry — the pref is read before the first paint, so "not told"
+  // means off, not "not told yet" (which is what an absent ROLE means above).
+  test("a hidden prompt rack takes its toolbar shortcut with it", () => {
+    expect(ids(ALL, undefined, { prompts: false })).not.toContain("prompts");
+    expect(ids(ALL, undefined, {})).not.toContain("prompts");
+    expect(ids(ALL, undefined, { prompts: true })).toContain("prompts");
   });
 
   test("lifecycle tools follow the server's action flags, not a guess", () => {

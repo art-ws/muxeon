@@ -153,6 +153,18 @@ export function App(): React.JSX.Element {
   // the sidebar it always had, and the panel arrives when asked for.
   const [agentFilter, setAgentFilter] = useState(() => loadPref("agent-filter", false));
   useEffect(() => savePref("agent-filter", agentFilter), [agentFilter]);
+  // The prompt rack (§20, FR-189): OFF by default (operator, T319) — a rack
+  // nobody keeps prompts in is three menu entries nobody reads. Hiding is about
+  // ENTRIES: the shelves stay on the server and #/prompts still answers a typed
+  // URL, exactly as the Transport entry below.
+  const [showPrompts, setShowPrompts] = useState(() => loadPref("prompts", false));
+  useEffect(() => savePref("prompts", showPrompts), [showPrompts]);
+  /** Handed to the surfaces that OFFER the rack — withheld hides their entry. */
+  const openPromptsPage = showPrompts
+    ? (): void => {
+        location.hash = routeHash({ view: "prompts" });
+      }
+    : undefined;
   // The sidebar Transport entry (T115): shown by default, hideable; the direct
   // #/transport URL keeps working either way.
   const [showTransport, setShowTransport] = useState(() => loadPref("transport", true));
@@ -233,9 +245,7 @@ export function App(): React.JSX.Element {
               onSettings={() => {
                 location.hash = routeHash({ view: "settings" });
               }}
-              onPrompts={() => {
-                location.hash = routeHash({ view: "prompts" });
-              }}
+              {...(openPromptsPage !== undefined ? { onPrompts: openPromptsPage } : {})}
               onLogout={logout}
             />
           )}
@@ -269,9 +279,7 @@ export function App(): React.JSX.Element {
               onSettings={() => {
                 location.hash = routeHash({ view: "settings" });
               }}
-              onPrompts={() => {
-                location.hash = routeHash({ view: "prompts" });
-              }}
+              {...(openPromptsPage !== undefined ? { onPrompts: openPromptsPage } : {})}
             />
           )}
         </header>
@@ -287,6 +295,8 @@ export function App(): React.JSX.Element {
             onFlat={setFlatPeers}
             agentFilter={agentFilter}
             onAgentFilter={setAgentFilter}
+            prompts={showPrompts}
+            onPrompts={setShowPrompts}
             transport={showTransport}
             onTransport={setShowTransport}
             viewerRole={role}
@@ -398,6 +408,9 @@ function Panel(props: {
   /** The sidebar's agent-filter panel (FR-176) — the Settings switch and the topbar button. */
   agentFilter: boolean;
   onAgentFilter: (show: boolean) => void;
+  /** The prompt rack (§20, FR-189): OFF hides every entry that leads to it. */
+  prompts: boolean;
+  onPrompts: (show: boolean) => void;
   /** The sidebar Transport entry (T115) — same pair of switches (FR-177). */
   transport: boolean;
   onTransport: (show: boolean) => void;
@@ -731,6 +744,8 @@ function Panel(props: {
                 onFlat={props.onFlat}
                 agentFilter={props.agentFilter}
                 onAgentFilter={props.onAgentFilter}
+                prompts={props.prompts}
+                onPrompts={props.onPrompts}
                 showTokens={props.showTokens}
                 onShowTokens={props.onShowTokens}
                 tools={props.tools}
@@ -803,9 +818,17 @@ function Panel(props: {
                 paused={openIsBroadcast ? false : openPeer?.paused === true}
                 /* …but for a person the same flag is their do-not-disturb (§17.8) */
                 dnd={chatSurface(openPeer) === "person"}
-                onManagePrompts={() => {
-                  location.hash = routeHash({ view: "prompts" });
-                }}
+                /* the rack's three composer entries stand or fall together
+                   (FR-189): withholding this hides the way to its page, and
+                   `rack` hides the two gestures above it */
+                rack={props.prompts}
+                {...(props.prompts
+                  ? {
+                      onManagePrompts: () => {
+                        location.hash = routeHash({ view: "prompts" });
+                      },
+                    }
+                  : {})}
               />
               {commandOpen && (
                 <CommandFanout

@@ -66,6 +66,12 @@ export function Composer(props: {
   onCancelReply?: () => void;
   /** Opens the prompt rack page (§20.6, FR-187) — the menu's "Prompts" line. */
   onManagePrompts?: (() => void) | undefined;
+  /**
+   * Is the rack offered at all (FR-189)? `false` prints NONE of its entries —
+   * both gestures and the way to its page — so a panel that does not use the
+   * rack carries a menu without it. The shelves themselves are untouched.
+   */
+  rack?: boolean;
 }): React.JSX.Element {
   const t = useT();
   const paused = props.paused === true;
@@ -414,12 +420,14 @@ export function Composer(props: {
                   </button>
                 )}
                 {/* the prompt rack (§20.4/§20.5): take one from a shelf, put this
-                    one on a shelf, or go manage them (FR-185/FR-186/FR-187) */}
+                    one on a shelf, or go manage them (FR-185/FR-186/FR-187).
+                    Hidden by preference (FR-189) prints nothing at all. */}
                 <PromptRackItems
                   text={text}
                   onInsert={insertPrompt}
                   onSave={(shelf) => setSaveTo({ ...(shelf !== undefined ? { shelf } : {}) })}
                   onManage={props.onManagePrompts}
+                  offered={props.rack !== false}
                   closeMenu={closeMenu}
                 />
                 {commands.length > 0 && (
