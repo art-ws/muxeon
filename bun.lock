@@ -93,6 +93,13 @@
         "croner": "^10.0.1",
       },
     },
+    "packages/schedules": {
+      "name": "@muxeon/schedules",
+      "version": "0.0.0",
+      "dependencies": {
+        "@muxeon/core": "workspace:*",
+      },
+    },
     "packages/server": {
       "name": "@muxeon/server",
       "version": "0.1.0",
@@ -224,6 +231,8 @@
     "@muxeon/queue": ["@muxeon/queue@workspace:packages/queue"],
 
     "@muxeon/routines": ["@muxeon/routines@workspace:packages/routines"],
+
+    "@muxeon/schedules": ["@muxeon/schedules@workspace:packages/schedules"],
 
     "@muxeon/server": ["@muxeon/server@workspace:packages/server"],
 

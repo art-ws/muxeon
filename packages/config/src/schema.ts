@@ -493,6 +493,27 @@ export interface ReactionsConfig {
 /** Default length of the Recent block (§19.8, FR-166). */
 export const REACTIONS_DEFAULT_RECENT_LIMIT = 12;
 
+/**
+ * Deferred self-chains (§21.6, FR-193) — a TOP-LEVEL block like `reactions`: the
+ * caps within which an agent may schedule work for itself, and the switch that
+ * turns the whole subsystem off. Absent ⇒ the defaults below; the DANGEROUS half
+ * of the feature is not gated here at all but by `commandGrants`/`sessionGrants`
+ * with an explicit self cell (§21.6), which are empty — deny — until an operator
+ * writes them.
+ */
+export interface SchedulesConfig {
+  readonly enabled?: boolean;
+  readonly maxChainsPerAgent?: number;
+  readonly maxItems?: number;
+  /** Floor of a NON-ZERO delay; `"0s"` is always allowed (§21.9-Q5). */
+  readonly minDelay?: string;
+  /** Horizon of the WHOLE chain — the sum of its delays (§21.9-Q5). */
+  readonly maxDelay?: string;
+  readonly maxText?: number;
+  readonly idleWait?: string;
+  readonly catchUpGrace?: string;
+}
+
 export type TopologyMap = Readonly<Record<string, readonly string[]>>;
 
 export interface MuxeonConfig {
@@ -525,6 +546,12 @@ export interface MuxeonConfig {
    * (every existing config behaves exactly as before).
    */
   readonly reactions?: ReactionsConfig;
+  /**
+   * Deferred self-chains (§21.6, FR-193): the caps an agent's own schedules live
+   * within, and the subsystem's kill switch. Absent ⇒ defaults (the feature is
+   * on, but its command/control halves stay denied until a self grant exists).
+   */
+  readonly schedules?: SchedulesConfig;
   /** Per-agent-type defaults keyed by adapter type (§7.1, FR-64). */
   readonly types?: Readonly<Record<string, AgentTypeConfig>>;
   /**
@@ -1310,6 +1337,76 @@ function validateReactions(value: unknown, path: string): ReactionsConfig {
   };
 }
 
+// schedules: { enabled?, caps… } — a closed shape (§21.6, FR-193). Every cap is
+// checked here so a typo cannot become a silent default at runtime; the
+// cross-field rule (minDelay ≤ maxDelay) lives here too, because both fields are
+// in the same block and there is no reference to resolve.
+const SCHEDULE_FIELDS = [
+  "enabled",
+  "maxChainsPerAgent",
+  "maxItems",
+  "minDelay",
+  "maxDelay",
+  "maxText",
+  "idleWait",
+  "catchUpGrace",
+];
+
+function requirePositiveInt(value: unknown, path: string): number {
+  const num = requireNonNegativeInt(value, path);
+  if (num === 0) throw new ConfigError("expected a positive integer, got 0", { path });
+  return num;
+}
+
+function validateSchedules(value: unknown, path: string): SchedulesConfig {
+  const obj = requireObject(value, path);
+  for (const key of Object.keys(obj)) {
+    if (!SCHEDULE_FIELDS.includes(key)) {
+      throw new ConfigError(`unknown schedules field "${key}"`, { path: joinPointer(path, key) });
+    }
+  }
+  const out: {
+    enabled?: boolean;
+    maxChainsPerAgent?: number;
+    maxItems?: number;
+    minDelay?: string;
+    maxDelay?: string;
+    maxText?: number;
+    idleWait?: string;
+    catchUpGrace?: string;
+  } = {};
+  if (obj.enabled !== undefined) {
+    out.enabled = requireBoolean(obj.enabled, joinPointer(path, "enabled"));
+  }
+  for (const field of ["maxChainsPerAgent", "maxItems", "maxText"] as const) {
+    if (obj[field] !== undefined)
+      out[field] = requirePositiveInt(obj[field], joinPointer(path, field));
+  }
+  for (const field of ["minDelay", "maxDelay", "idleWait", "catchUpGrace"] as const) {
+    if (obj[field] !== undefined)
+      out[field] = requireDuration(obj[field], joinPointer(path, field));
+  }
+  // A floor above the horizon would refuse every chain that is otherwise legal —
+  // a config that can only say "no" is a mistake, not a policy.
+  if (out.minDelay !== undefined && out.maxDelay !== undefined) {
+    if (parseDurationMs(out.minDelay) > parseDurationMs(out.maxDelay)) {
+      throw new ConfigError(
+        `schedules.minDelay (${out.minDelay}) is above maxDelay (${out.maxDelay})`,
+        { path: joinPointer(path, "minDelay") },
+      );
+    }
+  }
+  return out;
+}
+
+/** The §7.1 duration grammar in milliseconds — only for the cross-field check above. */
+function parseDurationMs(text: string): number {
+  const match = /^(\d+)(ms|s|m|h|d)$/.exec(text);
+  const units = { ms: 1, s: 1000, m: 60_000, h: 3_600_000, d: 86_400_000 } as const;
+  const [, amount = "0", unit = "ms"] = match ?? [];
+  return Number(amount) * units[unit as keyof typeof units];
+}
+
 /** Grapheme clusters, not code units (§19.3) — Segmenter where the runtime has it. */
 function graphemeCount(text: string): number {
   const Segmenter = (Intl as { Segmenter?: typeof Intl.Segmenter }).Segmenter;
@@ -1549,6 +1646,8 @@ export function validateStructure(value: unknown): MuxeonConfig {
   const groups = root.groups === undefined ? undefined : validateGroups(root.groups, "/groups");
   const reactions =
     root.reactions === undefined ? undefined : validateReactions(root.reactions, "/reactions");
+  const schedules =
+    root.schedules === undefined ? undefined : validateSchedules(root.schedules, "/schedules");
   const users = root.users === undefined ? undefined : validateUsers(root.users, "/users");
   const imports =
     root.imports === undefined ? undefined : validateImports(root.imports, "/imports");
@@ -1566,6 +1665,7 @@ export function validateStructure(value: unknown): MuxeonConfig {
     ...(sessionGrants !== undefined ? { sessionGrants } : {}),
     ...(groups !== undefined ? { groups } : {}),
     ...(reactions !== undefined ? { reactions } : {}),
+    ...(schedules !== undefined ? { schedules } : {}),
     ...(imports !== undefined ? { imports } : {}),
     ...(federation !== undefined ? { federation } : {}),
   };

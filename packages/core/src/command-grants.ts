@@ -55,4 +55,22 @@ export class CommandGrants {
     const allowed = this.allowedFor(from, to);
     return allowed === "all" || allowed.has(slash);
   }
+
+  /**
+   * Whether `name` may run `/slash` on its OWN pane — the deferred self-path of
+   * §21 (a chain item), never a synchronous one.
+   *
+   * Deliberately NOT `permits(name, name, …)`: the recipient wildcards above mean
+   * "any NEIGHBOUR", and self is not a neighbour. Those wildcards were written
+   * when no path to one's own pane existed at all, so reading them today as "and
+   * yourself too" would hand out authority nobody signed off on. Self takes an
+   * explicit `{<name>: {<name>: […]}}` cell — which is also greppable: one can
+   * see who may clear themselves. A `"*"` INSIDE that cell still means "every
+   * command this agent has", as everywhere else.
+   */
+  permitsSelf(name: string, slash: string): boolean {
+    const cell = this.#map[name]?.[name];
+    if (cell === undefined) return false;
+    return cell.includes(COMMAND_WILDCARD) || cell.includes(slash);
+  }
 }

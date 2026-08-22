@@ -73,4 +73,17 @@ export class SessionGrants {
     const allowed = this.allowedFor(from, to);
     return allowed === "all" || allowed.has(action);
   }
+
+  /**
+   * Whether `name` may run `action` on its OWN session — the deferred self-path
+   * of §21 (a chain item), never a synchronous one. The exact parallel of
+   * `CommandGrants.permitsSelf`, and for the same reason: the recipient
+   * wildcards mean "any NEIGHBOUR", and self is not a neighbour, so restarting
+   * yourself takes an explicit `{<name>: {<name>: […]}}` cell.
+   */
+  permitsSelf(name: string, action: string): boolean {
+    const cell = this.#map[name]?.[name];
+    if (cell === undefined) return false;
+    return cell.includes(SESSION_WILDCARD) || cell.includes(action);
+  }
 }

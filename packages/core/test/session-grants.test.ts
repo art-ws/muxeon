@@ -61,4 +61,24 @@ describe("SessionGrants (FR-96/FR-97)", () => {
     expect(grants.allowedFor("a", "b")).toBe("all");
     expect(grants.permits("someone", "anyone", "restart")).toBe(true);
   });
+
+  // The exact parallel of CommandGrants.permitsSelf (§21/§10.33): restarting
+  // yourself takes an explicit self cell, never a recipient wildcard.
+  describe("permitting one's OWN session (§21)", () => {
+    test('a "*" recipient does NOT reach the sender itself', () => {
+      const grants = new SessionGrants({ tl: { "*": ["restart"] } });
+      expect(grants.permits("tl", "dev", "restart")).toBe(true);
+      expect(grants.permitsSelf("tl", "restart")).toBe(false);
+    });
+
+    test('an explicit self cell does, and its own "*" means every action', () => {
+      expect(new SessionGrants({ dev: { dev: ["restart"] } }).permitsSelf("dev", "restart")).toBe(
+        true,
+      );
+      expect(new SessionGrants({ dev: { dev: ["restart"] } }).permitsSelf("dev", "stop")).toBe(
+        false,
+      );
+      expect(new SessionGrants({ dev: { dev: ["*"] } }).permitsSelf("dev", "shutdown")).toBe(true);
+    });
+  });
 });

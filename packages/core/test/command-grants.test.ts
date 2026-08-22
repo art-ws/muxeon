@@ -57,4 +57,28 @@ describe("CommandGrants (FR-94/FR-95)", () => {
     expect(grants.allowedFor("a", "b")).toBe("all");
     expect(grants.permits("someone", "anyone", "whatever")).toBe(true);
   });
+
+  // §21/§10.33: the deferred self-path is authorized by an EXPLICIT self cell.
+  // The recipient wildcards mean "any neighbour", and self is not a neighbour —
+  // they were written when no path to one's own pane existed at all.
+  describe("permitting one's OWN pane (§21)", () => {
+    test('a "*" recipient does NOT reach the sender itself', () => {
+      const grants = new CommandGrants({ ceo: { "*": ["clear"] }, "*": { "*": ["compact"] } });
+      expect(grants.permits("ceo", "tl", "clear")).toBe(true);
+      expect(grants.permitsSelf("ceo", "clear")).toBe(false);
+      expect(grants.permitsSelf("ceo", "compact")).toBe(false);
+    });
+
+    test('an explicit self cell does, and its own "*" still means every command', () => {
+      expect(new CommandGrants({ dev: { dev: ["clear"] } }).permitsSelf("dev", "clear")).toBe(true);
+      expect(new CommandGrants({ dev: { dev: ["clear"] } }).permitsSelf("dev", "compact")).toBe(
+        false,
+      );
+      expect(new CommandGrants({ dev: { dev: ["*"] } }).permitsSelf("dev", "anything")).toBe(true);
+    });
+
+    test("an empty map grants nothing to anyone, least of all to themselves", () => {
+      expect(new CommandGrants().permitsSelf("dev", "clear")).toBe(false);
+    });
+  });
 });
