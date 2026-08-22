@@ -2265,6 +2265,18 @@ dialog.popup-dialog {
   border-bottom: 1px solid var(--border);
 }
 
+/* the title bar carries the window (T318): the grab cursor says so before the
+   press, and touch-action keeps a finger drag from scrolling the page instead.
+   Full screen drops the class — there is nowhere to drag a maximized window. */
+.popup-head.draggable {
+  cursor: grab;
+  touch-action: none;
+}
+
+.popup-head.draggable.dragging {
+  cursor: grabbing;
+}
+
 /* the title bar is a control (double-click zooms the window, T316), so it does
    not select under that double-click — a highlighted title is the leftover of a
    gesture aimed at the window, not at its text */
