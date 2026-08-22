@@ -21,7 +21,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { consoleSocketUrl } from "./api";
 import { useT } from "./i18n-context";
-import { IconCollapse, IconExpand } from "./icons";
+import { IconCollapse, IconExpand, IconX } from "./icons";
 
 /** Font size the terminal is measured at before it is fitted to the popup. */
 const BASE_FONT_PX = 14;
@@ -206,7 +206,18 @@ export function ConsoleDialog(props: {
       {/* No click-away close (§12.9): a console is a place of work, not a peek. */}
       <div className="popup-backdrop" />
       <dialog open className="popup-dialog console-dialog" aria-label={title}>
-        <div className="popup-head">
+        {/* The title bar zooms the window on a double-click (T316) — the same
+            state the button beside it toggles, so nothing here is keyboard-only
+            unreachable: it is a shortcut for a control, not a control. */}
+        <div
+          className="popup-head"
+          onDoubleClick={(event) => {
+            // a double-click INSIDE the actions is two clicks of that button —
+            // letting it also toggle here would undo what the button just did
+            if ((event.target as HTMLElement).closest(".console-actions") !== null) return;
+            setFull(!full);
+          }}
+        >
           <span className="popup-title">
             {title}
             {phase !== "live" && (
@@ -226,22 +237,26 @@ export function ConsoleDialog(props: {
                 {t("Reconnect")}
               </button>
             )}
+            {/* the window's own buttons wear the TOOLBAR's clothes (T316): same
+                32px round target, same hover halo — two icon buttons a few
+                pixels apart that behave differently read as two mechanisms */}
             <button
               type="button"
-              className="console-button icon"
+              className="tool-button"
               title={full ? t("Collapse") : t("Full screen")}
               aria-label={full ? t("Collapse") : t("Full screen")}
               onClick={() => setFull(!full)}
             >
-              {full ? <IconCollapse size={14} /> : <IconExpand size={14} />}
+              {full ? <IconCollapse size={16} /> : <IconExpand size={16} />}
             </button>
             <button
               type="button"
-              className="chip-remove"
+              className="tool-button"
+              title={t("Close")}
               aria-label={t("Close")}
               onClick={props.onClose}
             >
-              ×
+              <IconX size={16} />
             </button>
           </span>
         </div>

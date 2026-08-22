@@ -2265,9 +2265,13 @@ dialog.popup-dialog {
   border-bottom: 1px solid var(--border);
 }
 
+/* the title bar is a control (double-click zooms the window, T316), so it does
+   not select under that double-click — a highlighted title is the leftover of a
+   gesture aimed at the window, not at its text */
 .popup-title {
   font-weight: 600;
   font-size: 14px;
+  user-select: none;
 }
 
 .camera-overlay {
@@ -2321,10 +2325,12 @@ dialog.camera-dialog {
   color: var(--text-dim);
 }
 
+/* the window buttons are the toolbar's (T316), so they stand at the toolbar's
+   spacing — 8px between round 32px targets reads as three separate widgets */
 .console-actions {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 2px;
 }
 
 .console-button {
@@ -2344,8 +2350,9 @@ dialog.camera-dialog {
   border-color: var(--accent);
 }
 
-.console-button.icon {
-  padding: 4px 8px;
+/* "Reconnect" is a worded button among round icon ones — it keeps its own air */
+.console-actions .console-button {
+  margin-right: 6px;
 }
 
 .console-pane {
