@@ -1,3 +1,36 @@
+## [0.1.23](https://github.com/art-ws/muxeon/compare/v0.1.22...v0.1.23) (2026-08-22)
+
+
+### Changes
+
+* **T316:** the console window gets a title bar that zooms and toolbar-shaped buttons
+
+  Two operator requests about the same header. ([b5d593f](https://github.com/art-ws/muxeon/commit/b5d593f3f6dd7dcd38f8d6f9552546c9300239f4))
+* **T318:** the console window can be dragged around by its title bar
+
+  The window is positioned by an OFFSET from where the overlay centres it, not by absolute coordinates: the box keeps its own sizing rules, and "never dragged" stays the honest {0, 0}. ([1540c4d](https://github.com/art-ws/muxeon/commit/1540c4d790cd5b3b39054e60116021e55309d65a))
+* **T319:** the prompt rack can be switched off, and is off by default
+
+  A rack nobody keeps prompts in is three menu entries nobody reads, and a menu is the one place where an unused entry costs everybody. "Show the prompt rack" joins the Panel section of the settings page (muxeon-pref:prompts), OFF by default. ([8ac6a90](https://github.com/art-ws/muxeon/commit/8ac6a9035282bd8bccde92391fb311d2be587d46))
+* **T322:** deferred self-chains — the core: planning, state, and the tick
+
+  New package @muxeon/schedules, wired to nothing yet: the rules that decide what a terminal will be typed into are worth having under test before any of it reaches a pane. ([5e5f23f](https://github.com/art-ws/muxeon/commit/5e5f23f9d01976a448420814eeb1014657549948))
+* **T323:** deferred self-chains — the three doors and the tick that fires them
+
+  The core from T322 is now reachable and wired: three MCP tools, the outbox drop, the operator view, and the tick running against the real router, command port and session port. ([d6306a4](https://github.com/art-ws/muxeon/commit/d6306a45e996c070b47bac7fe5a21cdab74a3590))
+* **T324:** deferred self-chains — the operator's view and its CLI
+
+  `muxeon schedules list [<agent>]` and `muxeon schedules cancel <agent> <id> [<index>]` mirror the admin endpoints, as every operator operation does. There is no `create` on either surface and that is the point: planning is the agent's own act (§21.2), and an operator who wants a timed prompt already has routines (§6) —… ([c20e999](https://github.com/art-ws/muxeon/commit/c20e9994abca9dc41785b94f56ac0dc4e1584600))
+* **T325:** a grant may name its own sender — the one §7.5 rule §21 had to relax
+
+  Wiring the park's self grants ran straight into the config validator, and it was right to stop me: `{"ceo": {"ceo": [...]}}` was fatal, because until §21 no path to one's own pane existed and such a cell could only be a typo. ([503f838](https://github.com/art-ws/muxeon/commit/503f838536283ca69d4c8e0d3cbac2aa1c95660d))
+* **T327:** the Prompts toolbar entry is configured by pinning it, not by the rack switch
+
+  Yesterday's switch (FR-189) hid the toolbar entry along with the menus, and that produced a dead control: the "Prompts" row in Settings → Toolbar could still be turned on, and no button appeared. §12.10.7-Q1 forbids exactly that — the unavailable is hidden, never printed dead. ([cb426db](https://github.com/art-ws/muxeon/commit/cb426dbdcd2630b874bc81d38a6ad1cf8b353a17))
+* **T328:** the architecture guard learns the 14th package
+
+  The §8 layering test is the structural guard, and it caught the new package exactly as it should have: a package nobody declared a layer for is a package nobody reasoned about. ([d0b6478](https://github.com/art-ws/muxeon/commit/d0b6478b4b4dc052a29d98c4c53ded654bb106b1))
+
 ## [0.1.22](https://github.com/art-ws/muxeon/compare/v0.1.21...v0.1.22) (2026-08-21)
 
 
