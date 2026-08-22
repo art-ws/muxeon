@@ -15,9 +15,9 @@ const ROOT = join(import.meta.dir, "..");
 const PKG_DIR = join(ROOT, "packages");
 const SCOPE = "@muxeon/";
 
-// SPEC.md §8 layering (lower index = lower layer). The 13-package set is fixed:
+// SPEC.md §8 layering (lower index = lower layer). The 14-package set is fixed:
 // core < {config, tmux, queue} < adapters < orchestrator
-//      < {lifecycle, signals, routines, channels, webchat, federation} < server
+//      < {lifecycle, signals, routines, schedules, channels, webchat, federation} < server
 // webchat-ui (§12.7) is BUILD-TIME ONLY: bundled browser assets served as
 // statics by webchat — never a runtime import, so it sits outside the layering
 // (it must not depend on any @muxeon package and nothing may depend on it).
@@ -31,6 +31,10 @@ const LAYER: Record<string, number> = {
   lifecycle: 4,
   signals: 4,
   routines: 4,
+  // §21: a peer of routines — the same layer and the same role, a subsystem the
+  // server drives. It reaches nothing but core: authority and the delivery paths
+  // stay in server (§21.5), so this package has no edge to signals at all.
+  schedules: 4,
   channels: 4,
   webchat: 4,
   federation: 4,
@@ -138,7 +142,7 @@ const graph: Record<string, string[]> = {};
 for (const d of dirs) graph[d] = declaredDeps(readPkg(d));
 
 describe("§8 package layering", () => {
-  test("exactly the 13 spec packages exist, named @muxeon/<dir>", () => {
+  test("exactly the 14 spec packages exist, named @muxeon/<dir>", () => {
     expect(dirs).toEqual(EXPECTED_PACKAGES);
     for (const d of dirs) {
       const pkg = readPkg(d);
