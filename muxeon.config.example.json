@@ -1,12 +1,13 @@
 {
   "name": "my-team",
-
   "server": {
     "port": 8080,
     "mcp": true,
-    "retain": { "age": "7d", "count": 1000 }
+    "retain": {
+      "age": "7d",
+      "count": 1000
+    }
   },
-
   "agents": [
     {
       "name": "researcher",
@@ -18,9 +19,20 @@
         "command": ["claude"],
         "cwd": "/path/to/repo",
         "auto": true,
-        "teardown": { "slash": "exit", "graceMs": 5000, "idle": "1h" }
+        "teardown": {
+          "slash": "exit",
+          "graceMs": 5000,
+          "idle": "1h"
+        }
       },
-      "commands": [{ "slash": "clear" }, { "slash": "compact" }],
+      "commands": [
+        {
+          "slash": "clear"
+        },
+        {
+          "slash": "compact"
+        }
+      ],
       "group": "workers",
       "tags": ["research"],
       "exported": true
@@ -35,13 +47,36 @@
       "tags": ["docs"]
     }
   ],
-
-  "groups": [{ "name": "workers" }],
-
+  "groups": [
+    {
+      "name": "workers"
+    }
+  ],
+  "types": {
+    "claude": {
+      "tokens": {
+        "enabled": true,
+        "sampleEvery": "60s",
+        "minuteSpan": "60m",
+        "maxThreshold": 1000000
+      }
+    },
+    "codex": {
+      "tokens": {
+        "enabled": true
+      }
+    }
+  },
   "reactions": {
     "categories": [
-      { "name": "feedback", "title": "Feedback" },
-      { "name": "work", "title": "Rework" }
+      {
+        "name": "feedback",
+        "title": "Feedback"
+      },
+      {
+        "name": "work",
+        "title": "Rework"
+      }
     ],
     "items": [
       {
@@ -67,60 +102,97 @@
         "expectsReply": true,
         "agentMessage": "Check the claims in this message against facts (tests, logs, files) and answer with the result of that check."
       },
-      { "key": "fire", "emoji": "🔥", "label": "Fire" }
+      {
+        "key": "fire",
+        "emoji": "🔥",
+        "label": "Fire"
+      }
     ],
-    "picker": { "recentLimit": 12 }
+    "picker": {
+      "recentLimit": 12
+    }
   },
-
   "users": [
     {
       "name": "operator",
       "title": "Operator",
       "role": "admin",
-      "auth": { "password": { "$env": "MUXEON_WEB_PASSWORD" } },
-      "channels": { "web": true }
+      "auth": {
+        "password": {
+          "$env": "MUXEON_WEB_PASSWORD"
+        }
+      },
+      "channels": {
+        "web": true
+      }
     }
   ],
-
   "topology": {
     "researcher": ["writer", "operator"],
     "writer": ["operator"],
     "operator": ["hq"]
   },
-
   "imports": [
     {
       "name": "hq",
       "url": "https://hq.example.com:8092",
-      "token": { "$env": "MUXEON_FED_HQ_TOKEN" },
+      "token": {
+        "$env": "MUXEON_FED_HQ_TOKEN"
+      },
       "transit": true,
       "publish": false
     }
   ],
-
   "federation": {
     "port": 8092,
     "bind": "127.0.0.1",
     "publishStatus": true,
     "statusDebounceMs": 1000,
-    "accept": [{ "name": "branch", "token": { "$env": "MUXEON_FED_BRANCH_TOKEN" }, "relay": false }]
+    "accept": [
+      {
+        "name": "branch",
+        "token": {
+          "$env": "MUXEON_FED_BRANCH_TOKEN"
+        },
+        "relay": false
+      }
+    ]
   },
-
   "commandGrants": {
-    "writer": { "researcher": ["clear", "compact"] }
+    "writer": {
+      "researcher": ["clear", "compact"]
+    },
+    "researcher": {
+      "researcher": ["clear", "compact"]
+    }
   },
-
   "sessionGrants": {
-    "writer": { "researcher": ["restart"] }
+    "writer": {
+      "researcher": ["restart"]
+    },
+    "researcher": {
+      "researcher": ["restart"]
+    }
   },
-
+  "schedules": {
+    "enabled": true,
+    "maxChainsPerAgent": 8,
+    "maxItems": 16,
+    "minDelay": "5s",
+    "maxDelay": "24h",
+    "maxText": 32768,
+    "idleWait": "60s",
+    "catchUpGrace": "10m"
+  },
   "channels": [
     {
       "name": "web",
       "type": "webchat",
       "port": 8091,
       "basePath": "/team",
-      "auth": { "mode": "users" }
+      "auth": {
+        "mode": "users"
+      }
     }
   ]
 }

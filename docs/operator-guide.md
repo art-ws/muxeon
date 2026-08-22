@@ -415,6 +415,8 @@ muxeon queues requeue <participant> <id>       # failed/ → pending tail, same 
 muxeon routines list [<owner>]
 muxeon routines get|delete|enable|disable|run-once <owner> <id>
 muxeon routines put <owner> <id> <file.md>
+muxeon schedules list [<agent>]                # deferred self-chains agents armed (§21)
+muxeon schedules cancel <agent> <id> [<index>] # …disarm one item, or the whole chain
 muxeon hash-password [--stdin]                 # argon2id hash for users[].auth (§17.4)
 ```
 
@@ -519,6 +521,22 @@ The **Settings** page has a build-info footer (FR-91): the server version, the
 deployed commit, and its date (the server runs from source, so "build time" is
 the HEAD commit's date). It is served behind auth, so it never leaks the version
 to unauthenticated visitors; a non-git deployment simply shows the version.
+
+Two sidebar affordances are worth knowing about, both off by default and both
+switched in Settings → Panel (or from a pinned toolbar button):
+
+- an **agent filter** above the peer list — a name field plus an All/Online
+  switch. It applies only while its panel is on screen, and both halves now
+  survive a reload, so the sidebar you left is the sidebar you come back to. That
+  is safe precisely because a restored filter always returns together with the
+  field, the lit side and the "showing N of M" counter that explain the shortened
+  list;
+- the **Transport** entry — the server-wide journal, admin-only (§17).
+
+Everything the panel remembers about your view — theme, auto-scroll, sidebar
+layout, the filter, the pinned toolbar, the prompt-rack switch — lives in your
+browser's `localStorage`, never on the server. Another browser starts from the
+defaults.
 
 ### 8.1 Configuration (§12.2)
 
@@ -747,6 +765,10 @@ What it is wired to:
 - **Size** — the agent's, mirrored. The font scales so that grid fills the popup;
   "Full screen" grows the popup, not the terminal. If you want a bigger grid,
   resize the agent's own tmux window.
+- **The window behaves like a window.** Double-click the title bar to zoom it and
+  back (the same state the ⤢ button owns), and drag the title bar to move it out
+  of the way of the chat underneath. It cannot be dragged out of reach: the box
+  goes anywhere it still fits on screen and no further.
 - **The keyboard is the terminal's.** Esc goes to the pane (it is a key an agent
   CLI needs), so the popup closes with ✕ — and a click on the backdrop does
   nothing on purpose: a stray click must not tear down a console you are working
@@ -974,6 +996,38 @@ writing nothing. A dropped line is reported as a server warning, never silently.
 Lines over 16 KiB are dropped the same way: the console is a line of input, and
 long texts belong in the composer with its attachments.
 
+### 8.1f The prompt rack: reusable prompts (§20, FR-183…FR-189)
+
+Shelves of prompts a person keeps and reuses: **stored on the server, per user**
+(`<config_dir>/webchat/prompts/<user>.json`), so a collection built over months
+does not die with the browser profile. The owner comes from the session and never
+appears in an API path — another person's rack cannot be listed, read or changed.
+
+Three surfaces, all in the panel and none in the config:
+
+- the composer's `+` menu — **Insert from shelf** (appends the prompt to the
+  draft; it never replaces what is typed and never sends) and **Save to shelf**
+  (saves the draft as a copy — the composer keeps its text);
+- the account menu's **Prompts**, and the page itself at `#/prompts`: full CRUD
+  over shelves and prompts, move between shelves, reorder, filter;
+- a **toolbar button**, if you pin one.
+
+**Off by default** (Settings → Panel → *Show the prompt rack*). A rack nobody
+keeps prompts in is three menu entries nobody reads, and a menu is where an
+unused entry costs everybody who opens it. Switching it off hides the entries,
+never the data: the shelves stay on the server and `#/prompts` still answers a
+typed URL — the same bargain the Transport entry strikes.
+
+**The toolbar button is the exception, and deliberately so.** It is offered in
+Settings → Toolbar whatever the rack switch says, because *pinning it is the
+configuration*: a menu entry costs everyone who opens the menu, a pinned button
+costs only the person who put it there — and putting it there is already an
+explicit "I want the rack". So you can have both: menus without the rack, and one
+button in the header.
+
+A prompt is not a message: nothing in this feature routes, queues, journals or
+reaches an agent. Agents have no access to it on any surface.
+
 ### 8.2 Building the UI
 
 The SPA ships as a workspace package and is served automatically once built:
@@ -1099,6 +1153,95 @@ What to expect at runtime:
   mutual imports, one `<config_dir>` per instance. If your shell exports
   `HTTP_PROXY`, exempt loopback (`NO_PROXY=127.0.0.1,localhost`) or the link
   client will try to reach the neighbour through the proxy.
+
+## 10. Deferred self-chains (§21, FR-190…FR-193)
+
+An agent cannot wait for itself: everything it does happens inside a turn, and
+the turn ends. Worse, the only real cure for a clogged context — `/clear`, or a
+restart — **destroys the plan along with the context**: an agent that decides to
+clear itself no longer remembers that it meant to come back.
+
+A deferred chain moves the plan out of the agent and into the coordinator, where
+it survives the end of the turn, the clearing, the restarted session and a
+restart of Muxeon itself. The scenario it exists for is exactly:
+
+> *save your working state to a file* → `/clear` → *read the file and continue*
+
+**How an agent arms one.** Three agent-plane tools — `schedule_self`,
+`list_schedules`, `cancel_schedule` — or, for an agent that has no MCP session, a
+drop in its own outbox (`{"schedule": {"items": [...]}}`). The file door matters
+more here than anywhere else: a shim can be dead exactly when self-repair is what
+the agent needs.
+
+```jsonc
+// what an agent submits
+{ "items": [
+    { "delay": "0s", "text": "Save your state to .muxeon/state.md: what you are doing, where you stopped, the next step." },
+    { "delay": "3m", "command": "clear" },     // a slash on its OWN console
+    { "delay": "1m", "text": "Read .muxeon/state.md and continue from the step described there." }
+] }
+```
+
+**Delays are cumulative** — each one counts from the previous item, the first
+from the moment the chain is accepted. The first delay therefore decides when the
+whole chain starts, and the order can never be broken by arithmetic.
+
+**Fired mechanically, by the clock.** Muxeon does not check how the agent
+digested a step, does not branch on the result, and one item failing neither
+cancels the rest nor moves their hour. A note is delivered as a NOTICE (no reply
+contract is printed — a reminder one wrote oneself is an instruction, not
+correspondence); a slash or a lifecycle action goes down the same control lane an
+operator's command uses, so it waits briefly (`idleWait`) for a busy agent and
+then gives up with a recorded reason.
+
+**What it does NOT give anybody.** The scheduler owns time, never authority:
+
+- a chain has **no recipient at all** — `to` does not exist in any of the three
+  tools, so scheduling into someone else's terminal is not refused, it is
+  unrepresentable;
+- notes to oneself need no permission (an agent may always message itself), but a
+  slash on its own console needs `commandGrants.<agent>.<agent>` and a restart of
+  its own session needs `sessionGrants.<agent>.<agent>`, both empty — denied —
+  until you write them;
+- a `"*"` recipient does **not** grant it: the wildcard means "any neighbour",
+  and an agent is not its own neighbour. This is deliberate — those wildcards
+  were written when no path to one's own pane existed at all;
+- self-restart is refused at boot for an attach-only agent (no
+  `provision.command`): for it, "restart yourself" means "kill yourself and stay
+  dead";
+- every gate is evaluated when the item **fires**, not when it was written down,
+  so a chain armed yesterday cannot run today on rights you revoked in between.
+
+**Caps and the kill switch** live in the top-level `schedules` block (all fields
+optional; no block ⇒ these defaults):
+
+```jsonc
+"schedules": {
+  "enabled": true,
+  "maxChainsPerAgent": 8,
+  "maxItems": 16,
+  "minDelay": "5s",        // floor of a NON-zero delay; "0s" means "right after the previous item"
+  "maxDelay": "24h",       // horizon of the whole chain — the SUM of its delays
+  "maxText": 32768,
+  "idleWait": "60s",
+  "catchUpGrace": "10m"    // how late an item may still fire after the server was down
+}
+```
+
+Exceeding a cap is a refusal (`SCHEDULE_LIMIT`), never a silent trim: a trimmed
+chain would run differently from the one the agent designed.
+
+**Your side of it.** This subsystem types into live panes by the clock, and the
+agent that armed it may have cleared its own memory of doing so — so you can look
+and revoke, from the CLI (`muxeon schedules list|cancel`) or over the admin plane
+(`GET /admin/schedules[?agent=]`, `DELETE /admin/schedules/<agent>/<id>[?index=]`).
+There is deliberately no "create": planning is the agent's own act, and an
+operator who wants a timed prompt already has routines (§5) — files you own.
+
+State lives in `<config_dir>/state/schedules/<agent>/<chain>.json`, written
+atomically, with a step marked done only after the path accepted it — so a crash
+between two items replays at worst one of them (dedup quenches the repeat) rather
+than losing it.
 
 Security posture, the trust boundary and the reporting process are documented in
 [SECURITY.md](../SECURITY.md); the invariants the test suite defends are listed

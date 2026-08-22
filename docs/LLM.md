@@ -39,7 +39,8 @@ The finished deployment is:
                             <-   one per agent AND one per user (§17.5);
                             <-   federation links get theirs under queue/fed/
   webchat/                  <- created by the panel: per-user history + sessions
-  state/                    <- created only once routines exist (and pause flags)
+  state/                    <- created on demand: routines, pause flags, token
+                            <-   series (§12.8), deferred self-chains (§21)
   routines/                 <- optional: scheduled markdown tasks you author
 ```
 
@@ -259,10 +260,38 @@ binds. A name that resolves to none of those aborts the boot.
   "groups": [{ "name": "workers" }],    // an ARRAY of {name, parent?}, not an object
 
   "commandGrants": {                    // agent -> agent slash commands
-    "writer": { "researcher": ["clear"] }
+    "writer": { "researcher": ["clear"] },
+    // …and the SELF cell: the only way to let an agent run a slash on its own
+    // console, and only ever through a deferred chain (§21, below). A "*"
+    // recipient does NOT cover it — "any neighbour" is not "yourself".
+    "researcher": { "researcher": ["clear", "compact"] }
   },
   "sessionGrants": {                    // agent -> agent session control
-    "writer": { "researcher": ["restart"] }
+    "writer": { "researcher": ["restart"] },
+    // Self-restart. Only for an agent Muxeon can START again: an attach-only
+    // agent (no `provision.command`) is refused here at boot, because for it
+    // "restart yourself" means "kill yourself and stay dead".
+    "researcher": { "researcher": ["restart"] }
+  },
+
+  // Token accounting (§12.8) — the context meter in the panel's chat header.
+  // See "Token counting" below: this block is necessary but NOT sufficient.
+  "types": {
+    "claude": { "tokens": { "enabled": true } }
+  },
+
+  // Deferred self-chains (§21): an agent plans work for ITSELF at a later hour
+  // — save state → /clear → read state back. Absent ⇒ the defaults below; the
+  // dangerous half stays denied until a SELF grant exists (above).
+  "schedules": {
+    "enabled": true,
+    "maxChainsPerAgent": 8,
+    "maxItems": 16,
+    "minDelay": "5s",                   // floor of a NON-zero delay; "0s" is allowed
+    "maxDelay": "24h",                  // horizon of the whole chain (sum of delays)
+    "maxText": 32768,
+    "idleWait": "60s",                  // how long a slash waits for a busy agent
+    "catchUpGrace": "10m"               // tolerated lateness after the server was down
   },
 
   // Message reactions (§19): a mark ON a message instead of a new message. To a
@@ -292,6 +321,55 @@ the recipient's catalog, a duplicate reaction key, a reaction pointing at an
 undeclared category or an emoji that is not exactly one grapheme — all abort the
 boot with the JSON pointer of the offending entry. That is intentional — fix the
 config, do not work around it.
+
+### Token counting — the block is necessary, not sufficient
+
+If the human asked for the token meter in the panel, understand this before you
+promise it: **Muxeon does not measure tokens. It READS the number the CLI already
+prints in its own console** — the context gauge — once every `sampleEvery`, with
+the same `capture-pane` it uses to detect that a turn ended. Three conditions,
+all required:
+
+1. **The agent's `type` has a `tokens` block.** It is per TYPE, never per agent:
+   the gauge format belongs to the CLI, not to the agent. No block ⇒ that type is
+   simply not tracked (the default, not a fault).
+2. **The CLI actually prints the gauge in the visible pane.** Two dialects are
+   recognised — Claude Code's `<n> tokens` and Codex's `<n>K used`. Both are
+   scanned whatever the declared `type` says, so an `auto` agent running Codex is
+   counted correctly.
+3. **The agent is up.** A `down` agent has no pane to read, so it is skipped —
+   nothing is estimated or carried over.
+
+A custom CLI can join in by printing a plain integer before the word `tokens`
+(a `k`-suffixed or fractional number is deliberately ignored — in Claude Code
+that form is the per-message streaming counter, not the context gauge).
+
+Check the third condition on a real session **before** telling the human it
+works:
+
+```bash
+tmux capture-pane -t <session> -p | grep -oE '[0-9][0-9, ]*[[:space:]]*tokens|[0-9.]+[KM]?[[:space:]]*used' | tail -1
+# "61245 tokens" or "202K used" → it will be counted
+# no output                     → nothing to read; the meter will stay empty
+```
+
+`maxThreshold` is only the denominator of the percentage and the red end of the
+scale. Muxeon enforces nothing at that number: nothing is throttled or refused,
+the indicator just goes red. Set it to the context window you want to stay under.
+
+### Letting an agent repair itself (§21)
+
+`schedules` plus a SELF grant is what makes this possible: an agent hands the
+coordinator a plan for itself — *save your state* → `/clear` → *read it back* —
+and the coordinator fires the steps by the clock. The point is that the plan
+lives OUTSIDE the agent, so clearing its context does not erase it.
+
+Nothing dangerous is on by default. A chain of plain notes needs no permission at
+all (an agent may always message itself), while a slash on its own console or a
+restart of its own session needs the explicit self cell shown above. State it to
+the human in those terms and let them choose — and remember that `"*"` does not
+grant it: the wildcard means "any neighbour", and an agent is not its own
+neighbour.
 
 ---
 
@@ -468,8 +546,20 @@ ls -d queue
 3. `queue` exists — with one directory per participant, **including one named
    after each user**: that pseudo-session is where their messages land
 
-`state/` is **not** created until routines exist — its absence here is normal,
-not a failure.
+`state/` is created **on demand** — by the first routine, pause, token sample or
+deferred chain. Its absence on a fresh stand is normal, not a failure.
+
+If the human asked for the token meter, verify it here rather than promising it:
+the number is read from the agent's own console, so it exists only if the CLI
+prints it (see "Token counting" in step 4).
+
+```bash
+tmux capture-pane -t <session> -p | grep -oE '[0-9][0-9, ]*[[:space:]]*tokens|[0-9.]+[KM]?[[:space:]]*used' | tail -1
+curl -s http://localhost:8080/admin/agents >/dev/null   # server side is loopback-only
+```
+
+An empty grep means the meter will stay empty — report that as a finding, not as
+a broken deployment.
 
 With a webchat channel, also prove a person can actually get in (this is the
 step humans notice when it is missing):

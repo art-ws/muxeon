@@ -124,6 +124,12 @@ servers can **federate** over token-authenticated links — actors get
 email-style names (`dev@hq`), each link is store-and-forward, and two servers
 that cannot reach each other can relay through a shared hub they both import.
 
+An agent can also hand the coordinator a **plan for itself** (§21): a chain of
+steps with delays — *save your state* → `/clear` → *read it back*. The plan lives
+outside the agent, so clearing its context does not erase it; the coordinator
+fires the steps by the clock through paths that already exist, and every
+permission is checked at the moment a step fires, not when it was written down.
+
 Agents that cannot (or should not) speak MCP use the **file exchange** instead:
 an incoming message is materialized as `.muxeon/inbox/<id>/message.json` in the
 agent's working directory, the agent writes `reply.md` next to it and deletes
@@ -148,6 +154,7 @@ edge against the layering, a cycle, or an unauthorized consumer of
 | `lifecycle` | attach / provision (argv, no shell) / kill / restart / slash. |
 | `signals` | Signal envelope + on-demand send through the router. |
 | `routines` | MD+frontmatter routines: discovery (central + cwd), cron/once scheduler, crash-safe state. |
+| `schedules` | Deferred self-chains (§21): an agent plans work for ITSELF — planning, crash-safe state, the tick. Owns time, never authority. |
 | `channels` | Unified connector interface + telegram / slack / web. |
 | `federation` | Server-to-server links (§18): handshake + WS wire protocol, link client/listener, remote-actor registry, status publisher. Routing authority stays in `orchestrator`. |
 | `webchat` | Operator web panel surface: own port, auth gate, REST + WS, durable chat history, media via blobs, message reactions (§19). |
