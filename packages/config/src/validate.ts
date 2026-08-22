@@ -495,12 +495,13 @@ function assertCommandGrants(
         });
       }
       const explicitPair = from !== COMMAND_WILDCARD && to !== COMMAND_WILDCARD;
-      if (explicitPair && from === to) {
-        throw new ConfigError(`command grant "${from} → ${to}" cannot target the sender itself`, {
-          path: toPath,
-        });
-      }
-      if (explicitPair && !topology.hasEdge(from, to)) {
+      // A self cell (`from === to`) used to be fatal here, and rightly so while no
+      // path to one's own pane existed. Since §21 it is the ONLY way to authorize
+      // a deferred self-command (§21.6, FR-193) — so it is legal, and it needs
+      // neither an edge (self-delivery has never needed one, §10.2) nor anything
+      // beyond the recipient's real catalog, checked below like any other grant.
+      const isSelf = explicitPair && from === to;
+      if (explicitPair && !isSelf && !topology.hasEdge(from, to)) {
         throw new ConfigError(
           `command grant "${from} → ${to}" has no topology edge — a command needs a §10.2 edge`,
           { path: toPath },
@@ -558,12 +559,12 @@ function assertSessionGrants(
         });
       }
       const explicitPair = from !== SESSION_WILDCARD && to !== SESSION_WILDCARD;
-      if (explicitPair && from === to) {
-        throw new ConfigError(`session grant "${from} → ${to}" cannot target the sender itself`, {
-          path: toPath,
-        });
-      }
-      if (explicitPair && !topology.hasEdge(from, to)) {
+      // The exact parallel of the command grants above: a self cell was fatal
+      // while no path to one's own session existed, and since §21 it is the only
+      // way to authorize a deferred self-restart (§21.6, FR-193). The action list
+      // is still checked below — legality of the cell is not legality of anything.
+      const isSelf = explicitPair && from === to;
+      if (explicitPair && !isSelf && !topology.hasEdge(from, to)) {
         throw new ConfigError(
           `session grant "${from} → ${to}" has no topology edge — an action needs a §10.2 edge`,
           { path: toPath },

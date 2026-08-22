@@ -382,10 +382,15 @@ describe("§7.5 rule 10: agent→agent command grants (FR-94/FR-95)", () => {
     expect(() => check(config)).toThrow(/no topology edge/);
   });
 
-  test("a grant cannot target the sender itself", () => {
-    expect(() => check(grant({ writer: { writer: ["clear"] } }))).toThrow(
-      /cannot target the sender itself/,
-    );
+  // Until §21 a self cell was fatal — there was no path to one's own pane, so it
+  // could only be a mistake. It is now the ONLY way to authorize a deferred
+  // self-command (§21.6, FR-193), and it needs no edge: self-delivery never has.
+  test("a grant MAY target the sender itself — the deferred self-path (§21.6)", () => {
+    expect(() => check(grant({ writer: { writer: ["clear"] } }))).not.toThrow();
+  });
+
+  test("…and the recipient's real catalog still bounds it", () => {
+    expect(() => check(grant({ writer: { writer: ["nope"] } }))).toThrow(/unknown command "nope"/);
   });
 
   test("naming a command the recipient does not have is fatal", () => {
@@ -466,10 +471,15 @@ describe("§7.5 rule 11: agent→agent session grants (FR-96/FR-97)", () => {
     expect(() => check(config)).toThrow(/no topology edge/);
   });
 
-  test("a grant cannot target the sender itself", () => {
-    expect(() => check(grant({ writer: { writer: ["stop"] } }))).toThrow(
-      /cannot target the sender itself/,
-    );
+  // The parallel of the command case above (§21.6, FR-193): a self cell is how a
+  // deferred self-restart is authorized, so it is legal — but only as legal as
+  // any other grant, and the checks below still apply to it.
+  test("a grant MAY target the sender itself — the deferred self-path (§21.6)", () => {
+    expect(() => check(grant({ writer: { writer: ["stop"] } }))).not.toThrow();
+  });
+
+  test("…and an action the agent cannot be started with is still fatal", () => {
+    expect(() => check(grant({ writer: { writer: ["nuke"] } }))).toThrow(/unknown action "nuke"/);
   });
 
   test("an unknown action is fatal", () => {
