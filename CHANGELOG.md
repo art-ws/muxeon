@@ -1,3 +1,12 @@
+## [0.1.24](https://github.com/art-ws/muxeon/compare/v0.1.23...v0.1.24) (2026-08-22)
+
+
+### Changes
+
+* **T330:** documentation catches up with the recent features (LLM.md, operator guide, README)
+
+  The agent runbook needed the honest version of token counting, which is what the operator asked for by name: Muxeon does not measure tokens, it READS the number the CLI already prints in its own pane. ([444bb2e](https://github.com/art-ws/muxeon/commit/444bb2edc85234643fe48f00fc396b366f3feec0))
+
 ## [0.1.23](https://github.com/art-ws/muxeon/compare/v0.1.22...v0.1.23) (2026-08-22)
 
 
