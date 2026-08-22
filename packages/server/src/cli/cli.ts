@@ -21,6 +21,7 @@ export const CLI_COMMANDS: ReadonlySet<string> = new Set([
   "signals",
   "queues",
   "routines",
+  "schedules",
   "hash-password",
 ]);
 
@@ -105,6 +106,8 @@ const USAGE = `usage:
   muxeon routines list [<owner>]
   muxeon routines get|delete|enable|disable|run-once <owner> <id>
   muxeon routines put <owner> <id> <file.md>
+  muxeon schedules list [<agent>]             # what agents armed for themselves (§21.7)
+  muxeon schedules cancel <agent> <id> [<index>]
   muxeon hash-password [--stdin]              # argon2id hash for users[].auth.passwordHash (FR-122)
 options: --url <admin-url> | --config <path>`;
 
@@ -267,6 +270,45 @@ async function dispatch(args: ParsedArgs, admin: Admin, io: CliIO): Promise<void
       return queues(rest, admin, io);
     case "routines":
       return routines(rest, admin, io);
+    case "schedules":
+      return schedules(rest, admin, io);
+    default:
+      throw new CliError(USAGE);
+  }
+}
+
+// Deferred self-chains (§21.7): what agents armed for themselves, and the way to
+// disarm it. No "create" — planning is the agent's own act (§21.2); an operator
+// who wants a timed prompt has routines.
+async function schedules(rest: readonly string[], admin: Admin, io: CliIO): Promise<void> {
+  const [action, agent, id, index] = rest;
+  switch (action) {
+    case "list": {
+      const query = agent === undefined ? "" : `?agent=${encodeURIComponent(agent)}`;
+      const json = await admin("GET", `/schedules${query}`);
+      const chains = json.schedules as {
+        id: string;
+        agent: string;
+        items: { index: number; kind: string; at: string; state: string; error?: string }[];
+      }[];
+      for (const chain of chains) {
+        io.stdout(`${chain.agent}/${chain.id}`);
+        for (const item of chain.items) {
+          const why = item.error === undefined ? "" : ` — ${item.error}`;
+          io.stdout(`  [${item.index}] ${item.at} ${item.kind} ${item.state}${why}`);
+        }
+      }
+      if (chains.length === 0) io.stdout("nothing is armed");
+      return;
+    }
+    case "cancel": {
+      const who = encodeURIComponent(need(agent, "<agent>"));
+      const chain = encodeURIComponent(need(id, "<id>"));
+      const query = index === undefined ? "" : `?index=${encodeURIComponent(index)}`;
+      const json = await admin("DELETE", `/schedules/${who}/${chain}${query}`);
+      io.stdout(`cancelled ${String(json.cancelled)} item(s) of ${agent}/${id}`);
+      return;
+    }
     default:
       throw new CliError(USAGE);
   }
