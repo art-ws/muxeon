@@ -144,6 +144,13 @@ export interface AgentPlaneDeps {
    * REACTIONS_DISABLED rather than pretending an empty palette.
    */
   readonly reactions?: ReactionPlane;
+  /**
+   * Deferred self-chains (§21.4, FR-190/FR-192): plan work for YOURSELF at a
+   * later hour — the only path an agent has to its own pane, and a deferred one.
+   * Absent ⇒ the three tools answer SCHEDULES_DISABLED rather than accepting a
+   * plan nothing will ever fire.
+   */
+  readonly schedules?: SchedulePlane;
   /** Clock for message ts; default Date.now. Injectable for tests. */
   readonly now?: () => number;
   /** Idempotency-id generator when send omits one (§5.3/§10.9); default randomUUID. */
@@ -189,6 +196,25 @@ export interface ReactionPlane {
   >;
 }
 
+/**
+ * The deferred-chain plane the tools see (§21.4) — structurally the server's
+ * SchedulePlane, redeclared here so the tool set keeps its narrow, data-only
+ * dependency surface. Every entry point takes the CALLER's name and none takes a
+ * recipient: a chain has no `to` (§10.33).
+ */
+export interface SchedulePlane {
+  create(
+    agent: string,
+    input: { id?: string; items: readonly unknown[] },
+  ): Promise<{ ok: boolean; code?: string; message?: string; value?: unknown }>;
+  list(agent: string): Promise<{ ok: boolean; code?: string; message?: string; value?: unknown }>;
+  cancel(
+    agent: string,
+    id: string,
+    index?: number,
+  ): Promise<{ ok: boolean; code?: string; message?: string; value?: unknown }>;
+}
+
 /** A federated peer row (§18.4) — the FR-140 shape list_peers/get_status read. */
 export interface FederatedPeer {
   readonly name: string;
@@ -215,6 +241,9 @@ export const AGENT_TOOL_NAMES = [
   "control_session",
   "list_reactions",
   "react",
+  "schedule_self",
+  "list_schedules",
+  "cancel_schedule",
 ] as const;
 
 /** get_history depth bounds (FR-87) — mirrors the §12.4 history paging caps. */
@@ -464,6 +493,76 @@ export const AGENT_TOOLS: Tool[] = [
         remove: { type: "boolean", description: "remove your own reaction instead of placing it" },
       },
       required: ["peer", "messageId", "key"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "schedule_self",
+    description:
+      "Hand the coordinator a plan for YOURSELF to be carried out later — the only " +
+      "way to survive your own end of turn. Each item's delay counts from the " +
+      "PREVIOUS item (the first one from now), so the list reads as a schedule. An " +
+      "item is exactly one of: `text` (a note the coordinator will deliver to you), " +
+      "`command` (a slash run on your own console) or `control` (a lifecycle action " +
+      "on your own session). This is what makes self-repair possible: save your " +
+      "state, clear or restart, then read your state back — the plan lives in the " +
+      "coordinator, so clearing your context does not erase it. Items fire " +
+      "mechanically by the clock: nothing checks whether you handled the previous " +
+      "one, and one item failing does not cancel the rest. Commands and lifecycle " +
+      "actions need an explicit self grant from the operator.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        items: {
+          type: "array",
+          description: "the plan, in order; each item exactly one of text/command/control",
+          items: {
+            type: "object",
+            properties: {
+              delay: {
+                type: "string",
+                description: 'wait since the PREVIOUS item — "0s", "45s", "10m", "2h"',
+              },
+              text: { type: "string", description: "a note to deliver to yourself" },
+              command: {
+                type: "string",
+                description: 'slash to run on your own console, without the leading "/"',
+              },
+              control: {
+                type: "string",
+                description: "lifecycle action on your own session (e.g. restart)",
+              },
+            },
+            required: ["delay"],
+            additionalProperties: false,
+          },
+        },
+        id: { type: "string", description: "optional name for the chain, to cancel it by" },
+      },
+      required: ["items"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "list_schedules",
+    description:
+      "What you have scheduled for yourself and how it went — including chains you " +
+      "no longer remember planning, which is the point: a cleared context does not " +
+      "clear the plan.",
+    inputSchema: EMPTY_INPUT,
+  },
+  {
+    name: "cancel_schedule",
+    description:
+      "Call off a chain of your own — the whole thing, or one item by its index. " +
+      "Only your own: there is no way to reach anyone else's.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        id: { type: "string", description: "the chain id from schedule_self/list_schedules" },
+        index: { type: "number", description: "cancel just this item; omit for the whole chain" },
+      },
+      required: ["id"],
       additionalProperties: false,
     },
   },
@@ -871,6 +970,58 @@ async function dispatch(
       });
       if (!outcome.ok) return fail(outcome.code, outcome.message);
       return ok({ peer, messageId, key, reactions: outcome.reactions });
+    }
+
+    // The deferred self-path (§21.4). No gate here beyond having a session: the
+    // chain addresses its own author by construction, and the gates that matter
+    // (self grants, pause, WIP, the command catalog) belong to the moment an
+    // item FIRES, not the moment it is written down (§10.33).
+    case "schedule_self": {
+      if (deps.schedules === undefined) {
+        return fail("SCHEDULES_DISABLED", "deferred schedules are switched off on this server");
+      }
+      const { items, id } = args;
+      if (!Array.isArray(items)) return fail("INVALID_ARGS", "items must be an array");
+      if (id !== undefined && typeof id !== "string") {
+        return fail("INVALID_ARGS", "id must be a string");
+      }
+      const outcome = await deps.schedules.create(caller, {
+        items,
+        ...(typeof id === "string" ? { id } : {}),
+      });
+      if (!outcome.ok) return fail(outcome.code ?? "INVALID_ARGS", outcome.message ?? "refused");
+      return ok(outcome.value as Record<string, unknown>);
+    }
+
+    case "list_schedules": {
+      if (deps.schedules === undefined) {
+        return fail("SCHEDULES_DISABLED", "deferred schedules are switched off on this server");
+      }
+      const outcome = await deps.schedules.list(caller);
+      if (!outcome.ok) return fail(outcome.code ?? "INVALID_ARGS", outcome.message ?? "refused");
+      return ok({ chains: outcome.value });
+    }
+
+    case "cancel_schedule": {
+      if (deps.schedules === undefined) {
+        return fail("SCHEDULES_DISABLED", "deferred schedules are switched off on this server");
+      }
+      const { id, index } = args;
+      if (typeof id !== "string" || id.length === 0) {
+        return fail("INVALID_ARGS", "id must be a non-empty string");
+      }
+      if (index !== undefined && (typeof index !== "number" || !Number.isInteger(index))) {
+        return fail("INVALID_ARGS", "index must be an integer");
+      }
+      const outcome = await deps.schedules.cancel(
+        caller,
+        id,
+        typeof index === "number" ? index : undefined,
+      );
+      if (!outcome.ok) {
+        return fail(outcome.code ?? "UNKNOWN_SCHEDULE", outcome.message ?? "refused");
+      }
+      return ok({ id, cancelled: outcome.value as number });
     }
 
     default:

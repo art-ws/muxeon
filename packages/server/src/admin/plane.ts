@@ -19,6 +19,8 @@
 //   PUT    /admin/routines/<owner>/<id>                 {content}
 //   DELETE /admin/routines/<owner>/<id>
 //   POST   /admin/routines/<owner>/<id>/(enable|disable|run-once)
+//   GET    /admin/schedules[?agent=]                     (§21.7)
+//   DELETE /admin/schedules/<agent>/<id>[?index=]        (§21.7)
 
 import type { CommandFanoutResult } from "@muxeon/orchestrator";
 import type { BlobsAdmin } from "./blobs";
@@ -27,6 +29,7 @@ import { AdminError } from "./error";
 import type { LifecycleAdmin } from "./lifecycle";
 import type { QueuesAdmin } from "./queues";
 import type { RoutinesAdmin } from "./routines";
+import type { SchedulesAdmin } from "./schedules";
 import type { SignalSendInput, SignalsAdmin } from "./signals";
 
 export interface AdminDeps {
@@ -44,6 +47,11 @@ export interface AdminDeps {
   readonly signals: SignalsAdmin;
   readonly queues: QueuesAdmin;
   readonly routines: RoutinesAdmin;
+  /**
+   * Deferred self-chains (§21.7): what is armed, and the way to disarm it.
+   * Absent ⇒ the section 404s like any unmounted operation.
+   */
+  readonly schedules?: SchedulesAdmin;
   /** Blob intake for signal attachments (§8.5, FR-46). */
   readonly blobs: BlobsAdmin;
   /** Boundary text scrubber (§8.7): applied to every operator-facing error message. */
@@ -185,6 +193,27 @@ export function createAdminHandler(deps: AdminDeps): (req: Request) => Promise<R
           if (action === "disable") return json(await deps.routines.setEnabled(owner, id, false));
           if (action === "run-once") return json(await deps.routines.runOnce(owner, id));
         }
+      }
+    }
+
+    // Deferred self-chains (§21.7). Read and revoke only: the operator does not
+    // PLAN work for an agent here — that is the agent's own doing (§21.2), and a
+    // human who wants a timed prompt has routines (§6). What the operator must
+    // have is the ability to see what is armed and disarm it, because this
+    // subsystem types into terminals by the clock.
+    if (section === "schedules" && deps.schedules !== undefined) {
+      if (req.method === "GET" && rest.length === 0) {
+        const agent = new URL(req.url).searchParams.get("agent") ?? undefined;
+        return json({ schedules: await deps.schedules.list(agent) });
+      }
+      const [agent, id] = rest;
+      if (req.method === "DELETE" && agent !== undefined && id !== undefined) {
+        const raw = new URL(req.url).searchParams.get("index");
+        const index = raw === null ? undefined : Number(raw);
+        if (index !== undefined && !Number.isInteger(index)) {
+          throw new AdminError(400, `"index" must be an integer, got "${raw}"`, "INVALID_ARGS");
+        }
+        return json(await deps.schedules.cancel(agent, id, index));
       }
     }
 

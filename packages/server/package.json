@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "Network surface: MCP agent-plane + operator-plane on one port (SPEC.md §8.1); composition root that wires config → orchestrator → producers/consumers; muxeon CLI.",
+  "description": "Network surface: MCP agent-plane + operator-plane on one port (SPEC.md \u00a78.1); composition root that wires config \u2192 orchestrator \u2192 producers/consumers; muxeon CLI.",
   "main": "src/index.ts",
   "types": "src/index.ts",
   "exports": {
@@ -22,6 +22,7 @@
     "@muxeon/lifecycle": "workspace:*",
     "@muxeon/orchestrator": "workspace:*",
     "@muxeon/routines": "workspace:*",
+    "@muxeon/schedules": "workspace:*",
     "@muxeon/signals": "workspace:*",
     "@muxeon/webchat": "workspace:*"
   }

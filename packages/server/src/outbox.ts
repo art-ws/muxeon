@@ -12,10 +12,13 @@
 // invalid file becomes `<name>.rejected.json` IN PLACE + a warning — the agent
 // sees the refusal in its own folder.
 //
-// A drop is EITHER a message or a reaction (§19.13, decision Q2):
+// A drop is EITHER a message, a reaction or a schedule — never two of them:
 // `{"react": {"peer", "messageId", "key", "remove"?}}` places or removes one
-// reaction through the same hub the `react` tool uses — the second door, for agents
-// that have no agent-plane session.
+// reaction through the same hub the `react` tool uses (§19.13, decision Q2), and
+// `{"schedule": {"items": [...], "id"?}}` plans a deferred self-chain through the
+// same plane `schedule_self` uses (§21.4, decision Q6). Both are the second door,
+// for agents that have no agent-plane session — and for §21 that is the case that
+// matters most: a shim can be dead exactly when self-repair is needed.
 
 import { createHash } from "node:crypto";
 import { mkdir, readFile, readdir, rename, stat, unlink } from "node:fs/promises";
@@ -59,6 +62,16 @@ export interface OutboxMonitorOptions {
     readonly messageId: string;
     readonly key: string;
     readonly remove?: boolean;
+  }) => Promise<{ ok: boolean; code?: string; message?: string }>;
+  /**
+   * Plan a deferred self-chain (§21.4, decision Q6, FR-190): the SECOND door into
+   * the schedule plane. The agent is the OWNER of this outbox, so the drop carries
+   * no recipient — as the tool carries none. Absent ⇒ a `schedule` drop is
+   * rejected like any unsupported shape.
+   */
+  readonly schedule?: (input: {
+    readonly id?: string;
+    readonly items: readonly unknown[];
   }) => Promise<{ ok: boolean; code?: string; message?: string }>;
   /** Pickup cadence (§7.1 outboxPollMs, NFR-10); default 1000ms. */
   readonly pollIntervalMs?: number;
@@ -206,6 +219,40 @@ export class OutboxMonitor {
           claim,
           name,
           `was refused: ${outcome.code ?? "REACTION_FAILED"}${
+            outcome.message !== undefined ? ` — ${outcome.message}` : ""
+          }`,
+        );
+        return;
+      }
+      await unlink(claim).catch(() => undefined);
+      return;
+    }
+
+    // A schedule drop (§21.4, Q6): no routing and no recipient — the plane plans
+    // it for the agent that OWNS this outbox, and the tick fires it later. A
+    // refusal becomes a rejection file, not a silent drop: an agent that asked
+    // for self-repair must not be left believing it was armed.
+    if (shape.kind === "schedule") {
+      const schedule = this.#o.schedule;
+      if (schedule === undefined) {
+        await this.#reject(claim, name, "asks for a schedule, but schedules are not available");
+        return;
+      }
+      let outcome: { ok: boolean; code?: string; message?: string };
+      try {
+        outcome = await schedule({
+          items: shape.items,
+          ...(shape.id !== undefined ? { id: shape.id } : {}),
+        });
+      } catch {
+        await rename(claim, path).catch(() => undefined); // transient — retry next tick
+        return;
+      }
+      if (!outcome.ok) {
+        await this.#reject(
+          claim,
+          name,
+          `was refused: ${outcome.code ?? "SCHEDULE_FAILED"}${
             outcome.message !== undefined ? ` — ${outcome.message}` : ""
           }`,
         );
@@ -370,7 +417,7 @@ export class OutboxMonitor {
   }
 }
 
-/** A drop is a message (§13.4) or a reaction (§19.13) — never both. */
+/** A drop is a message (§13.4), a reaction (§19.13) or a schedule (§21.4) — never two. */
 type OutboxShape =
   | {
       readonly kind: "message";
@@ -385,6 +432,11 @@ type OutboxShape =
       readonly messageId: string;
       readonly key: string;
       readonly remove?: boolean;
+    }
+  | {
+      readonly kind: "schedule";
+      readonly items: readonly unknown[];
+      readonly id?: string;
     };
 
 /**
@@ -397,13 +449,22 @@ function validateShape(parsed: unknown): OutboxShape | string {
   if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
     return "is not a JSON object";
   }
-  const { to, payload, files, expectsReply, react } = parsed as {
+  const { to, payload, files, expectsReply, react, schedule } = parsed as {
     to?: unknown;
     payload?: unknown;
     files?: unknown;
     expectsReply?: unknown;
     react?: unknown;
+    schedule?: unknown;
   };
+  // A schedule drop (§21.4, Q6) is a THIRD shape on the same footing as the
+  // reaction one: it routes nothing, carries no payload and names no recipient.
+  if (schedule !== undefined) {
+    if (react !== undefined || to !== undefined || payload !== undefined || files !== undefined) {
+      return 'mixes "schedule" with other fields — a drop is a message, a reaction OR a schedule';
+    }
+    return validateScheduleShape(schedule);
+  }
   // A reaction drop (§19.13, Q2) is a DIFFERENT shape, not an extra field: it routes
   // nothing and carries no payload. Saying so explicitly beats silently ignoring one
   // half of a file that asked for two things.
@@ -431,6 +492,29 @@ function validateShape(parsed: unknown): OutboxShape | string {
     payload,
     files: (files as string[] | undefined) ?? [],
     ...(typeof expectsReply === "boolean" ? { expectsReply } : {}),
+  };
+}
+
+/**
+ * The §21.4 schedule drop: `{"schedule": {items: [...], id?}}`. Only the OUTER
+ * shape is checked here; the items themselves are the plane's business (§21.2),
+ * so one place — and one set of refusal codes — decides what a chain may contain.
+ */
+function validateScheduleShape(schedule: unknown): OutboxShape | string {
+  if (typeof schedule !== "object" || schedule === null || Array.isArray(schedule)) {
+    return 'has a malformed "schedule" (expected an object)';
+  }
+  const { items, id } = schedule as { items?: unknown; id?: unknown };
+  if (!Array.isArray(items) || items.length === 0) {
+    return 'has a malformed "schedule.items" (expected a non-empty array)';
+  }
+  if (id !== undefined && (typeof id !== "string" || id.length === 0)) {
+    return 'has a malformed "schedule.id" (expected a non-empty string)';
+  }
+  return {
+    kind: "schedule",
+    items: items as readonly unknown[],
+    ...(typeof id === "string" ? { id } : {}),
   };
 }
 

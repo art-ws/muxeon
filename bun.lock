@@ -113,6 +113,7 @@
         "@muxeon/lifecycle": "workspace:*",
         "@muxeon/orchestrator": "workspace:*",
         "@muxeon/routines": "workspace:*",
+        "@muxeon/schedules": "workspace:*",
         "@muxeon/signals": "workspace:*",
         "@muxeon/webchat": "workspace:*",
       },

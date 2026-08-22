@@ -14,8 +14,15 @@ import { LOOPBACK_DIRECT, connectClient } from "./mcp-helpers";
 // reads the declared palette and `react` marks a message in a chat the caller is
 // ALREADY part of — gated by the edge alone, because it is not a new power over
 // someone else's session (the get_screen stance, FR-147), and it opens no operator
-// capability either.
+// capability either. Since §21.4 (FR-190/FR-192) the schedule trio joins them:
+// `schedule_self`, `list_schedules` and `cancel_schedule` plan work an agent will
+// be handed LATER — and only ever for ITSELF, since none of the three takes a
+// recipient. They are the third bridge into an operator-shaped capability, and
+// the narrowest: deferred, self-only, and each item still passing the same ACL at
+// the moment it fires (§10.33), which is why the operator capabilities below stay
+// absent from this surface all the same.
 const TOOLS = [
+  "cancel_schedule",
   "control_session",
   "get_history",
   "get_screen",
@@ -24,7 +31,9 @@ const TOOLS = [
   "list_controls",
   "list_peers",
   "list_reactions",
+  "list_schedules",
   "react",
+  "schedule_self",
   "send",
   "send_command",
   "whoami",

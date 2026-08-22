@@ -26,6 +26,7 @@ import {
   type EnvSource,
   type MuxeonConfig,
   REACTIONS_DEFAULT_RECENT_LIMIT,
+  type SchedulesConfig,
   type TeardownConfig,
   type UserConfig,
   channelName,
@@ -99,6 +100,15 @@ import {
 } from "@muxeon/orchestrator";
 import { type SchedulerHandle, createFsStateStore, startScheduler } from "@muxeon/routines";
 import {
+  DEFAULT_LIMITS as SCHEDULE_DEFAULTS,
+  type ScheduleLimits,
+  type SchedulerHandle as SchedulesHandle,
+  createFsScheduleStore,
+  parseDelay,
+  startSchedules,
+} from "@muxeon/schedules";
+import { buildSignal } from "@muxeon/signals";
+import {
   type AgentPairs,
   type HistoryStore,
   PromptStore,
@@ -124,6 +134,7 @@ import {
 import { createAdminHandler } from "./admin/plane";
 import { type QueueRuntime, createQueuesAdmin } from "./admin/queues";
 import { createRoutinesAdmin } from "./admin/routines";
+import { createSchedulesAdmin } from "./admin/schedules";
 import { createSignalsAdmin } from "./admin/signals";
 import { ingestAttachments } from "./attach";
 import { routeExchangeReply } from "./exchange-reply";
@@ -137,6 +148,7 @@ import {
 import { OutboxMonitor } from "./outbox";
 import { routeRawReply } from "./raw-reply";
 import { createTextRedactor } from "./redact";
+import { SchedulePlane, chainView, scheduleExecutors } from "./schedules";
 import { type ServerSurface, startSurface } from "./surface";
 import { type ChannelRuntime, type ConnectorFactory, wireChannels } from "./wire-channels";
 import { type FederationHandle, buildRouterFederation, wireFederation } from "./wire-federation";
@@ -232,6 +244,29 @@ function retentionPolicy(retain: { age?: string; count?: number } | undefined): 
   return {
     ageMs: parseRetainAge(retain?.age ?? DEFAULT_RETAIN_AGE),
     count: retain?.count ?? DEFAULT_RETAIN_COUNT,
+  };
+}
+
+/**
+ * The §21.6 caps as the scheduler wants them — milliseconds. Absent fields keep
+ * the package defaults, so a config that says nothing about schedules still gets
+ * a sane, bounded subsystem rather than an unbounded one.
+ */
+function limitsFromConfig(block: SchedulesConfig | undefined): ScheduleLimits {
+  return {
+    maxChainsPerAgent: block?.maxChainsPerAgent ?? SCHEDULE_DEFAULTS.maxChainsPerAgent,
+    maxItems: block?.maxItems ?? SCHEDULE_DEFAULTS.maxItems,
+    maxText: block?.maxText ?? SCHEDULE_DEFAULTS.maxText,
+    minDelayMs:
+      block?.minDelay === undefined ? SCHEDULE_DEFAULTS.minDelayMs : parseDelay(block.minDelay),
+    maxDelayMs:
+      block?.maxDelay === undefined ? SCHEDULE_DEFAULTS.maxDelayMs : parseDelay(block.maxDelay),
+    idleWaitMs:
+      block?.idleWait === undefined ? SCHEDULE_DEFAULTS.idleWaitMs : parseDelay(block.idleWait),
+    catchUpGraceMs:
+      block?.catchUpGrace === undefined
+        ? SCHEDULE_DEFAULTS.catchUpGraceMs
+        : parseDelay(block.catchUpGrace),
   };
 }
 
@@ -701,6 +736,21 @@ export async function bootstrap(options: BootstrapOptions = {}): Promise<MuxeonS
           ? { ok: true }
           : { ok: false, code: outcome.code, message: outcome.message };
       },
+      // The schedule door for an agent with no plane (§21.4, Q6). No recipient
+      // is possible here: the plan belongs to the agent that owns this outbox,
+      // which is exactly the property the tool has structurally (§10.33).
+      schedule: async (input) => {
+        if (schedulePlane === undefined) {
+          return { ok: false, code: "SCHEDULES_DISABLED", message: "schedules are not wired" };
+        }
+        const outcome = await schedulePlane.create(agent.name, input as never);
+        if (outcome.ok) return { ok: true };
+        return {
+          ok: false,
+          ...(outcome.code !== undefined ? { code: outcome.code } : {}),
+          ...(outcome.message !== undefined ? { message: outcome.message } : {}),
+        };
+      },
       ...(cadence.outboxPollMs !== undefined ? { pollIntervalMs: cadence.outboxPollMs } : {}),
     });
     if (autoStart) runs.push(outbox.run(abort.signal));
@@ -762,6 +812,11 @@ export async function bootstrap(options: BootstrapOptions = {}): Promise<MuxeonS
   // lazily — the same forward-wiring pattern commandPort/sessionPort use.
   let federationHandle: FederationHandle | undefined;
   let scheduler: SchedulerHandle | undefined;
+  // Deferred self-chains (§21): the plane answers the three MCP tools, the outbox
+  // drop and the admin surface; the tick fires what they planned. Both are built
+  // in step 11b, after the ports the executors reach through exist.
+  let schedulePlane: SchedulePlane | undefined;
+  let scheduleTick: SchedulesHandle | undefined;
   let retention: RetentionHandle | undefined;
   // Reactions (§19): built with the channels in step 8b, read by the MCP closures
   // above (lazily, like the federation handle) and flushed on shutdown (§19.8).
@@ -866,6 +921,33 @@ export async function bootstrap(options: BootstrapOptions = {}): Promise<MuxeonS
                 ...(reactionsHub !== undefined
                   ? { reactions: agentReactionPlane(reactionsHub) }
                   : {}),
+                // Deferred self-chains (§21.4, FR-190/FR-192). Read lazily like
+                // the reaction hub: the plane exists from step 11b, and MCP
+                // connections only open after the surface starts (step 9).
+                schedules: {
+                  create: async (agent, input) => {
+                    if (schedulePlane === undefined) {
+                      return { ok: false, code: "SCHEDULES_DISABLED", message: "not wired" };
+                    }
+                    const outcome = await schedulePlane.create(agent, input as never);
+                    return outcome.ok && outcome.value !== undefined
+                      ? { ok: true, value: chainView(outcome.value) }
+                      : outcome;
+                  },
+                  list: async (agent) => {
+                    if (schedulePlane === undefined) {
+                      return { ok: false, code: "SCHEDULES_DISABLED", message: "not wired" };
+                    }
+                    const outcome = await schedulePlane.list(agent);
+                    return outcome.ok && outcome.value !== undefined
+                      ? { ok: true, value: outcome.value.map(chainView) }
+                      : outcome;
+                  },
+                  cancel: async (agent, id, index) =>
+                    schedulePlane === undefined
+                      ? { ok: false, code: "SCHEDULES_DISABLED", message: "not wired" }
+                      : schedulePlane.cancel(agent, id, index),
+                },
               }),
             // Takeover (FR-44b) is normal after an agent restart but also the trace
             // of a duplicate-name misconfiguration — always surfaced.
@@ -1407,6 +1489,9 @@ export async function bootstrap(options: BootstrapOptions = {}): Promise<MuxeonS
       // Blob intake for signal attachments (FR-46) — the shared <root>/blobs/ store.
       blobs: createBlobsAdmin({ blobs }),
       queues: createQueuesAdmin({ resolve: resolveQueue, stamp: () => router.stamp() }),
+      // §21.7: read-and-revoke over what agents armed for themselves. The plane
+      // is read lazily — it is built in step 11b, admin requests arrive later.
+      schedules: createSchedulesAdmin({ plane: () => schedulePlane }),
       routines: createRoutinesAdmin({
         routinesDir: location.routinesDir,
         knownAgents: config.agents.map((agent) => agent.name),
@@ -1704,11 +1789,64 @@ export async function bootstrap(options: BootstrapOptions = {}): Promise<MuxeonS
           : {}),
       });
     }
+
+    // 11b. deferred self-chains (§21). The plane accepts plans; the tick fires
+    //      them through paths that already exist — the router for a note, the
+    //      command port for a slash, the session port for a lifecycle action.
+    //      Authority is NOT the scheduler's: every item is checked against the
+    //      self grants at the moment it fires (§10.33, schedules.ts).
+    const scheduleLimits = limitsFromConfig(config.schedules);
+    const schedulesEnabled = config.schedules?.enabled !== false;
+    schedulePlane = new SchedulePlane({
+      store: createFsScheduleStore(location.stateDir),
+      limits: scheduleLimits,
+      enabled: schedulesEnabled,
+      isKnownAgent: (name) => config.agents.some((agent) => agent.name === name),
+    });
+    if (schedulesEnabled && (options.startRoutines ?? true)) {
+      scheduleTick = startSchedules({
+        store: createFsScheduleStore(location.stateDir),
+        limits: scheduleLimits,
+        log: (line) => process.stderr.write(`muxeon: ${line}\n`),
+        executors: scheduleExecutors({
+          commandGrants,
+          sessionGrants,
+          isKnownAgent: (name) => config.agents.some((agent) => agent.name === name),
+          statusOf: async (name) => peerStatus(name) ?? "down",
+          // A note from the agent to ITSELF (§10.2 lets self-delivery through
+          // without an edge) and a NOTICE (§21.3): a reminder one wrote oneself
+          // must not print a reply contract back at its author.
+          deliver: async ({ agent, text, id }) => {
+            await router.route(
+              buildSignal({
+                from: agent,
+                to: agent,
+                payload: text,
+                origin: "schedule",
+                expectsReply: false,
+                id,
+              }),
+            );
+          },
+          runCommand: async ({ agent, slash }) => {
+            if (commandPort === undefined)
+              throw new Error("COMMAND_FAILED: command port not wired");
+            return commandPort.run(agent, slash);
+          },
+          control: async ({ agent, action }) => {
+            if (sessionPort === undefined)
+              throw new Error("CONTROL_FAILED: session port not wired");
+            await sessionPort.run(agent, action);
+          },
+        }),
+      });
+    }
   } catch (error) {
     abort.abort(); // stop the dispatcher/egress loops started above
     if (channelsHandle !== undefined) await channelsHandle.stop();
     if (federationHandle !== undefined) await federationHandle.stop();
     if (scheduler !== undefined) await scheduler.stop();
+    if (scheduleTick !== undefined) await scheduleTick.stop();
     if (surface !== undefined) await surface.stop();
     await Promise.allSettled(runs);
     throw error;
@@ -1752,6 +1890,7 @@ export async function bootstrap(options: BootstrapOptions = {}): Promise<MuxeonS
       await channels.stop();
       if (federationHandle !== undefined) await federationHandle.stop();
       if (scheduler !== undefined) await scheduler.stop();
+      if (scheduleTick !== undefined) await scheduleTick.stop(); // §21 tick
       await liveSurface.stop();
       await Promise.allSettled(runs);
     },

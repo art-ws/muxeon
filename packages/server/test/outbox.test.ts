@@ -40,12 +40,17 @@ function makeMonitor(
     noReactions?: boolean;
     /** The hub's refusal code for a react drop. */
     reactRefusal?: string;
+    /** No schedule door wired (§21.4, Q6) — a schedule drop must be rejected. */
+    noSchedules?: boolean;
+    /** The plane's refusal code for a schedule drop. */
+    scheduleRefusal?: string;
   } = {},
 ) {
   const routed: Signal[] = [];
   const warnings: string[] = [];
   const blobs: Uint8Array[] = [];
   const reactions: { peer: string; messageId: string; key: string; remove?: boolean }[] = [];
+  const scheduled: { id?: string; items: readonly unknown[] }[] = [];
   const monitor = new OutboxMonitor({
     agent: "researcher",
     outboxDir,
@@ -80,8 +85,18 @@ function makeMonitor(
               : { ok: false, code: opts.reactRefusal, message: "nope" };
           },
         }),
+    ...(opts.noSchedules === true
+      ? {}
+      : {
+          schedule: async (input) => {
+            scheduled.push(input);
+            return opts.scheduleRefusal === undefined
+              ? { ok: true }
+              : { ok: false, code: opts.scheduleRefusal, message: "nope" };
+          },
+        }),
   });
-  return { monitor, routed, warnings, blobs, reactions };
+  return { monitor, routed, warnings, blobs, reactions, scheduled };
 }
 
 describe("outbox pickup (FR-55, §13.4)", () => {
@@ -457,5 +472,102 @@ describe("a reaction drop (§19.13, FR-181)", () => {
     await monitor.tick();
     expect(existsSync(join(outboxDir, "r.rejected.json"))).toBe(true);
     expect(warnings[0]).toContain("reactions are not available");
+  });
+});
+
+// §21.4 decision Q6 (FR-190): the SECOND door into the schedule plane. It matters
+// more here than it does for reactions — an agent's MCP shim can be dead exactly
+// when self-repair is what it needs, and the file path always works.
+describe("a schedule drop (§21.4, FR-190)", () => {
+  test("{schedule:{items}} reaches the plane and routes no message at all", async () => {
+    await writeFile(
+      join(outboxDir, "s.json"),
+      JSON.stringify({
+        schedule: {
+          id: "self-heal",
+          items: [
+            { delay: "0s", text: "save state" },
+            { delay: "3m", command: "clear" },
+          ],
+        },
+      }),
+    );
+    const { monitor, routed, scheduled } = makeMonitor();
+    await monitor.tick();
+    expect(scheduled).toEqual([
+      {
+        id: "self-heal",
+        items: [
+          { delay: "0s", text: "save state" },
+          { delay: "3m", command: "clear" },
+        ],
+      },
+    ]);
+    expect(routed).toEqual([]); // a plan is not a message
+    expect(readdirSync(outboxDir)).toEqual([]); // consumed
+  });
+
+  // The items themselves are the plane's business (§21.2): one place decides what
+  // a chain may contain, so the drop parser does not grow a second opinion.
+  test("the outer shape is checked here; the items travel through untouched", async () => {
+    await writeFile(
+      join(outboxDir, "s.json"),
+      JSON.stringify({ schedule: { items: [{ nonsense: true }] } }),
+    );
+    const { monitor, scheduled } = makeMonitor();
+    await monitor.tick();
+    expect(scheduled[0]?.items).toEqual([{ nonsense: true }]);
+  });
+
+  test("the plane's refusal comes back as the agent's own .rejected.json", async () => {
+    await writeFile(
+      join(outboxDir, "s.json"),
+      JSON.stringify({ schedule: { items: [{ delay: "1ms", text: "x" }] } }),
+    );
+    const { monitor, warnings } = makeMonitor({ scheduleRefusal: "INVALID_ARGS" });
+    await monitor.tick();
+    expect(existsSync(join(outboxDir, "s.rejected.json"))).toBe(true);
+    expect(warnings[0]).toContain("INVALID_ARGS");
+  });
+
+  test("a server without the door says so instead of swallowing the plan", async () => {
+    await writeFile(
+      join(outboxDir, "s.json"),
+      JSON.stringify({ schedule: { items: [{ delay: "1m", text: "x" }] } }),
+    );
+    const { monitor, warnings } = makeMonitor({ noSchedules: true });
+    await monitor.tick();
+    expect(existsSync(join(outboxDir, "s.rejected.json"))).toBe(true);
+    expect(warnings[0]).toContain("schedules are not available");
+  });
+
+  test("mixing schedule with anything else is refused — a drop is one thing", async () => {
+    for (const extra of [
+      { to: "writer", payload: "hi" },
+      { react: { peer: "writer", messageId: "t1", key: "ok" } },
+    ]) {
+      await writeFile(
+        join(outboxDir, "mix.json"),
+        JSON.stringify({ schedule: { items: [{ delay: "1m", text: "x" }] }, ...extra }),
+      );
+      const { monitor, scheduled, routed, warnings } = makeMonitor();
+      await monitor.tick();
+      await monitor.tick();
+      await monitor.tick();
+      expect(scheduled).toEqual([]);
+      expect(routed).toEqual([]);
+      expect(warnings.join(" ")).toContain("a message, a reaction OR a schedule");
+      rmSync(join(outboxDir, "mix.rejected.json"), { force: true });
+    }
+  });
+
+  test("an empty item list never reaches the plane", async () => {
+    await writeFile(join(outboxDir, "s.json"), JSON.stringify({ schedule: { items: [] } }));
+    const { monitor, scheduled, warnings } = makeMonitor();
+    await monitor.tick();
+    await monitor.tick();
+    await monitor.tick();
+    expect(scheduled).toEqual([]);
+    expect(warnings.join(" ")).toContain("schedule.items");
   });
 });
