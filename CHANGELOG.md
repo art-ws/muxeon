@@ -1,3 +1,27 @@
+## [0.1.25](https://github.com/art-ws/muxeon/compare/v0.1.24...v0.1.25) (2026-08-24)
+
+
+### Changes
+
+* **T331:** the session clock — start time and last activity beside the status
+
+  A status says WHAT an agent is and never HOW LONG. An `idle` agent untouched for six hours and one that finished a turn six seconds ago read identically, and a `busy` peer writing code looks exactly like one wedged mid-turn. ([97f9102](https://github.com/art-ws/muxeon/commit/97f9102564aa510919c5802b502c1c128337ec86))
+* **T333:** "up 3d · quiet 2h" — the session clock in the chat header
+
+  The two numbers the agent plane got in T331, now for the human reading the panel: the status names the state, the chip beside it names how long that state has lasted. ([c0ffb7c](https://github.com/art-ws/muxeon/commit/c0ffb7ce3b88537a7a05f9a0fa53adc3c57e44a8))
+* **T335:** /pause and /unpause — an agent can fence its own sequence
+
+  Pause has been an operator verb since §16, and the spec said so in as many words: "an agent cannot set or clear it". The operator now needs the opposite — an agent running its own sequence (a chain of slashes armed with schedule_self) must be able to keep other people's messages out of the middle of it. ([ad701f4](https://github.com/art-ws/muxeon/commit/ad701f45349fdd78bf061c56ef58befa3df7fb51))
+* **T336:** a chain's own items are delivered unconditionally
+
+  T335 gave an agent a fence: /pause keeps other people's messages out of its own sequence. But the fence also stopped the sequence — a chain's notes to itself are ordinary self-delivery, which §16.2 refuses, so they bounced with AGENT_PAUSED and were recorded as failed. ([1af76d3](https://github.com/art-ws/muxeon/commit/1af76d34b3e8df25e3222d436721360fd89ef1f5))
+* **T338:** wait for the agent, not for the clock — `after: "quiet"`
+
+  A chain could only say "later", and later is the wrong unit: what an agent actually finishes by is the end of its work. Commands and lifecycle items did have an `idle` gate, but `idle` is the ADAPTER'S CLAIM (the §5.2 detect), not an observation — a CLI that prints its prompt between phases reads as free, and the item… ([007f444](https://github.com/art-ws/muxeon/commit/007f444defb9bedb4c4acf2923bd5f9f1e565f94))
+* **T340:** a chain step waits for the previous step's FACT, and leaves a trace
+
+  A live re-spawn trial found the hole in T338 the same day it shipped. An agent armed five conditional steps with zero delays — pause, snapshot prompt, /clear, restore prompt, unpause — and they all fired at once. ([918cec8](https://github.com/art-ws/muxeon/commit/918cec89a5bf933faaa50a7e06a6875b28f699d5))
+
 ## [0.1.24](https://github.com/art-ws/muxeon/compare/v0.1.23...v0.1.24) (2026-08-22)
 
 
