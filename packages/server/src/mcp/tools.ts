@@ -24,7 +24,7 @@ import type {
   Topology,
 } from "@muxeon/core";
 import { SESSION_ACTIONS, isFqn, isSessionAction } from "@muxeon/core";
-import type { Router } from "@muxeon/orchestrator";
+import type { AgentClockView, Router } from "@muxeon/orchestrator";
 import type { AttachedRef } from "../attach";
 
 export interface AgentPlaneDeps {
@@ -52,6 +52,15 @@ export interface AgentPlaneDeps {
    * operator plane is opened (§10.10). Absent ⇒ nobody is paused.
    */
   peerPaused?(name: string): boolean;
+  /**
+   * A peer's session clock (§5.5, FR-194/FR-196): when its session came up and
+   * when it was last seen doing anything, already folded into durations against
+   * the server's clock. A status says WHAT a neighbour is, the clock says FOR HOW
+   * LONG — which is the difference between "idle" and "idle and untouched since
+   * yesterday". Agents only (a user has no session); absent ⇒ the clock is not
+   * wired and no surface reports it.
+   */
+  peerClock?(name: string): AgentClockView | undefined;
   /**
    * The caller's message history with one peer (T126, FR-87): the last `limit`
    * records of the pair, both directions, chronological — the transport log
@@ -292,8 +301,9 @@ export const AGENT_TOOLS: Tool[] = [
     name: "list_peers",
     description:
       "List the caller's topology neighbors with their type (agent|group|tag) and, " +
-      "for agents/operators, their status. Groups and tags are input-only broadcast " +
-      "targets — no status.",
+      "for agents/operators, their status plus how long they have been up " +
+      "(`uptimeMs`) and quiet (`quietForMs`, ms since the last sign of life). " +
+      "Groups and tags are input-only broadcast targets — no status.",
     inputSchema: EMPTY_INPUT,
   },
   {
@@ -342,7 +352,17 @@ export const AGENT_TOOLS: Tool[] = [
   },
   {
     name: "get_status",
-    description: "Read a NEIGHBOR's status (idle/busy/down); restricted to the caller's neighbors.",
+    description:
+      "Read a NEIGHBOR's status (idle/busy/down) and its session clock: `startedAt`/" +
+      "`uptimeMs` (when the session came up), `lastActivityAt`/`quietForMs` (how long " +
+      "it has shown no sign of life) with `lastActivity` naming the newest signal and " +
+      "`signals` breaking the stamps down by source — `transport` (a routed message), " +
+      "`turn` (a turn started or ended), `tokens` (its console token gauge moved), " +
+      "`session` (it came up). Use `quietForMs` to tell an agent that is merely idle " +
+      "from one that has done nothing for hours — and a `busy` peer still working " +
+      "(tokens moving) from one wedged mid-turn. Clock fields are ABSENT when unknown, " +
+      "never zero; `observedSince` is when this coordinator started watching. " +
+      "Restricted to the caller's neighbors.",
     inputSchema: {
       type: "object",
       properties: { name: { type: "string", description: "neighbor name" } },
@@ -612,14 +632,20 @@ async function dispatch(
             paused: deps.peerPaused?.(name) ?? false,
           };
         }
-        return type === "agent"
-          ? {
-              name,
-              type,
-              status: deps.peerStatus(name) ?? "down",
-              paused: deps.peerPaused?.(name) ?? false,
-            }
-          : { name, type };
+        if (type !== "agent") return { name, type };
+        // The roster carries the clock as DURATIONS only (§5.5, FR-196): "who has
+        // been quiet longest" is the question one asks of a whole neighbourhood,
+        // and answering it should not cost one get_status call per peer. The
+        // absolute stamps and the per-source breakdown stay in get_status.
+        const clock = deps.peerClock?.(name);
+        return {
+          name,
+          type,
+          status: deps.peerStatus(name) ?? "down",
+          paused: deps.peerPaused?.(name) ?? false,
+          ...(clock?.uptimeMs !== undefined ? { uptimeMs: clock.uptimeMs } : {}),
+          ...(clock?.quietForMs !== undefined ? { quietForMs: clock.quietForMs } : {}),
+        };
       });
       // Federated peers (§18.4, FR-140/FR-150): every actor of every import the
       // caller has an edge on, FQN-named, with `server`, link reachability and
@@ -669,6 +695,11 @@ async function dispatch(
       return ok({
         status: deps.peerStatus(name) ?? "down",
         paused: deps.peerPaused?.(name) ?? false, // §16.5 — orthogonal to the status
+        // The session clock beside the status (§5.5, FR-196). Every field is
+        // omitted when unknown rather than zeroed: a missing `lastActivityAt`
+        // with `observedSince` next to it says "nothing witnessed since this
+        // coordinator started", which a 0 or a `now` would both misreport (§10.34).
+        ...(deps.peerClock?.(name) ?? {}),
       });
     }
 

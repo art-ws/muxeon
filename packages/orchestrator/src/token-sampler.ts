@@ -72,6 +72,14 @@ export interface TokenSamplerDeps {
   readonly signal?: AbortSignal;
   /** Non-fatal capture/parse/fs errors surface here (default: swallow). */
   readonly onError?: (error: unknown, agent: string) => void;
+  /**
+   * The gauge MOVED between two samples (§5.5, FR-195) — the activity signal the
+   * transport cannot see: an agent working on its own local task exchanges no
+   * messages, but its context fills. Fires only on a real comparison: the FIRST
+   * reading of an agent we have no previous value for says nothing about when
+   * that value last changed, so it stays silent (§10.34).
+   */
+  readonly onChange?: (agent: string, tokens: number, previous: number, at: number) => void;
 }
 
 export interface TokenSamplerHandle {
@@ -131,9 +139,14 @@ export function startTokenSampler(deps: TokenSamplerDeps): TokenSamplerHandle {
       if (since !== undefined && at - since < view.config.sampleEveryMs) continue;
       lastSample.set(view.name, at);
       try {
+        const previous = deps.store.current(view.name);
         const tokens = parseTokenCount(await deps.capture(view.session));
-        if (tokens !== undefined)
+        if (tokens !== undefined) {
           deps.store.record(view.name, tokens, at, view.config.minuteSpanMs);
+          if (previous !== undefined && tokens !== previous) {
+            deps.onChange?.(view.name, tokens, previous, at);
+          }
+        }
       } catch (error) {
         onError(error, view.name);
       }

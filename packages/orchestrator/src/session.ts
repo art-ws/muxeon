@@ -3,7 +3,7 @@
 // orchestrator-only (§8) and the server never imports queue or tmux directly.
 
 import { type QueuePaths, ensureQueueDirs, loadDoneIds, queuePaths, readCur } from "@muxeon/queue";
-import { hasSession } from "@muxeon/tmux";
+import { hasSession, sessionCreatedAt } from "@muxeon/tmux";
 
 export type { QueuePaths } from "@muxeon/queue";
 
@@ -24,6 +24,16 @@ export async function loadSessionDoneIds(root: string, key: string): Promise<Set
 /** Attach probe: whether the agent's tmux session is live (§5.1). */
 export async function probeSession(name: string): Promise<boolean> {
   return hasSession(name);
+}
+
+/**
+ * When the agent's tmux session was born, unix ms (§5.5, FR-194) — the seed for
+ * `startedAt` on every path where the session is OLDER than our knowledge of it
+ * (startup attach, hand-started session found by the liveness probe FR-93).
+ * `undefined` when unknown.
+ */
+export async function sessionStartedAt(name: string): Promise<number | undefined> {
+  return sessionCreatedAt(name);
 }
 
 /**

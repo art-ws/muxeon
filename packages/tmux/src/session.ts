@@ -19,6 +19,27 @@ export async function hasSession(session: string): Promise<boolean> {
   return (await runTmux(["has-session", "-t", exactTarget(session)])).exitCode === 0;
 }
 
+/**
+ * When the session was created, in unix ms (§5.5, FR-194) — tmux's own
+ * `#{session_created}` (unix seconds), the only truthful answer for a session
+ * that predates the coordinator: a hand-started agent, or one that outlived a
+ * server restart. `undefined` when there is no such session or tmux answers with
+ * something we cannot read — an absent start time is honest, a fabricated one is
+ * not (§10.34).
+ */
+export async function sessionCreatedAt(session: string): Promise<number | undefined> {
+  const { exitCode, stdout } = await runTmux([
+    "display-message",
+    "-p",
+    "-t",
+    exactTarget(session),
+    "#{session_created}",
+  ]);
+  if (exitCode !== 0) return undefined;
+  const seconds = Number.parseInt(stdout.trim(), 10);
+  return Number.isFinite(seconds) && seconds > 0 ? seconds * 1000 : undefined;
+}
+
 export async function newSession(session: string, options: NewSessionOptions = {}): Promise<void> {
   const args: string[] = ["new-session", "-d", "-s", session];
   if (options.cwd !== undefined) args.push("-c", options.cwd);

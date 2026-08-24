@@ -108,6 +108,58 @@ describe("startTokenSampler (§12.8, FR-103)", () => {
     expect(errors).toHaveLength(0);
   });
 
+  // The gauge as an ACTIVITY signal (§5.5, FR-195): the only sign of life Muxeon
+  // gets from an agent working on its own, with no message crossing the transport.
+  test("onChange fires only when the gauge MOVED — never on the first reading", async () => {
+    const store = new TokenUsageStore();
+    const moves: { agent: string; tokens: number; previous: number; at: number }[] = [];
+    let gauge = 1_000;
+    const sampler = startTokenSampler({
+      store,
+      agents: () => [view("a", "sess-a")],
+      status: () => "idle",
+      capture: async () => `${gauge} tokens`,
+      stateDir: dir,
+      now: () => T0,
+      signal: AbortSignal.abort(),
+      onChange: (agent, tokens, previous, at) => moves.push({ agent, tokens, previous, at }),
+    });
+    // First reading: we have no previous value, so it says nothing about WHEN the
+    // gauge last moved — inventing an activity stamp here would be a lie (§10.34).
+    await sampler.sampleOnce(T0);
+    expect(moves).toEqual([]);
+    // Same value one window later: the agent sat there doing nothing — still silent.
+    await sampler.sampleOnce(T0 + 61_000);
+    expect(moves).toEqual([]);
+    gauge = 1_400;
+    await sampler.sampleOnce(T0 + 122_000);
+    expect(moves).toEqual([{ agent: "a", tokens: 1_400, previous: 1_000, at: T0 + 122_000 }]);
+    // A gauge that DROPS is a move too: /clear and a restart are both activity.
+    gauge = 12;
+    await sampler.sampleOnce(T0 + 183_000);
+    expect(moves).toHaveLength(2);
+    expect(moves[1]).toMatchObject({ tokens: 12, previous: 1_400 });
+  });
+
+  test("a rehydrated gauge makes the first sample after a restart a real comparison", async () => {
+    const store = new TokenUsageStore();
+    store.seed("a", "minute", { version: 1, buckets: [[T0 - M, 5_000]] }, T0);
+    expect(store.current("a")).toBe(5_000); // survived the restart (§12.8 persistence)
+    const moves: number[] = [];
+    const sampler = startTokenSampler({
+      store,
+      agents: () => [view("a", "sess-a")],
+      status: () => "idle",
+      capture: async () => "5200 tokens",
+      stateDir: dir,
+      now: () => T0,
+      signal: AbortSignal.abort(),
+      onChange: (_a, tokens) => moves.push(tokens),
+    });
+    await sampler.sampleOnce(T0);
+    expect(moves).toEqual([5_200]);
+  });
+
   test("a capture error is reported, not thrown", async () => {
     const store = new TokenUsageStore();
     const errors: unknown[] = [];

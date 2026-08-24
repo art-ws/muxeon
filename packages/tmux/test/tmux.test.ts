@@ -3,7 +3,7 @@ import { randomUUID } from "node:crypto";
 import { capturePane } from "../src/capture";
 import { exactTarget, hasTmux } from "../src/run";
 import { sendKeys, sendLiteral } from "../src/send";
-import { hasSession, killSession, newSession } from "../src/session";
+import { hasSession, killSession, newSession, sessionCreatedAt } from "../src/session";
 
 const HAS_TMUX = await hasTmux();
 
@@ -45,6 +45,23 @@ describe.skipIf(!HAS_TMUX)("tmux transport (§4, §5.2, FR-5) [requires tmux]", 
 
   test("hasSession is false for an unknown session", async () => {
     expect(await hasSession(`absent-${randomUUID()}`)).toBe(false);
+  });
+
+  // §5.5 (FR-194): the session clock's only source of truth for a session Muxeon
+  // did not raise itself. tmux answers in unix SECONDS — the ×1000 is the whole
+  // reason this is worth a live test.
+  test("sessionCreatedAt reads the session's birth time in unix ms", async () => {
+    const before = Date.now();
+    await newSession(session, { command: ["sh"] });
+    const created = await sessionCreatedAt(session);
+    expect(created).toBeDefined();
+    // Second-resolution: the stamp can land up to a second before `before`.
+    expect(created ?? 0).toBeGreaterThan(before - 2_000);
+    expect(created ?? 0).toBeLessThan(Date.now() + 2_000);
+  });
+
+  test("sessionCreatedAt is undefined for an unknown session — never a fabricated time", async () => {
+    expect(await sessionCreatedAt(`absent-${randomUUID()}`)).toBeUndefined();
   });
 
   test("sendLiteral delivers input and capturePane reads the pane", async () => {

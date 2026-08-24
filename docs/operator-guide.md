@@ -346,6 +346,23 @@ configuration (FR-11b). Step by step:
    echo must be the topology name. On the server side a rebind under an existing
    name logs `identity … taken over` (FR-44b).
 
+**How long has it been like that (the session clock, FR-194…FR-196).** A status
+says WHAT a neighbour is; the clock beside it says FOR HOW LONG. `get_status`
+returns `startedAt`/`uptimeMs` (when the current session came up — read off tmux
+for a session Muxeon merely attached to, so it survives a coordinator restart) and
+`lastActivityAt`/`quietForMs` with `lastActivity` naming the newest signal and
+`signals` breaking the stamps down by source: `transport` (a message routed to or
+from it), `turn` (a turn started or ended), `tokens` (its console token gauge
+moved — the one sign of an agent working on its own local task, available for
+types with token tracking on, §12.8), `session` (it came up). `list_peers` carries
+the two durations on every agent row, so "who in my neighbourhood has been quiet
+longest" costs one call. Unknown fields are ABSENT, never zero — and
+`observedSince` tells you when this coordinator started watching, so "quiet for
+two days" is never confused with "we booted two minutes ago". A `busy` peer whose
+token gauge has not moved in an hour is the classic wedged turn; an `idle` peer
+quiet since yesterday is simply forgotten. The idle auto-teardown clock (FR-92)
+is a SEPARATE clock and is not affected by any of this.
+
 **Watching a neighbour's console (`get_screen`, FR-147).** Every agent may read
 the **visible terminal pane** of any agent it has a topology edge with, as plain
 text — the same capture that primes the panel's console (§8.1c). It answers "what is this

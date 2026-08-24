@@ -6,6 +6,7 @@ import type { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import type { AgentStatus } from "@muxeon/core";
 import { Topology } from "@muxeon/core";
 import {
+  type AgentClockView,
   type BlobStore,
   Router,
   TransportLog,
@@ -713,5 +714,138 @@ describe.skipIf(!LOOPBACK_DIRECT)("get_screen (§8.6, FR-147)", () => {
     const result = await alice.callTool({ name: "get_screen", arguments: { name: "bob" } });
     expect(result.isError).toBe(true);
     expect(sc(result)).toEqual({ error: "UNAVAILABLE" });
+  });
+});
+
+// The session clock on the plane (T331, §5.5, FR-196): a status alone cannot tell
+// an agent that is merely idle from one that has done nothing since yesterday, nor
+// a `busy` peer still grinding from one wedged mid-turn. get_status answers with
+// stamps + durations + the per-source breakdown; list_peers answers the same
+// question for a whole neighbourhood in one call, durations only.
+describe.skipIf(!LOOPBACK_DIRECT)("session clock on the agent plane (§5.5, FR-196)", () => {
+  let root: string;
+  let plane: AgentPlaneHandle;
+  let alice: Client;
+  const NOW = 1_000_000;
+  let clocks: Record<string, AgentClockView | undefined>;
+
+  const start = async (): Promise<void> => {
+    const topology = new Topology(TOPOLOGY);
+    const router = new Router({ topology, root, queueKeyOf: (n) => KEY[n] ?? null });
+    plane = startAgentPlane({
+      port: 0,
+      isKnownIdentity: (n) => n in KEY,
+      makeServer: (caller) =>
+        createAgentServer(caller, {
+          topology,
+          router,
+          peerStatus: (n) => STATUS[n] ?? (n === "op" ? "idle" : undefined),
+          peerClock: (n) => clocks[n],
+        }),
+    });
+    alice = await connectClient(plane.url, "alice");
+  };
+
+  beforeEach(async () => {
+    root = mkdtempSync(join(tmpdir(), "muxeon-clock-plane-"));
+    for (const key of Object.values(KEY)) await ensureSessionQueue(root, key);
+    clocks = {};
+    await start();
+  });
+
+  afterEach(async () => {
+    await alice?.close();
+    await plane?.stop();
+    rmSync(root, { recursive: true, force: true });
+  });
+
+  test("get_status carries the clock beside the status", async () => {
+    clocks.bob = {
+      startedAt: NOW - 7_200_000,
+      uptimeMs: 7_200_000,
+      lastActivityAt: NOW - 600_000,
+      lastActivity: "tokens",
+      quietForMs: 600_000,
+      signals: { session: NOW - 7_200_000, transport: NOW - 3_600_000, tokens: NOW - 600_000 },
+      observedSince: NOW - 86_400_000,
+    };
+    expect(sc(await alice.callTool({ name: "get_status", arguments: { name: "bob" } }))).toEqual({
+      status: "down",
+      paused: false,
+      startedAt: NOW - 7_200_000,
+      uptimeMs: 7_200_000,
+      lastActivityAt: NOW - 600_000,
+      lastActivity: "tokens",
+      quietForMs: 600_000,
+      signals: { session: NOW - 7_200_000, transport: NOW - 3_600_000, tokens: NOW - 600_000 },
+      observedSince: NOW - 86_400_000,
+    });
+  });
+
+  test("an unwitnessed neighbour reports the floor, not a zeroed clock (§10.34)", async () => {
+    clocks.bob = { signals: {}, observedSince: NOW - 60_000 };
+    const status = sc(await alice.callTool({ name: "get_status", arguments: { name: "bob" } }));
+    expect(status).toEqual({
+      status: "down",
+      paused: false,
+      signals: {},
+      observedSince: NOW - 60_000,
+    });
+    expect(status.quietForMs).toBeUndefined();
+    expect(status.startedAt).toBeUndefined();
+  });
+
+  test("list_peers answers 'who has been quiet longest' in one call — durations only", async () => {
+    clocks.bob = {
+      startedAt: NOW - 10_000,
+      uptimeMs: 10_000,
+      lastActivityAt: NOW - 9_000,
+      lastActivity: "turn",
+      quietForMs: 9_000,
+      signals: { turn: NOW - 9_000 },
+      observedSince: NOW - 50_000,
+    };
+    expect(sc(await alice.callTool({ name: "list_peers", arguments: {} }))).toEqual({
+      peers: [
+        {
+          name: "bob",
+          type: "agent",
+          status: "down",
+          paused: false,
+          uptimeMs: 10_000,
+          quietForMs: 9_000,
+        },
+        // No clock wired for the operator peer — the row stays exactly as it was.
+        { name: "op", type: "agent", status: "idle", paused: false },
+      ],
+    });
+  });
+
+  test("without the port every surface is byte-identical to before the clock existed", async () => {
+    await alice.close();
+    await plane.stop();
+    const topology = new Topology(TOPOLOGY);
+    const router = new Router({ topology, root, queueKeyOf: (n) => KEY[n] ?? null });
+    plane = startAgentPlane({
+      port: 0,
+      isKnownIdentity: (n) => n in KEY,
+      makeServer: (caller) =>
+        createAgentServer(caller, {
+          topology,
+          router,
+          peerStatus: (n) => STATUS[n] ?? (n === "op" ? "idle" : undefined),
+        }),
+    });
+    alice = await connectClient(plane.url, "alice");
+    expect(sc(await alice.callTool({ name: "get_status", arguments: { name: "bob" } }))).toEqual({
+      status: "down",
+      paused: false,
+    });
+    expect(sc(await alice.callTool({ name: "list_peers", arguments: {} }))).toEqual({
+      peers: [
+        { name: "bob", type: "agent", status: "down", paused: false },
+        { name: "op", type: "agent", status: "idle", paused: false },
+      ],
+    });
   });
 });

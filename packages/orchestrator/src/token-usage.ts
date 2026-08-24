@@ -152,6 +152,17 @@ export class TokenUsageStore {
     return { minutes, hours, current: state.current, updatedAt: state.updatedAt };
   }
 
+  /**
+   * The latest sampled gauge, or `undefined` when the agent has no recorded
+   * state at all. The activity clock (§5.5, FR-195) compares against it to tell a
+   * MOVED gauge from a static one — and it survives a restart, because `seed`
+   * rehydrates `current` from disk, so the first sample after a boot is a real
+   * comparison rather than a blind one.
+   */
+  current(agent: string): number | undefined {
+    return this.#agents.get(agent)?.current;
+  }
+
   /** True when the agent has unpersisted samples since the last `clearDirty`. */
   isDirty(agent: string): boolean {
     return this.#agents.get(agent)?.dirty ?? false;

@@ -79,6 +79,7 @@ import {
   attachConsole,
   buildBroadcastResolver,
   capturePane,
+  clockView,
   commandFanout,
   createBlobStore,
   createExchange,
@@ -91,6 +92,7 @@ import {
   loadSessionDoneIds,
   parseRetainAge,
   probeSession,
+  sessionStartedAt as probeSessionStartedAt,
   resolveTokenConfig,
   seedPauseRegistry,
   sessionPaths,
@@ -163,6 +165,13 @@ export interface BootstrapOptions {
   readonly registry?: AdapterRegistry;
   /** Attach probe; default tmux has-session. Injectable for tests. */
   readonly probe?: (name: string) => Promise<boolean>;
+  /**
+   * When an ALREADY-LIVE session was born (§5.5, FR-194); default tmux
+   * `#{session_created}`. Only consulted where the session predates us (startup
+   * attach, out-of-band come-up) — a provisioned session is stamped as it comes
+   * up. Injectable for tests, which have no tmux.
+   */
+  readonly sessionStartedAt?: (name: string) => Promise<number | undefined>;
   /** Session driver factory; default TmuxSessionDriver. Injectable for tests. */
   readonly makeDriver?: (session: Session, adapter: Adapter) => SessionDriver;
   /** Start the dispatcher loops (default true). */
@@ -271,6 +280,10 @@ function limitsFromConfig(block: SchedulesConfig | undefined): ScheduleLimits {
 }
 
 export async function bootstrap(options: BootstrapOptions = {}): Promise<MuxeonServer> {
+  // The floor of the activity clock (§5.5, FR-194): everything it reports is what
+  // THIS coordinator witnessed, so a reader must be able to tell "quiet for two
+  // days" from "we have only been watching for two minutes" (§10.34).
+  const observedSince = Date.now();
   // 1. config (§7): discover → load → validate with the registry's known types.
   const discoverOptions: { explicitPath?: string; startDir?: string } = {};
   if (options.configFile !== undefined) discoverOptions.explicitPath = options.configFile;
@@ -448,6 +461,12 @@ export async function bootstrap(options: BootstrapOptions = {}): Promise<MuxeonS
       void transportLog.append(message);
       idleSweeper?.noteActivity(message.from);
       idleSweeper?.noteActivity(message.to);
+      // Session clock (§5.5, FR-195): the same single delivery point feeds the
+      // REPORTED activity of both ends. Deliberately a different clock from the
+      // sweeper's above — that one decides who gets reaped (FR-92), this one only
+      // answers "how long has this agent been quiet".
+      agents.get(message.from)?.state.noteActivity("transport");
+      agents.get(message.to)?.state.noteActivity("transport");
       rendezvous?.onRouted(message); // accepted counter-send B→A resolves an intent (FR-105)
     },
     onRefused: (message, info) => rendezvous?.onRefused(message, info), // WIP strike → intent (FR-105)
@@ -455,6 +474,7 @@ export async function bootstrap(options: BootstrapOptions = {}): Promise<MuxeonS
 
   // 6. attach agents + start dispatchers (one per session).
   const probe = options.probe ?? probeSession;
+  const startedAtProbe = options.sessionStartedAt ?? probeSessionStartedAt;
   const autoStart = options.autoStart ?? true;
   const abort = new AbortController();
   const runs: Promise<void>[] = [];
@@ -498,6 +518,10 @@ export async function bootstrap(options: BootstrapOptions = {}): Promise<MuxeonS
     const adapter = registry.get(agent.type);
     const up = await probe(agent.tmux); // attach: live → idle, miss → down (not fatal, FR-7)
     const state = new AgentState(up ? "idle" : "down");
+    // Session clock (§5.5, FR-194): a session we ATTACH to is older than we are —
+    // its birth time comes from tmux, not from this moment. Unreadable ⇒ the clock
+    // simply has no `startedAt` (§10.34), which is what an unknown one looks like.
+    if (up) state.markStarted(await startedAtProbe(agent.tmux));
     const reviver =
       agent.provision !== undefined
         ? createReviver(
@@ -781,6 +805,13 @@ export async function bootstrap(options: BootstrapOptions = {}): Promise<MuxeonS
       capture: (session) => capturePane(session),
       stateDir: join(location.configDir, "state", "tokens"),
       signal: abort.signal,
+      // A moved gauge is a sign of life the transport cannot see (§5.5, FR-195):
+      // an agent grinding on its own local task sends nothing and receives
+      // nothing, yet its context fills. Sampling cadence bounds the resolution
+      // (`tokens.sampleEvery`, §12.8) — this is a "was alive within the last
+      // sample" signal, not a keystroke feed.
+      onChange: (name, _tokens, _previous, at) =>
+        agents.get(name)?.state.noteActivity("tokens", at),
     });
   }
 
@@ -845,6 +876,15 @@ export async function bootstrap(options: BootstrapOptions = {}): Promise<MuxeonS
                   resolveBroadcast(name)?.kind ?? (isUser(name) ? "user" : "agent"),
                 // Presence of a user peer (§17.5, FR-133) — instead of a status.
                 peerPresence: (name) => (isUser(name) ? presence.presence(name) : undefined),
+                // Session clock (§5.5, FR-196): stamps and their durations, folded
+                // here against the server's clock so every reader gets the same
+                // "how long" without owning one. Agents only — a user has no session.
+                peerClock: (name) => {
+                  const runtime = agents.get(name);
+                  return runtime === undefined
+                    ? undefined
+                    : clockView(runtime.state, observedSince, Date.now());
+                },
                 // get_history (T126, FR-87): the pair's dialogue out of the
                 // transport log (§8.2) — read-only, neighbor-scoped in the tool.
                 pairHistory: (me, peer, limit, around) =>
@@ -1730,6 +1770,11 @@ export async function bootstrap(options: BootstrapOptions = {}): Promise<MuxeonS
                   ? `muxeon: "${runtime.name}" went down out-of-band — tmux session "${runtime.agent.tmux}" is gone (FR-93)\n`
                   : `muxeon: "${runtime.name}" came up out-of-band — attached to tmux session "${runtime.agent.tmux}" (FR-93)\n`,
               );
+              // Started by a hand, found by the sweep: the session is as old as
+              // tmux says, not as old as this tick (§5.5, FR-194) — the probe
+              // cadence is minutes, and a start noticed late is still a start.
+              if (after !== "down")
+                runtime.state.markStarted(await startedAtProbe(runtime.agent.tmux));
             }
           }),
       })),
