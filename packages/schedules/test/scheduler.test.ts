@@ -83,8 +83,13 @@ describe("what a tick decides (dueItems)", () => {
     expect(
       dueItems(one, T0 + 20_000, LIMITS, "idle", marks, { quietMs: 44_999 }).map((v) => v.kind),
     ).toEqual(["wait"]);
+    // …and the stillness has to lie AFTER the item's baseline: 45s observed at a
+    // moment only 30s past the baseline is 45s of somebody else's silence (T340).
     expect(
       dueItems(one, T0 + 30_000, LIMITS, "idle", marks, { quietMs: 45_000 }).map((v) => v.kind),
+    ).toEqual(["wait"]);
+    expect(
+      dueItems(one, T0 + 45_000, LIMITS, "idle", marks, { quietMs: 45_000 }).map((v) => v.kind),
     ).toEqual(["fire"]);
   });
 
@@ -94,8 +99,71 @@ describe("what a tick decides (dueItems)", () => {
       dueItems(one, T0, LIMITS, "idle", new Map(), { quietMs: 5_000 }).map((v) => v.kind),
     ).toEqual(["wait"]);
     expect(
-      dueItems(one, T0, LIMITS, "busy", new Map(), { quietMs: 30_000 }).map((v) => v.kind),
+      dueItems(one, T0 + 30_000, LIMITS, "busy", new Map(), { quietMs: 30_000 }).map((v) => v.kind),
     ).toEqual(["fire"]);
+  });
+
+  // The re-spawn trial (T340, live evidence): five conditional items armed with
+  // one `at`, an agent that went quiet after its turn — and all five satisfied the
+  // same agent-wide stillness in the SAME tick. The journal showed the two prompts
+  // routed 1.06s apart with a /clear between them: the plan collapsed into an
+  // instant. Two rules make a chain a sequence again.
+  test("a chain armed all at once fires ONE step per tick, not five", () => {
+    const marks = new Map<string, number>();
+    const five = chain([
+      { kind: "command", command: "pause", quietMs: 45_000 },
+      { text: "step 2 — snapshot", quietMs: 45_000 },
+      { kind: "command", command: "clear", quietMs: 45_000 },
+      { text: "step 4 — restore", quietMs: 45_000 },
+      { kind: "command", command: "unpause", quietMs: 45_000 },
+    ]);
+    const verdicts = dueItems(five, T0 + 60_000, LIMITS, "idle", marks, { quietMs: 60_000 });
+    expect(verdicts.map((v) => v.kind)).toEqual(["fire"]);
+    expect(verdicts[0]?.item.index).toBe(0);
+  });
+
+  test("the next step's window starts when the PREVIOUS one settled, not before", () => {
+    const settledAt = T0 + 60_000;
+    const two = chain([
+      { kind: "command", command: "pause", state: "fired", settledAt },
+      { text: "step 2 — snapshot", quietMs: 45_000 },
+    ]);
+    // Stillness observed a minute deep, but only 10s of it is AFTER the previous
+    // step: the agent has not been left alone for 45s since then.
+    expect(
+      dueItems(two, settledAt + 10_000, LIMITS, "idle", new Map(), { quietMs: 70_000 }).map(
+        (v) => v.kind,
+      ),
+    ).toEqual(["wait"]);
+    expect(
+      dueItems(two, settledAt + 45_000, LIMITS, "idle", new Map(), { quietMs: 105_000 }).map(
+        (v) => v.kind,
+      ),
+    ).toEqual(["fire"]);
+  });
+
+  test("a step whose predecessor has not happened yet waits for it", () => {
+    const two = chain([
+      { text: "step 1", quietMs: 45_000 }, // still pending
+      { kind: "command", command: "clear", quietMs: 45_000 },
+    ]);
+    const verdicts = dueItems(two, T0 + 90_000, LIMITS, "idle", new Map(), { quietMs: 90_000 });
+    // item 0 fires; item 1 is not even considered for firing in the same tick
+    expect(verdicts.map((v) => v.kind)).toEqual(["fire"]);
+    expect(verdicts[0]?.item.index).toBe(0);
+  });
+
+  test("…and it times out naming the real blocker, rather than blaming the console", () => {
+    const marks = new Map<string, number>();
+    const two = chain([
+      { text: "step 1", quietMs: 45_000 }, // stays pending for the whole test
+      { kind: "command", command: "clear", quietMs: 45_000, timeoutMs: 60_000 },
+    ]);
+    dueItems(two, T0, LIMITS, "idle", marks, { quietMs: 0 });
+    const late = dueItems(two, T0 + 61_000, LIMITS, "idle", marks, { quietMs: 0 });
+    const second = late.find((v) => v.item.index === 1);
+    expect(second?.kind).toBe("fail");
+    expect(second?.kind === "fail" && second.reason).toContain("previous step");
   });
 
   test("the timeout ends the wait with a named failure, and the chain goes on", () => {

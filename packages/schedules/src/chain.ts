@@ -53,6 +53,15 @@ export interface ChainItem {
   /** Cap on that wait, from the moment the item came due; expiry ⇒ `failed`. */
   readonly timeoutMs?: number;
   readonly state: ItemState;
+  /**
+   * When the item LEFT `pending` (unix ms) — its actual firing time when
+   * `state: "fired"` (§21.10, FR-201). Two things need it: an agent whose context
+   * was cleared has no other way to check that its plan ran in the order it
+   * planned (memory is exactly what such a chain destroys), and the conditional
+   * wait measures its stillness window FROM here — "quiet since the previous step
+   * happened", not "quiet at some point".
+   */
+  readonly settledAt?: number;
   /** Why it is not `fired` — set together with `failed`/`dropped` (§21.5). */
   readonly error?: string;
 }

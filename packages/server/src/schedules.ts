@@ -188,11 +188,23 @@ export function chainView(chain: Chain): Record<string, unknown> {
     items: chain.items.map((item) => ({
       index: item.index,
       kind: item.kind,
+      // `at` is what was PLANNED; `firedAt` is what actually happened (FR-201).
+      // The two are different questions, and an agent whose context was cleared
+      // can only answer the second one from an external trace like this.
       at: new Date(item.at).toISOString(),
       state: item.state,
+      ...(item.settledAt !== undefined
+        ? item.state === "fired"
+          ? { firedAt: new Date(item.settledAt).toISOString() }
+          : { settledAt: new Date(item.settledAt).toISOString() }
+        : {}),
       ...(item.text !== undefined ? { text: item.text } : {}),
       ...(item.command !== undefined ? { command: item.command } : {}),
       ...(item.control !== undefined ? { control: item.control } : {}),
+      // What the item is WAITING for, so a reader can tell a plan that is late
+      // from a plan that is patient (§21.10).
+      ...(item.quietMs !== undefined ? { after: `quiet:${Math.round(item.quietMs / 1000)}s` } : {}),
+      ...(item.timeoutMs !== undefined ? { timeout: `${Math.round(item.timeoutMs / 1000)}s` } : {}),
       ...(item.error !== undefined ? { error: item.error } : {}),
     })),
   };
