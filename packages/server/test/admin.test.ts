@@ -267,6 +267,42 @@ describe("operator-plane: signals.send (§8.5, FR-19, §8.7)", () => {
   });
 });
 
+// /pause and /unpause as INTERNAL slash commands (§16.5, FR-198). The point of
+// this test is that the command path and the operator's pause endpoint move the
+// SAME registry: whoever ran it — an agent on itself through the plane, a chain
+// item, or the operator — the router refuses delivery afterwards.
+describe("internal /pause and /unpause (§16.5, FR-198)", () => {
+  test("/pause через command-путь глушит доставку, /unpause возвращает её", async () => {
+    await boot();
+    const paused = await post("/agents/writer/command", { slash: "pause" });
+    expect(paused.status).toBe(200);
+    expect(String(paused.json.output)).toContain("paused");
+    // the flag is the same one the operator's own endpoint reports
+    const listed = await get("/agents");
+    expect(listed.json.agents).toContainEqual(
+      expect.objectContaining({ name: "writer", paused: true }),
+    );
+    // …and the router refuses delivery, exactly as for an operator-declared pause
+    const refused = await post("/signals/send", {
+      from: "researcher",
+      to: "writer",
+      payload: "you there?",
+    });
+    expect(refused.status).toBe(409);
+    expect(refused.json.code).toBe("AGENT_PAUSED");
+
+    const resumed = await post("/agents/writer/command", { slash: "unpause" });
+    expect(resumed.status).toBe(200);
+    expect(String(resumed.json.output)).toContain("unpaused");
+    const delivered = await post("/signals/send", {
+      from: "researcher",
+      to: "writer",
+      payload: "still there?",
+    });
+    expect(delivered.status).toBe(200);
+  });
+});
+
 describe("operator-plane: agents/pause (§16.5, §10.19/§10.20, FR-117/FR-119)", () => {
   test("POST /agents/<name>/pause sets the flag; GET /agents reports it beside the status", async () => {
     await boot();

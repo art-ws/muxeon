@@ -224,13 +224,21 @@ describe("slash commands (T86, FR-66, §8.5)", () => {
       { slash: "clear" },
       { slash: "usage", keys: "capture Escape" }, // agent override flipped keys
       { slash: "todo" },
-      { slash: "screenshot" }, // internal (FR-67) — present on every agent
+      // internal (FR-67) — present on every agent, no config needed; /pause and
+      // /unpause joined them with §16.5 (FR-198)
+      { slash: "screenshot" },
+      { slash: "pause" },
+      { slash: "unpause" },
     ]);
   });
 
   test("internal commands are listed even with NO commands config (FR-67)", () => {
     const { admin } = setup(makeTarget({ status: "idle" }));
-    expect(admin.commands("researcher")).toEqual([{ slash: "screenshot" }]);
+    expect(admin.commands("researcher")).toEqual([
+      { slash: "screenshot" },
+      { slash: "pause" },
+      { slash: "unpause" },
+    ]);
   });
 
   test("an allowed command runs through the lane and returns the pane as-is", async () => {

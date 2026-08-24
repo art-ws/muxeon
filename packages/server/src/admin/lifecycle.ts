@@ -244,7 +244,15 @@ export function createLifecycleAdmin(deps: LifecycleAdminDeps): LifecycleAdmin {
       const { target, lane } = runtime(name);
       const internal = internalCommands.get(slash);
       if (internal !== undefined) {
-        return attempt(() => internal.run(target, { control: deps.control }));
+        // The pause registry rides along (§16.4, FR-198): /pause and /unpause
+        // move the same flag the operator's own surface moves, through the same
+        // object, so one agent's self-pause and a panel toggle cannot disagree.
+        return attempt(() =>
+          internal.run(target, {
+            control: deps.control,
+            ...(deps.pause !== undefined ? { pause: deps.pause } : {}),
+          }),
+        );
       }
       const allowed = mergeCommands(target.agent, deps.types).find(
         (entry) => entry.slash === slash,

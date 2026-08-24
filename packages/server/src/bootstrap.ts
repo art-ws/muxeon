@@ -51,6 +51,7 @@ import {
   type SessionControl,
   captureConsole,
   createReviver,
+  isInternalCommand,
   reconcileLiveness,
   teardown,
   tmuxSessionControl,
@@ -1868,6 +1869,11 @@ export async function bootstrap(options: BootstrapOptions = {}): Promise<MuxeonS
         store: createFsScheduleStore(location.stateDir),
         limits: scheduleLimits,
         log: (line) => process.stderr.write(`muxeon: ${line}\n`),
+        // An internal slash (§16.5, FR-198) is executed by Muxeon and types
+        // nothing, so it needs neither the control lane nor an idle session —
+        // which is what lets a chain close its own `unpause` while the agent is
+        // still busy instead of expiring against the idle wait (FR-191).
+        isLaneless: (item) => item.kind === "command" && isInternalCommand(item.command ?? ""),
         executors: scheduleExecutors({
           commandGrants,
           sessionGrants,

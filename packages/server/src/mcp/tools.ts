@@ -24,6 +24,7 @@ import type {
   Topology,
 } from "@muxeon/core";
 import { SESSION_ACTIONS, isFqn, isSessionAction } from "@muxeon/core";
+import { isInternalCommand } from "@muxeon/lifecycle";
 import type { AgentClockView, Router } from "@muxeon/orchestrator";
 import type { AttachedRef } from "../attach";
 
@@ -255,6 +256,9 @@ export const AGENT_TOOL_NAMES = [
   "cancel_schedule",
 ] as const;
 
+/** The internal slashes, for the one error that has to name them (§16.5, FR-198). */
+const INTERNAL_SLASH_LIST = "/pause, /unpause, /screenshot";
+
 /** get_history depth bounds (FR-87) — mirrors the §12.4 history paging caps. */
 export const HISTORY_DEFAULT_LIMIT = 50;
 export const HISTORY_MAX_LIMIT = 200;
@@ -420,10 +424,14 @@ export const AGENT_TOOLS: Tool[] = [
     description:
       "List the slash commands you may run on a NEIGHBOR via send_command — your " +
       "command grants intersected with that agent's command catalog. Restricted " +
-      "to the caller's neighbors; empty when nothing is granted.",
+      "to the caller's neighbors; empty when nothing is granted. Pass YOUR OWN " +
+      "name to see the internal commands you may run on yourself (pause, unpause, " +
+      "screenshot) — those are executed by Muxeon, not typed into a console.",
     inputSchema: {
       type: "object",
-      properties: { to: { type: "string", description: "neighbor name (an agent)" } },
+      properties: {
+        to: { type: "string", description: "neighbor name (an agent), or your own name" },
+      },
       required: ["to"],
       additionalProperties: false,
     },
@@ -434,14 +442,24 @@ export const AGENT_TOOLS: Tool[] = [
       "Run a slash command on a NEIGHBOR's console (e.g. clear, compact) and " +
       "return its captured output. Permitted only when a command grant allows it " +
       "AND a topology edge exists; the recipient must be idle. Use list_commands " +
-      "to see what you may run.",
+      "to see what you may run. INTERNAL commands are the exception you may aim at " +
+      "YOURSELF: `pause` stops delivery to you (senders get AGENT_PAUSED and your " +
+      "queue is held), `unpause` resumes it and drains what waited, `screenshot` " +
+      "captures a console. They are executed by Muxeon — nothing is typed into a " +
+      "console — so they work mid-turn, on yourself or on a neighbour, and need no " +
+      "idle session. Wrap a sequence you must not have interrupted in pause/unpause " +
+      "(schedule_self can arm both ends). A self grant is an explicit cell — a " +
+      '"*" recipient grant does not cover you.',
     inputSchema: {
       type: "object",
       properties: {
-        to: { type: "string", description: "neighbor name (an agent)" },
+        to: {
+          type: "string",
+          description: "neighbor name (an agent), or your own name for an internal command",
+        },
         slash: {
           type: "string",
-          description: 'command name WITHOUT the leading slash (e.g. "clear")',
+          description: 'command name WITHOUT the leading slash (e.g. "clear", "pause")',
         },
       },
       required: ["to", "slash"],
@@ -833,7 +851,7 @@ async function dispatch(
         if (result.code === "AGENT_PAUSED") {
           return fail(
             result.code,
-            `"${to}" is paused by the operator — the message was discarded, retry when it resumes`,
+            `"${to}" is paused — the message was discarded, retry when it resumes`,
           );
         }
         return fail(result.code, `delivery to "${to}" not permitted`);
@@ -862,6 +880,18 @@ async function dispatch(
     case "list_commands": {
       const to = args.to;
       if (typeof to !== "string") return fail("INVALID_ARGS", "to must be a string");
+      // Yourself (§16.5, FR-198): the ONLY commands addressable to your own name
+      // are the internal ones — they are executed by Muxeon and never type into a
+      // console, which is what made the neighbour-scope rule necessary in the
+      // first place (§21.6). The self grant is an explicit cell, never a wildcard
+      // (FR-193), so this list is empty until the operator signs it.
+      if (to === caller) {
+        const own = (deps.listCommands?.(to) ?? []).filter(
+          (slash) =>
+            isInternalCommand(slash) && deps.commandGrants?.permitsSelf(caller, slash) === true,
+        );
+        return ok({ to, commands: own });
+      }
       // Neighbor-scope (§10.2/§10.11), like get_status: a command can only run
       // along an edge, so a non-neighbor reveals nothing.
       if (!deps.topology.hasEdge(caller, to)) return fail("UNKNOWN_PEER", `not a neighbor: ${to}`);
@@ -882,6 +912,35 @@ async function dispatch(
       if (typeof to !== "string") return fail("INVALID_ARGS", "to must be a string");
       if (typeof slash !== "string" || slash.length === 0)
         return fail("INVALID_ARGS", "slash must be a non-empty string");
+      // Yourself (§16.5, FR-198): an INTERNAL command may be addressed to your own
+      // name — /pause and /unpause are the point, and they move a transport flag
+      // rather than a cursor, so none of the reasons that keep send_command
+      // neighbour-scoped (§21.6: a synchronous /clear into your own pane mid-turn)
+      // apply. A pane command aimed at yourself still is not a thing.
+      if (to === caller) {
+        if (!isInternalCommand(slash)) {
+          return fail(
+            "UNKNOWN_PEER",
+            `not a neighbor: ${to} — only internal commands (${INTERNAL_SLASH_LIST}) may be addressed to yourself; schedule a console command with schedule_self instead`,
+          );
+        }
+        if (
+          deps.commandGrants === undefined ||
+          deps.runCommand === undefined ||
+          !deps.commandGrants.permitsSelf(caller, slash)
+        ) {
+          return fail(
+            "COMMAND_DENIED",
+            `not permitted to run "/${slash}" on yourself (commandGrants.${caller}.${caller}; a "*" recipient does not cover yourself)`,
+          );
+        }
+        try {
+          const output = await deps.runCommand(to, slash);
+          return ok({ to, slash, output });
+        } catch (error) {
+          return fail("COMMAND_FAILED", error instanceof Error ? error.message : String(error));
+        }
+      }
       // A command needs BOTH a topology edge (§10.2) and an ACL grant (FR-94).
       if (!deps.topology.hasEdge(caller, to)) return fail("UNKNOWN_PEER", `not a neighbor: ${to}`);
       if (typeOf(to) !== "agent")

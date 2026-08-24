@@ -159,7 +159,7 @@ describe("outbox pickup (FR-55, §13.4)", () => {
     await monitor.tick();
     expect(readdirSync(outboxDir)).toEqual(["msg.rejected.json"]); // the agent's receipt
     const reason = warnings[0] ?? "";
-    expect(reason).toContain("is paused by the operator");
+    expect(reason).toContain("is paused");
     expect(reason).toContain("retry when it resumes");
     // the original {to,payload} is preserved so the agent can resend after the resume
     expect(

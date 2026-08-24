@@ -119,6 +119,21 @@ itself (bring-up stays `provision`/auto-revive/operator territory).
   a sender or recipient (it commands via the operator-plane / CLI, section 4).
   Validation is fail-fast: unknown agent, an explicit pair without an edge, or an
   unknown command name all fail the boot (§7.5).
+- **Self-pause (`/pause`, `/unpause`, FR-198).** Two INTERNAL commands — executed
+  by Muxeon, never typed into a console — let an agent stop delivery to itself and
+  resume it: senders get `AGENT_PAUSED` and the queue is held, exactly as when you
+  pause it from the panel. It exists so an agent can fence its own sequence (a
+  chain of slashes armed with `schedule_self`) against messages arriving in the
+  middle of it: pause as the first item, unpause as the last. Because they touch
+  no console they need no idle session — the closing `unpause` fires even while
+  the agent is busy, which is what keeps a self-pause from getting stuck.
+  Addressing them to **your own name** is the one exception to the neighbour rule
+  (a pane command aimed at yourself is still refused). Grant them per agent, in
+  its own cell — a `"*"` recipient does **not** cover the agent itself:
+  `"commandGrants": { "dev": { "dev": ["pause", "unpause"] } }`. One caveat worth
+  knowing before you wrap a chain: a paused agent also refuses **its own** notes
+  (§16.2), so a chain that messages itself should keep those items outside the
+  paused window — slash items inside it are unaffected.
 - **Agent→agent session control (`sessionGrants`, FR-96/97)** let one agent
   start/stop/restart a peer's tmux session over MCP (`control_session`), and
   introspect what it may do (`list_controls`) — agents hard-managing each other

@@ -11,7 +11,10 @@ import { LOOPBACK_DIRECT, connectClient } from "./mcp-helpers";
 const TOPOLOGY = { alice: ["bob", "op"], bob: ["alice", "dave"], dave: ["bob"], op: ["alice"] };
 // bob's command catalog (mergeCommands ∪ internal, FR-66/FR-67) — what list_commands
 // intersects the grant against and what runCommand accepts.
-const BOB_CATALOG = ["clear", "compact", "usage", "screenshot"];
+const BOB_CATALOG = ["clear", "compact", "usage", "screenshot", "pause", "unpause"];
+// alice's OWN catalog — what she may aim at herself is the internal subset of it
+// (§16.5, FR-198): pane commands stay neighbour-only however the catalog looks.
+const ALICE_CATALOG = ["clear", "compact", "screenshot", "pause", "unpause"];
 
 const sc = (result: unknown): Record<string, unknown> =>
   ((result as { structuredContent?: unknown }).structuredContent ?? {}) as Record<string, unknown>;
@@ -37,7 +40,7 @@ function makePlane(grants: CommandGrantsMap, busy?: string): Harness {
         router,
         peerStatus: () => "idle",
         commandGrants: new CommandGrants(grants),
-        listCommands: (name) => (name === "bob" ? BOB_CATALOG : []),
+        listCommands: (name) => (name === "bob" ? BOB_CATALOG : ALICE_CATALOG),
         runCommand: async (name, slash) => {
           calls.push({ name, slash });
           if (slash === busy)
@@ -144,5 +147,78 @@ describe.skipIf(!LOOPBACK_DIRECT)("agent-plane command tools (FR-94/FR-95, §8.6
     });
     expect(result.isError).toBe(true);
     expect(sc(result)).toEqual({ error: "COMMAND_FAILED" });
+  });
+});
+
+// Yourself (§16.5, FR-198): /pause and /unpause are executed by Muxeon and type
+// nothing, so — unlike a pane command — they may be aimed at your own name. The
+// self grant is an explicit cell: a "*" recipient does not reach you (FR-193).
+describe.skipIf(!LOOPBACK_DIRECT)("internal commands on yourself (§16.5, FR-198)", () => {
+  let harness: Harness;
+  let alice: Client;
+
+  const connect = async (grants: CommandGrantsMap) => {
+    harness = makePlane(grants);
+    alice = await connectClient(harness.plane.url, "alice");
+  };
+
+  afterEach(async () => {
+    await alice?.close();
+    await harness?.plane.stop();
+  });
+
+  test("a self grant runs the internal slash on yourself", async () => {
+    await connect({ alice: { alice: ["pause", "unpause"] } });
+    expect(
+      sc(
+        await alice.callTool({ name: "send_command", arguments: { to: "alice", slash: "pause" } }),
+      ),
+    ).toEqual({ to: "alice", slash: "pause", output: "output of /pause on alice" });
+    expect(harness.calls).toEqual([{ name: "alice", slash: "pause" }]);
+  });
+
+  test('a "*" recipient grant does NOT reach yourself (FR-193)', async () => {
+    await connect({ alice: { "*": ["pause"] } });
+    const result = await alice.callTool({
+      name: "send_command",
+      arguments: { to: "alice", slash: "pause" },
+    });
+    expect(result.isError).toBe(true);
+    expect(sc(result)).toEqual({ error: "COMMAND_DENIED" });
+    expect(harness.calls).toEqual([]);
+  });
+
+  test("a PANE command aimed at yourself stays refused — the neighbour rule holds", async () => {
+    await connect({ alice: { alice: ["clear", "pause"] } });
+    const result = await alice.callTool({
+      name: "send_command",
+      arguments: { to: "alice", slash: "clear" },
+    });
+    expect(result.isError).toBe(true);
+    expect(sc(result)).toEqual({ error: "UNKNOWN_PEER" });
+    expect(JSON.stringify(result.content)).toContain("schedule_self");
+    expect(harness.calls).toEqual([]);
+  });
+
+  test("list_commands on your own name shows the internal subset you are granted", async () => {
+    await connect({ alice: { alice: ["pause", "unpause", "clear"] } });
+    expect(sc(await alice.callTool({ name: "list_commands", arguments: { to: "alice" } }))).toEqual(
+      {
+        to: "alice",
+        // `clear` is granted but not internal ⇒ not runnable on yourself, so it is
+        // not listed either: the list is what you may actually run.
+        commands: ["pause", "unpause"],
+      },
+    );
+  });
+
+  test("no self cell ⇒ an empty list, not a hint of what exists", async () => {
+    await connect({ alice: { bob: ["clear"] } });
+    expect(sc(await alice.callTool({ name: "list_commands", arguments: { to: "alice" } }))).toEqual(
+      {
+        to: "alice",
+        commands: [],
+      },
+    );
   });
 });

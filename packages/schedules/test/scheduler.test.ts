@@ -50,6 +50,26 @@ describe("what a tick decides (dueItems)", () => {
     expect(dueItems(one, T0 + 31_000, LIMITS, "idle", marks).map((v) => v.kind)).toEqual(["fire"]);
   });
 
+  // §16.5 (FR-198): an INTERNAL slash is executed by Muxeon and types nothing, so
+  // it has no lane to queue in. It matters at the END of a chain — an `unpause`
+  // that waited for idle could expire against a busy agent and leave it paused.
+  test("a LANELESS slash fires whatever the agent is doing — no lane, no idle guard", () => {
+    const laneless = (item: { command?: string }): boolean =>
+      item.command === "pause" || item.command === "unpause";
+    for (const status of ["idle", "busy", "down"] as const) {
+      const marks = new Map<string, number>();
+      const one = chain([{ kind: "command", command: "unpause" }]);
+      expect(dueItems(one, T0, LIMITS, status, marks, laneless).map((v) => v.kind)).toEqual([
+        "fire",
+      ]);
+      // a PANE command in the same chain still waits — lanelessness is per item
+      const two = chain([{ kind: "command", command: "clear" }]);
+      expect(dueItems(two, T0, LIMITS, status, marks, laneless).map((v) => v.kind)).toEqual([
+        status === "idle" ? "fire" : "wait",
+      ]);
+    }
+  });
+
   // The wait is counted from the first tick that found the item due, not from
   // its due time: that is when the waiting actually started (§21.9-Q2).
   test("the idle wait runs out and the item fails with a reason, not silently", () => {

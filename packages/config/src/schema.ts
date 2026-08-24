@@ -198,8 +198,12 @@ export interface RawModeConfig {
  * without configuration. A configured command may not shadow one (validation
  * rejects it, §7.5); the implementations live in @muxeon/lifecycle, which
  * keys its registry on this list (a test pins the two together).
+ *
+ * `pause`/`unpause` (§16.5, FR-198) mutate the pause registry rather than read
+ * anything — the property that keeps every internal command laneless is not
+ * "read-only" but "never types into the console", and these two never do.
  */
-export const INTERNAL_COMMAND_SLASHES = ["screenshot"] as const;
+export const INTERNAL_COMMAND_SLASHES = ["screenshot", "pause", "unpause"] as const;
 
 /**
  * Per-agent-type token accounting (§12.8, FR-103): sample the agent console's
