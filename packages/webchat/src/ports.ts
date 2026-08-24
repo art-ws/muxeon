@@ -35,6 +35,23 @@ export interface TokenSeries {
   readonly maxThreshold: number;
 }
 
+/**
+ * The panel's session-clock view for one agent (§5.5, FR-197) — the same clock the
+ * agent plane serves through `get_status`, expressed as DURATIONS so the viewer's
+ * browser clock never has to agree with the server's. A plain data shape, like
+ * {@link TokenSeries}: webchat never imports orchestrator (§8).
+ */
+export interface PeerClock {
+  /** How long the live session has been up; absent when down or unknown. */
+  readonly uptimeMs?: number;
+  /** How long since the newest sign of life; absent when nothing was witnessed. */
+  readonly quietForMs?: number;
+  /** Which signal was newest: `session` | `turn` | `transport` | `tokens`. */
+  readonly lastActivity?: string;
+  /** How long this coordinator has been watching — the floor of the two above. */
+  readonly observedForMs: number;
+}
+
 /** A group broadcast peer (§15, FR-112): input-only, hierarchical members, no status. */
 export interface GroupPeer {
   readonly name: string;
@@ -126,6 +143,17 @@ export interface WebchatPorts {
    * has no token accounting configured. Read-only, in-memory ⇒ synchronous.
    */
   tokenSeries?(name: string): TokenSeries | undefined;
+  /**
+   * An agent's session clock as DURATIONS (§5.5, FR-197): how long its session has
+   * been up and how long it has shown no sign of life, plus which signal was the
+   * newest. Durations, not stamps, on purpose — the panel runs on the VIEWER's
+   * clock, and a browser whose clock is minutes off the server's would otherwise
+   * render an uptime that is quietly wrong. `observedForMs` is how long this
+   * coordinator has been watching, so an absent `quietForMs` reads as "nothing
+   * seen since it booted N ago" instead of "silent forever" (§10.34). Undefined
+   * for a peer with no session (a user) or when the clock is not wired.
+   */
+  peerClock?(name: string): PeerClock | undefined;
   /**
    * Resolved WIP limit of an agent (§8.2, FR-104): the depth cap, or `null` when the
    * agent is exempt (`wipLimit:0`, operators, hub). The panel marks an agent whose

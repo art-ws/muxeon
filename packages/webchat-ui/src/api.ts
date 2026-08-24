@@ -7,6 +7,7 @@ import type {
   BlobMeta,
   HistoryPage,
   PanelEvent,
+  PeerClock,
   PeerInfo,
   PromptLibrary,
   ReactionCatalog,
@@ -332,6 +333,18 @@ export async function fetchTokenSeries(name: string): Promise<TokenSeries | unde
   if (!response.ok) return undefined;
   const body = (await response.json().catch(() => ({}))) as { series?: TokenSeries };
   return body.series;
+}
+
+/**
+ * The peer's session clock (§5.5, FR-197) — the header chip polls this.
+ * `undefined` when the peer has no session (404) or the port is unwired (503):
+ * like the meter, the chip simply doesn't render.
+ */
+export async function fetchPeerClock(name: string): Promise<PeerClock | undefined> {
+  const response = await fetch(`api/agents/${encodeURIComponent(name)}/clock`);
+  if (!response.ok) return undefined;
+  const body = (await response.json().catch(() => ({}))) as { clock?: PeerClock };
+  return body.clock;
 }
 
 /** The chat-export download URL (FR-84) — relative, basePath-safe (§12.6). */

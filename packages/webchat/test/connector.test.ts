@@ -1161,6 +1161,103 @@ describe("token usage endpoint (§12.8, FR-103)", () => {
   });
 });
 
+// The header's "up 3d · quiet 2h" (§5.5, FR-197). Same gate as the token series —
+// the clock is another read-only observation of a NEIGHBOUR, and a peer with no
+// session (a person) has none at all.
+describe("session clock endpoint (§5.5, FR-197)", () => {
+  const clock = {
+    uptimeMs: 79_010,
+    quietForMs: 21_900,
+    lastActivity: "tokens",
+    observedForMs: 30_341,
+  };
+  const ports = {
+    listPeers: () => ["researcher", "kim"],
+    peerStatus: () => "idle" as const,
+    queueDepth: async () => 0,
+    messagePhase: async () => undefined,
+    peerClock: (name: string) => (name === "researcher" ? clock : undefined),
+  };
+  const get = (path: string, headers: Record<string, string> = {}): Request =>
+    new Request(`http://panel.test${path}`, { headers: { host: "panel.test", ...headers } });
+
+  test("a NEIGHBOR's clock is returned as durations", async () => {
+    const connector = await startedConnector({ ports });
+    try {
+      const token = await login(connector);
+      const response = await connector.handleRequest(
+        get("/api/agents/researcher/clock", asCookie(token)),
+      );
+      expect(response.status).toBe(200);
+      expect(await response.json()).toEqual({ ok: true, clock });
+    } finally {
+      await connector.stop();
+    }
+  });
+
+  test("unauthenticated → 401, the port is NEVER touched (§10.12)", async () => {
+    let touched = false;
+    const spy = {
+      ...ports,
+      peerClock: (name: string) => {
+        touched = true;
+        return name === "researcher" ? clock : undefined;
+      },
+    };
+    const connector = await startedConnector({ ports: spy });
+    try {
+      const response = await connector.handleRequest(get("/api/agents/researcher/clock"));
+      expect(response.status).toBe(401);
+      expect(touched).toBe(false);
+    } finally {
+      await connector.stop();
+    }
+  });
+
+  test("a NON-neighbor is 404 — no reach past topology (§10.2)", async () => {
+    const connector = await startedConnector({ ports });
+    try {
+      const token = await login(connector);
+      const response = await connector.handleRequest(
+        get("/api/agents/loner/clock", asCookie(token)),
+      );
+      expect(response.status).toBe(404);
+    } finally {
+      await connector.stop();
+    }
+  });
+
+  test("a neighbour with no session (a person) → 404, not an empty clock", async () => {
+    const connector = await startedConnector({ ports });
+    try {
+      const token = await login(connector);
+      const response = await connector.handleRequest(get("/api/agents/kim/clock", asCookie(token)));
+      expect(response.status).toBe(404);
+    } finally {
+      await connector.stop();
+    }
+  });
+
+  test("a port without peerClock answers 503", async () => {
+    const noClock = {
+      listPeers: () => ["researcher"],
+      peerStatus: () => "idle" as const,
+      queueDepth: async () => 0,
+      messagePhase: async () => undefined,
+    };
+    const connector = await startedConnector({ ports: noClock });
+    try {
+      const token = await login(connector);
+      const response = await connector.handleRequest(
+        get("/api/agents/researcher/clock", asCookie(token)),
+      );
+      expect(response.status).toBe(503);
+    } finally {
+      await connector.stop();
+    }
+  });
+});
+
 describe("slash-command endpoint (T86, FR-66)", () => {
   function fakeLifecycle() {
     const calls: string[] = [];

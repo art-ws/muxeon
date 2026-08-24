@@ -1351,6 +1351,24 @@ body,
   flex: 0 0 auto;
 }
 
+/* the session clock (§5.5, FR-197): "up 3d · quiet 2h" between the status and the
+   token meter. Dimmer than the status — it answers "for how long", which one reads
+   after the status, not instead of it; tabular numerals so the spans do not jitter
+   as they tick. Never wraps and never squeezes: the histogram owns the free space. */
+.session-clock {
+  color: var(--text-dim);
+  opacity: 0.75;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  flex: 0 0 auto;
+  cursor: default;
+}
+
+.session-clock-sep {
+  opacity: 0.6;
+}
+
 /* the per-second "thinking…" timer (FR-63) */
 .busy-timer {
   font-variant-numeric: tabular-nums;

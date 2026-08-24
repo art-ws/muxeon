@@ -158,6 +158,22 @@ export interface HistoryPage {
   readonly reactions?: Readonly<Record<string, readonly ReactionView[]>>;
 }
 
+/**
+ * The session clock of one agent (§5.5, FR-197) — mirrors the wire shape. All
+ * DURATIONS: the panel renders on the viewer's clock, which need not agree with
+ * the server's, so nothing here is an absolute stamp.
+ */
+export interface PeerClock {
+  /** How long the live session has been up; absent when down or unknown. */
+  readonly uptimeMs?: number;
+  /** How long since the newest sign of life; absent when nothing was witnessed. */
+  readonly quietForMs?: number;
+  /** Which signal was newest: `session` | `turn` | `transport` | `tokens`. */
+  readonly lastActivity?: string;
+  /** How long the coordinator has been watching — the floor of the two above. */
+  readonly observedForMs: number;
+}
+
 /** One token histogram column: bucket-start unix ms + the slot's max gauge (§12.8). */
 export interface TokenBucket {
   readonly t: number;

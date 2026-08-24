@@ -9,6 +9,7 @@ import { FilterNote } from "./FilterNote";
 import { MessageText } from "./MessageText";
 import { ReactionBar } from "./Reactions";
 import { RzArrows } from "./RzArrows";
+import { SessionClock } from "./SessionClock";
 import { TokenMeter } from "./TokenMeter";
 import { agentAction, blobUrl, clearHistory, exportHistoryUrl, setAgentPaused } from "./api";
 import { usePinnedFeed } from "./feed-pin";
@@ -165,6 +166,10 @@ export function ChatView(props: {
             t(person ? liveLabel(peer) : (peer?.status ?? ""))
           )}
         </span>
+        {/* session clock (§5.5, FR-197): "up 3d · quiet 2h" — the status says what
+            the agent IS, these two spans say for how long. Agents only: a person
+            has no session to be up, and no signals to be quiet between. */}
+        {peer !== undefined && !person && <SessionClock peer={peer.name} />}
         {/* token meter (§12.8, FR-103) fills the empty span between status and the
             kebab; hidden when the Settings token-usage switch is off (FR-72) and
             for a person — a human burns no tokens and has no series to ask for */}

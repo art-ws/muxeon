@@ -756,6 +756,15 @@ export class WebchatConnector implements ChannelConnector {
     ) {
       return this.handleAgentTokens(url, me);
     }
+    // GET /api/agents/:name/clock (§5.5, FR-197): the header's "up 3d · quiet 2h";
+    // matched by suffix like the tokens route, before the screen catch-all.
+    if (
+      url.pathname.startsWith("/api/agents/") &&
+      url.pathname.endsWith("/clock") &&
+      req.method === "GET"
+    ) {
+      return this.handleAgentClock(url, me);
+    }
     // GET /api/agents/:name/screen (FR-102): a live console snapshot the panel
     // polls; matched before the POST-action route below.
     if (url.pathname.startsWith("/api/agents/") && req.method === "GET") {
@@ -1357,6 +1366,25 @@ export class WebchatConnector implements ChannelConnector {
     const series = ports.tokenSeries(name);
     if (series === undefined) return json({ error: `no token tracking for "${name}"` }, 404);
     return json({ ok: true, series });
+  }
+
+  // GET /api/agents/:name/clock (§5.5, FR-197): the peer's session clock as
+  // durations — how long it has been up and how long it has been quiet. Same
+  // neighbor gate as tokens/screen (§10.2); a peer with no session (a user) and
+  // an unwired port both answer 404/503, so the header simply renders nothing.
+  handleAgentClock(url: URL, me: Identity): Response {
+    const ports = me.ports;
+    if (ports?.peerClock === undefined) return json({ error: "session clock not wired" }, 503);
+    const rest = url.pathname.slice("/api/agents/".length);
+    const slash = rest.indexOf("/");
+    if (slash <= 0 || rest.slice(slash + 1) !== "clock") return json({ error: "not found" }, 404);
+    const name = decodeURIComponent(rest.slice(0, slash));
+    if (!ports.listPeers().includes(name)) {
+      return json({ error: `unknown agent "${name}"` }, 404); // not a neighbor (§10.2)
+    }
+    const clock = ports.peerClock(name);
+    if (clock === undefined) return json({ error: `no session clock for "${name}"` }, 404);
+    return json({ ok: true, clock });
   }
 
   // GET /api/history/:agent?before&limit (§12.4): cursor paging backwards.

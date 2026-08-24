@@ -667,6 +667,22 @@ no `to` is fanned out to every `role:"admin"` user — one addressed copy each.
 With no admins configured, `to` stays mandatory and such a file is rejected as
 before.
 
+### 8.1a2 "up 3d · quiet 2h": the session clock in the chat header (§5.5, FR-197)
+
+Between the status and the token meter an agent chat shows two spans: how long
+the session has been up, and how long the agent has shown no sign of life. The
+status names the state, these name its duration — an agent `idle` since yesterday
+and one that answered a minute ago look identical without them, and a `busy` peer
+whose quiet span keeps growing is a turn that stopped moving.
+
+Hover for the long form, including WHICH signal was the newest: a routed message,
+a turn boundary, or the token gauge moving (§12.8 — the sign of an agent working
+on its own local task, with nothing crossing the transport). Two honest details
+worth knowing: a `down` agent shows only the quiet half (there is no uptime to
+report), and when the coordinator has witnessed nothing at all since it started,
+the chip reads `quiet ≥12m` — a floor, not a measurement, with the tooltip saying
+so in words. A person's chat has no chip: a human has no session.
+
 ### 8.1b Token accounting: the context meter in the chat header (§12.8, FR-103)
 
 The header of an agent chat can show how loaded that agent's context is: a spend

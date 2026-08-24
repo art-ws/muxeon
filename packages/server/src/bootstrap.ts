@@ -1080,6 +1080,21 @@ export async function bootstrap(options: BootstrapOptions = {}): Promise<MuxeonS
         if (cfg === undefined || !agents.has(name)) return undefined;
         return { ...tokenStore.series(name, Date.now()), maxThreshold: cfg.maxThreshold };
       },
+      // Session clock (§5.5, FR-197) — the SAME clock the agent plane serves,
+      // rendered as durations: the panel runs on the viewer's browser clock, and
+      // a stamp would be read against a clock that need not agree with ours.
+      peerClock: (name) => {
+        const runtime = agents.get(name);
+        if (runtime === undefined) return undefined; // a user has no session (§17.5)
+        const now = Date.now();
+        const view = clockView(runtime.state, observedSince, now);
+        return {
+          ...(view.uptimeMs !== undefined ? { uptimeMs: view.uptimeMs } : {}),
+          ...(view.quietForMs !== undefined ? { quietForMs: view.quietForMs } : {}),
+          ...(view.lastActivity !== undefined ? { lastActivity: view.lastActivity } : {}),
+          observedForMs: Math.max(0, now - observedSince),
+        };
+      },
       // WIP cap (§8.2, FR-104) + rendezvous view (FR-105) for the panel markers.
       wipLimitOf,
       rendezvousState: () => rendezvous?.rendezvousState() ?? { waiting: [], awaited: [] },
