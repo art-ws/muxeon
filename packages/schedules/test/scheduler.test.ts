@@ -59,15 +59,61 @@ describe("what a tick decides (dueItems)", () => {
     for (const status of ["idle", "busy", "down"] as const) {
       const marks = new Map<string, number>();
       const one = chain([{ kind: "command", command: "unpause" }]);
-      expect(dueItems(one, T0, LIMITS, status, marks, laneless).map((v) => v.kind)).toEqual([
-        "fire",
-      ]);
+      expect(
+        dueItems(one, T0, LIMITS, status, marks, { isLaneless: laneless }).map((v) => v.kind),
+      ).toEqual(["fire"]);
       // a PANE command in the same chain still waits — lanelessness is per item
       const two = chain([{ kind: "command", command: "clear" }]);
-      expect(dueItems(two, T0, LIMITS, status, marks, laneless).map((v) => v.kind)).toEqual([
-        status === "idle" ? "fire" : "wait",
-      ]);
+      expect(
+        dueItems(two, T0, LIMITS, status, marks, { isLaneless: laneless }).map((v) => v.kind),
+      ).toEqual([status === "idle" ? "fire" : "wait"]);
     }
+  });
+
+  // §21.10 (FR-200): the clock says an item MAY fire; the evidence says it is safe
+  // to. A prompt handed to a still-working agent is the same mistake as a slash
+  // typed into it, so the condition covers every kind.
+  test("a conditional item waits for stillness and fires the moment it is long enough", () => {
+    const marks = new Map<string, number>();
+    const one = chain([{ kind: "command", command: "clear", quietMs: 45_000 }]);
+    // busy or not, what decides is the observed stillness — 12s is not 45s
+    expect(
+      dueItems(one, T0, LIMITS, "idle", marks, { quietMs: 12_000 }).map((v) => v.kind),
+    ).toEqual(["wait"]);
+    expect(
+      dueItems(one, T0 + 20_000, LIMITS, "idle", marks, { quietMs: 44_999 }).map((v) => v.kind),
+    ).toEqual(["wait"]);
+    expect(
+      dueItems(one, T0 + 30_000, LIMITS, "idle", marks, { quietMs: 45_000 }).map((v) => v.kind),
+    ).toEqual(["fire"]);
+  });
+
+  test("a MESSAGE item waits for the condition too — a prompt can interrupt as surely as a slash", () => {
+    const one = chain([{ text: "next step", quietMs: 30_000 }]);
+    expect(
+      dueItems(one, T0, LIMITS, "idle", new Map(), { quietMs: 5_000 }).map((v) => v.kind),
+    ).toEqual(["wait"]);
+    expect(
+      dueItems(one, T0, LIMITS, "busy", new Map(), { quietMs: 30_000 }).map((v) => v.kind),
+    ).toEqual(["fire"]);
+  });
+
+  test("the timeout ends the wait with a named failure, and the chain goes on", () => {
+    const marks = new Map<string, number>();
+    const one = chain([{ kind: "command", command: "clear", quietMs: 45_000, timeoutMs: 120_000 }]);
+    dueItems(one, T0, LIMITS, "idle", marks, { quietMs: 0 });
+    const [verdict] = dueItems(one, T0 + 121_000, LIMITS, "idle", marks, { quietMs: 0 });
+    expect(verdict?.kind).toBe("fail");
+    expect(verdict?.kind === "fail" && verdict.reason).toContain("never stayed still");
+  });
+
+  test("no observation at all is not stillness — it waits, then fails saying so", () => {
+    const marks = new Map<string, number>();
+    const one = chain([{ text: "go", quietMs: 10_000, timeoutMs: 60_000 }]);
+    expect(dueItems(one, T0, LIMITS, "idle", marks, {}).map((v) => v.kind)).toEqual(["wait"]);
+    const [verdict] = dueItems(one, T0 + 61_000, LIMITS, "idle", marks, {});
+    expect(verdict?.kind).toBe("fail");
+    expect(verdict?.kind === "fail" && verdict.reason).toContain("nothing observable");
   });
 
   // The wait is counted from the first tick that found the item due, not from

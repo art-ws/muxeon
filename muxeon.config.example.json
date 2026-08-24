@@ -182,6 +182,8 @@
     "maxDelay": "24h",
     "maxText": 32768,
     "idleWait": "60s",
+    "quietWindow": "45s",
+    "quietTimeout": "30m",
     "catchUpGrace": "10m"
   },
   "channels": [

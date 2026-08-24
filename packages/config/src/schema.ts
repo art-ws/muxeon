@@ -515,6 +515,10 @@ export interface SchedulesConfig {
   readonly maxDelay?: string;
   readonly maxText?: number;
   readonly idleWait?: string;
+  /** Default stillness window for `after: "quiet"` (§21.10, FR-200). */
+  readonly quietWindow?: string;
+  /** Default cap on a conditional wait when an item names no `timeout` (§21.10). */
+  readonly quietTimeout?: string;
   readonly catchUpGrace?: string;
 }
 
@@ -1353,6 +1357,8 @@ const SCHEDULE_FIELDS = [
   "maxDelay",
   "maxText",
   "idleWait",
+  "quietWindow",
+  "quietTimeout",
   "catchUpGrace",
 ];
 
@@ -1377,6 +1383,8 @@ function validateSchedules(value: unknown, path: string): SchedulesConfig {
     maxDelay?: string;
     maxText?: number;
     idleWait?: string;
+    quietWindow?: string;
+    quietTimeout?: string;
     catchUpGrace?: string;
   } = {};
   if (obj.enabled !== undefined) {
@@ -1386,7 +1394,14 @@ function validateSchedules(value: unknown, path: string): SchedulesConfig {
     if (obj[field] !== undefined)
       out[field] = requirePositiveInt(obj[field], joinPointer(path, field));
   }
-  for (const field of ["minDelay", "maxDelay", "idleWait", "catchUpGrace"] as const) {
+  for (const field of [
+    "minDelay",
+    "maxDelay",
+    "idleWait",
+    "quietWindow",
+    "quietTimeout",
+    "catchUpGrace",
+  ] as const) {
     if (obj[field] !== undefined)
       out[field] = requireDuration(obj[field], joinPointer(path, field));
   }
@@ -1397,6 +1412,16 @@ function validateSchedules(value: unknown, path: string): SchedulesConfig {
       throw new ConfigError(
         `schedules.minDelay (${out.minDelay}) is above maxDelay (${out.maxDelay})`,
         { path: joinPointer(path, "minDelay") },
+      );
+    }
+  }
+  // A quiet window longer than the cap it is measured inside could never be met —
+  // every conditional item would sit out its timeout and fail (§21.10).
+  if (out.quietWindow !== undefined && out.quietTimeout !== undefined) {
+    if (parseDurationMs(out.quietWindow) > parseDurationMs(out.quietTimeout)) {
+      throw new ConfigError(
+        `schedules.quietWindow (${out.quietWindow}) is above quietTimeout (${out.quietTimeout})`,
+        { path: joinPointer(path, "quietWindow") },
       );
     }
   }

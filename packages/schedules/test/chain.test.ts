@@ -200,3 +200,48 @@ describe("liveness", () => {
     expect(isLive(settled)).toBe(false);
   });
 });
+
+// Conditional waits (§21.10, FR-200): "fire when the agent is observably done"
+// instead of "fire in five minutes". The grammar is closed on purpose — an agent
+// must not be able to describe a wait the coordinator cannot honour.
+describe("after: quiet (§21.10, FR-200)", () => {
+  const one = (item: Record<string, unknown>) => plan([{ text: "go", ...item }]).items[0];
+
+  test('"quiet" takes the server default window; "quiet:90s" names its own', () => {
+    expect(one({ after: "quiet" })?.quietMs).toBe(DEFAULT_LIMITS.quietWindowMs);
+    expect(one({ after: "quiet:90s" })?.quietMs).toBe(90_000);
+    expect(one({ after: "quiet:500ms" })?.quietMs).toBe(500);
+  });
+
+  test("the delay becomes optional — a conditional item may have no clock at all", () => {
+    const item = one({ after: "quiet" });
+    expect(item?.at).toBe(T0); // due immediately; the CONDITION is the wait
+    // …and the two compose: wait 10m, and only then start watching for stillness
+    expect(one({ delay: "10m", after: "quiet" })?.at).toBe(T0 + 600_000);
+  });
+
+  test("the timeout defaults, and a named one is honoured", () => {
+    expect(one({ after: "quiet" })?.timeoutMs).toBe(DEFAULT_LIMITS.quietTimeoutMs);
+    expect(one({ after: "quiet", timeout: "5m" })?.timeoutMs).toBe(300_000);
+  });
+
+  test("a timeout shorter than the window is refused — it could never be met", () => {
+    expect(() => one({ after: "quiet:90s", timeout: "30s" })).toThrow(/never be met/);
+  });
+
+  test("a timeout without a condition is refused, not silently ignored", () => {
+    expect(() => one({ timeout: "5m", delay: "0s" })).toThrow(/only meaningful with/);
+  });
+
+  test("an unknown condition is refused — the grammar is closed", () => {
+    for (const after of ["idle", "quiet:", "quiet:0s", "when-done", "quiet:5x"]) {
+      expect(() => one({ after })).toThrow();
+    }
+  });
+
+  test("a purely timed item keeps no condition fields at all", () => {
+    const item = one({ delay: "30s" });
+    expect(item?.quietMs).toBeUndefined();
+    expect(item?.timeoutMs).toBeUndefined();
+  });
+});

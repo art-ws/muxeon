@@ -13,7 +13,18 @@ export type ItemKind = "message" | "command" | "control";
 
 /** What an agent hands over — one of three forms per item (§21.2). */
 export interface ChainItemInput {
-  readonly delay: string;
+  /** Wait since the previous item. Optional only together with `after` (⇒ "0s"). */
+  readonly delay?: string;
+  /**
+   * Wait for a CONDITION instead of (or after) the clock (§21.10, FR-200):
+   * `"quiet"` — until the agent is observably done — or `"quiet:45s"` to name the
+   * window it must stay still for. The clock says when an item MAY fire; this says
+   * when it is SAFE to, which is what keeps a command from landing in the middle
+   * of a prompt the agent is still answering.
+   */
+  readonly after?: string;
+  /** Cap on the conditional wait (`after` only); expiry FAILS the item, chain continues. */
+  readonly timeout?: string;
   readonly text?: string;
   readonly command?: string;
   readonly control?: string;
@@ -34,6 +45,13 @@ export interface ChainItem {
   readonly text?: string;
   readonly command?: string;
   readonly control?: SessionAction;
+  /**
+   * Resolved `after: "quiet[:w]"` (§21.10, FR-200): how long the agent must be
+   * observably still before this item fires. Absent ⇒ the item is purely timed.
+   */
+  readonly quietMs?: number;
+  /** Cap on that wait, from the moment the item came due; expiry ⇒ `failed`. */
+  readonly timeoutMs?: number;
   readonly state: ItemState;
   /** Why it is not `fired` — set together with `failed`/`dropped` (§21.5). */
   readonly error?: string;
@@ -58,6 +76,10 @@ export interface ScheduleLimits {
   readonly maxText: number;
   /** How long a command/control item waits for `idle` before failing (§21.5). */
   readonly idleWaitMs: number;
+  /** Default stillness window for `after: "quiet"` when the item names none (§21.10). */
+  readonly quietWindowMs: number;
+  /** Default cap on a conditional wait when the item names no `timeout` (§21.10). */
+  readonly quietTimeoutMs: number;
   /** Tolerated lateness after the coordinator was down (§21.5). */
   readonly catchUpGraceMs: number;
 }
@@ -69,6 +91,8 @@ export const DEFAULT_LIMITS: ScheduleLimits = {
   maxDelayMs: 86_400_000,
   maxText: 32_768,
   idleWaitMs: 60_000,
+  quietWindowMs: 45_000,
+  quietTimeoutMs: 1_800_000,
   catchUpGraceMs: 600_000,
 };
 
@@ -108,6 +132,33 @@ export function parseDelay(text: unknown): number {
   }
   const [, amount = "0", unit = "ms"] = match;
   return Number(amount) * UNIT_MS[unit as keyof typeof UNIT_MS];
+}
+
+// The condition grammar (§21.10, FR-200). One condition exists — "the agent is
+// observably still" — with an optional window: `quiet` or `quiet:45s`. A closed
+// grammar rather than a free expression: an agent must not be able to describe a
+// wait the coordinator cannot honour.
+const AFTER = /^quiet(?::(\d+)(ms|s|m|h))?$/;
+
+/** `"quiet:45s"` → 45000, `"quiet"` → the caller's default. Throws INVALID_ARGS. */
+export function parseAfter(text: unknown, defaultWindowMs: number): number {
+  if (typeof text !== "string") {
+    throw new ScheduleError("INVALID_ARGS", `after must be a string like "quiet:45s"`);
+  }
+  const match = AFTER.exec(text.trim());
+  if (match === null) {
+    throw new ScheduleError(
+      "INVALID_ARGS",
+      `invalid after "${text}" (expected "quiet" or "quiet:<n>ms|s|m|h")`,
+    );
+  }
+  const [, amount, unit] = match;
+  if (amount === undefined || unit === undefined) return defaultWindowMs;
+  const window = Number(amount) * UNIT_MS[unit as keyof typeof UNIT_MS];
+  if (window <= 0) {
+    throw new ScheduleError("INVALID_ARGS", `after "${text}": the window must be positive`);
+  }
+  return window;
 }
 
 // A chain id becomes a FILE NAME (§21.5), so it is validated as one — not
@@ -185,7 +236,29 @@ export function planChain(input: ChainInput, options: PlanOptions): Chain {
   let elapsed = 0;
   const items = input.items.map((item, index): ChainItem => {
     const kind = kindOf(item, index);
-    const delay = parseDelay(item.delay);
+    // `delay` is what the clock owes the item; with a condition it may be omitted
+    // ("fire as soon as it is safe") but stays legal ("wait 5m, THEN for quiet").
+    const delay = item.delay === undefined && item.after !== undefined ? 0 : parseDelay(item.delay);
+    const quietMs =
+      item.after === undefined ? undefined : parseAfter(item.after, limits.quietWindowMs);
+    if (item.timeout !== undefined && quietMs === undefined) {
+      throw new ScheduleError(
+        "INVALID_ARGS",
+        `item ${index}: timeout is only meaningful with "after" — a purely timed item never waits`,
+      );
+    }
+    const timeoutMs =
+      quietMs === undefined
+        ? undefined
+        : item.timeout === undefined
+          ? limits.quietTimeoutMs
+          : parseDelay(item.timeout);
+    if (quietMs !== undefined && timeoutMs !== undefined && timeoutMs < quietMs) {
+      throw new ScheduleError(
+        "INVALID_ARGS",
+        `item ${index}: timeout ${timeoutMs}ms is shorter than the quiet window ${quietMs}ms — it could never be met`,
+      );
+    }
     if (delay !== 0 && delay < limits.minDelayMs) {
       throw new ScheduleError(
         "INVALID_ARGS",
@@ -199,7 +272,14 @@ export function planChain(input: ChainInput, options: PlanOptions): Chain {
         `item ${index}: the chain reaches ${elapsed}ms, past the ${limits.maxDelayMs}ms horizon`,
       );
     }
-    const base = { index, kind, at: now + elapsed, state: "pending" as const };
+    const base = {
+      index,
+      kind,
+      at: now + elapsed,
+      state: "pending" as const,
+      ...(quietMs !== undefined ? { quietMs } : {}),
+      ...(timeoutMs !== undefined ? { timeoutMs } : {}),
+    };
     if (kind === "message") {
       const text = item.text as string;
       if (text.trim() === "") {

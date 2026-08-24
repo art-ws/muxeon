@@ -1236,6 +1236,25 @@ the agent needs.
 from the moment the chain is accepted. The first delay therefore decides when the
 whole chain starts, and the order can never be broken by arithmetic.
 
+**Waiting for the agent instead of the clock (FR-200).** A step that must not land
+mid-thought takes `after: "quiet"` (or `"quiet:90s"`) instead of trusting the
+delay: the item then fires only once the agent has been **observably** still for
+that long — console unchanged, token gauge unmoved, session not busy. That is a
+stronger test than `idle`, which is the adapter's claim and can read "free" while
+a CLI merely printed its prompt between phases — the case where a `/clear` lands
+in the middle of live work. `delay` and `after` compose ("not before 10m, and only
+once it is quiet"), and every wait is bounded by `timeout` (default 30m): on
+expiry the item is recorded as failed with a reason and the chain moves on, so a
+step can never hang forever. The probe costs one console capture and is only taken
+while such an item is waiting.
+
+```jsonc
+{ "items": [
+    { "text": "Refactor the parser and report when done." },
+    { "after": "quiet:2m", "timeout": "2h", "command": "compact" }
+] }
+```
+
 **Fired mechanically, by the clock.** Muxeon does not check how the agent
 digested a step, does not branch on the result, and one item failing neither
 cancels the rest nor moves their hour. A note is delivered as a NOTICE (no reply

@@ -139,6 +139,8 @@ export interface ExecutorDeps {
   /** Lifecycle over an agent's own session, the FR-96 path. */
   control(input: { agent: string; action: SessionAction }): Promise<void>;
   statusOf(agent: string): Promise<"idle" | "busy" | "down">;
+  /** How long the agent has been observably still (§21.10, FR-200) — the `after: "quiet"` evidence. */
+  quietMs?(agent: string): Promise<number | undefined>;
   isKnownAgent(name: string): boolean;
   readonly commandGrants: CommandGrants;
   readonly sessionGrants: SessionGrants;
@@ -154,6 +156,7 @@ export function scheduleExecutors(deps: ExecutorDeps): ScheduleExecutors {
   return {
     deliver: deps.deliver,
     statusOf: deps.statusOf,
+    ...(deps.quietMs !== undefined ? { quietMs: deps.quietMs } : {}),
     isKnownAgent: deps.isKnownAgent,
 
     async runCommand({ agent, slash }) {

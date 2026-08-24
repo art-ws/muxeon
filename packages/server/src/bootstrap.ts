@@ -64,6 +64,7 @@ import {
   IdleTeardownSweeper,
   LivenessProbeSweeper,
   PresenceTracker,
+  QuiescenceTracker,
   RendezvousCoordinator,
   RendezvousStore,
   ReplyNudger,
@@ -273,6 +274,14 @@ function limitsFromConfig(block: SchedulesConfig | undefined): ScheduleLimits {
       block?.maxDelay === undefined ? SCHEDULE_DEFAULTS.maxDelayMs : parseDelay(block.maxDelay),
     idleWaitMs:
       block?.idleWait === undefined ? SCHEDULE_DEFAULTS.idleWaitMs : parseDelay(block.idleWait),
+    quietWindowMs:
+      block?.quietWindow === undefined
+        ? SCHEDULE_DEFAULTS.quietWindowMs
+        : parseDelay(block.quietWindow),
+    quietTimeoutMs:
+      block?.quietTimeout === undefined
+        ? SCHEDULE_DEFAULTS.quietTimeoutMs
+        : parseDelay(block.quietTimeout),
     catchUpGraceMs:
       block?.catchUpGrace === undefined
         ? SCHEDULE_DEFAULTS.catchUpGraceMs
@@ -407,6 +416,17 @@ export async function bootstrap(options: BootstrapOptions = {}): Promise<MuxeonS
   // config (durations→ms, defaults) for the types that opt in. The sampler is
   // started after the agents map + peerStatus exist (step 7).
   const tokenStore = new TokenUsageStore();
+  // Stillness observer (§21.10, FR-200): the evidence behind `after: "quiet"` —
+  // built here because it reads the same pane the console does and the same gauge
+  // the meter does; the scheduler asks it only while a conditional item waits.
+  const quiescence = new QuiescenceTracker({
+    capture: (session) => capturePane(session),
+    status: (name) => peerStatus(name),
+    tokens: (name) => {
+      const current = tokenStore.current(name);
+      return current === 0 ? undefined : current;
+    },
+  });
   const tokenConfigs = new Map<string, ResolvedTokenConfig>();
   for (const agent of config.agents) {
     const resolved = resolveTokenConfig(config.types?.[agent.type]?.tokens);
@@ -1879,6 +1899,12 @@ export async function bootstrap(options: BootstrapOptions = {}): Promise<MuxeonS
           sessionGrants,
           isKnownAgent: (name) => config.agents.some((agent) => agent.name === name),
           statusOf: async (name) => peerStatus(name) ?? "down",
+          // The `after: "quiet"` evidence (§21.10, FR-200): the agent's own pane,
+          // its token gauge where accounting is on, and a status that is not busy.
+          quietMs: async (name) => {
+            const runtime = agents.get(name);
+            return runtime === undefined ? undefined : quiescence.quietMs(name, runtime.session);
+          },
           // A note from the agent to ITSELF (§10.2 lets self-delivery through
           // without an edge) and a NOTICE (§21.3): a reminder one wrote oneself
           // must not print a reply contract back at its author.

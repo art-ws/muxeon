@@ -547,7 +547,13 @@ export const AGENT_TOOLS: Tool[] = [
       "coordinator, so clearing your context does not erase it. Items fire " +
       "mechanically by the clock: nothing checks whether you handled the previous " +
       "one, and one item failing does not cancel the rest. Commands and lifecycle " +
-      "actions need an explicit self grant from the operator.",
+      "actions need an explicit self grant from the operator. When an item must " +
+      'not land in the middle of your work, add `after: "quiet"` (or ' +
+      '"quiet:90s"): it then waits until you are OBSERVABLY done — console ' +
+      "unchanged, token gauge unmoved, session not busy — for that long, instead " +
+      "of firing on the clock. Bound that wait with `timeout` (default 30m): on " +
+      "expiry the item fails with a reason and the chain moves on, so nothing " +
+      "hangs forever.",
     inputSchema: {
       type: "object",
       properties: {
@@ -559,7 +565,18 @@ export const AGENT_TOOLS: Tool[] = [
             properties: {
               delay: {
                 type: "string",
-                description: 'wait since the PREVIOUS item — "0s", "45s", "10m", "2h"',
+                description:
+                  'wait since the PREVIOUS item — "0s", "45s", "10m", "2h"; optional when "after" is given',
+              },
+              after: {
+                type: "string",
+                description:
+                  'wait for EVIDENCE instead of the clock: "quiet" (you have been still for the server default) or "quiet:90s" — console unchanged, tokens unmoved, not busy',
+              },
+              timeout: {
+                type: "string",
+                description:
+                  'cap on that conditional wait (with "after" only) — on expiry the item fails and the chain continues; default 30m',
               },
               text: { type: "string", description: "a note to deliver to yourself" },
               command: {
@@ -571,7 +588,6 @@ export const AGENT_TOOLS: Tool[] = [
                 description: "lifecycle action on your own session (e.g. restart)",
               },
             },
-            required: ["delay"],
             additionalProperties: false,
           },
         },

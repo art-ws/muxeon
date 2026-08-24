@@ -40,3 +40,4 @@ export * from "./rendezvous-coordinator";
 export * from "./pause";
 export * from "./pause-state";
 export * from "./presence";
+export * from "./quiescence";
