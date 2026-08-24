@@ -130,10 +130,12 @@ itself (bring-up stays `provision`/auto-revive/operator territory).
   Addressing them to **your own name** is the one exception to the neighbour rule
   (a pane command aimed at yourself is still refused). Grant them per agent, in
   its own cell — a `"*"` recipient does **not** cover the agent itself:
-  `"commandGrants": { "dev": { "dev": ["pause", "unpause"] } }`. One caveat worth
-  knowing before you wrap a chain: a paused agent also refuses **its own** notes
-  (§16.2), so a chain that messages itself should keep those items outside the
-  paused window — slash items inside it are unaffected.
+  `"commandGrants": { "dev": { "dev": ["pause", "unpause"] } }`. A chain's own
+  items pass the fence unconditionally (FR-199): notes the agent scheduled for
+  itself are delivered while it is paused, and its own plan is never refused by
+  its WIP cap — everything ELSE stays held, in order, until the unpause. A down
+  agent is not woken by them: the item waits in the queue and goes in when the
+  session returns.
 - **Agent→agent session control (`sessionGrants`, FR-96/97)** let one agent
   start/stop/restart a peer's tmux session over MCP (`control_session`), and
   introspect what it may do (`list_controls`) — agents hard-managing each other

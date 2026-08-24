@@ -19,6 +19,14 @@ export interface DequeuedItem {
 export interface DequeueOptions {
   /** Logical ids already in done/ (the dedup window, §10.9); duplicates are dropped. */
   readonly skipIds?: ReadonlySet<string>;
+  /**
+   * Claim only records this predicate accepts (§16.3, FR-199). A rejected record
+   * is LEFT IN PLACE — not dropped, not reordered — so the queue still drains in
+   * full once the caller stops filtering. The one caller is the dispatcher of a
+   * PAUSED agent: it admits the agent's own scheduled items and holds everything
+   * else. Absent ⇒ everything is claimable, the ordinary FIFO.
+   */
+  readonly accept?: (message: Signal) => boolean;
 }
 
 const NO_SKIP: ReadonlySet<string> = new Set();
@@ -36,6 +44,7 @@ export async function dequeue(
       await unlink(pendingPath); // already processed (§10.9) — drop the duplicate
       continue;
     }
+    if (options.accept !== undefined && !options.accept(message)) continue; // held, not dropped
     const curPath = join(paths.cur, filename);
     await rename(pendingPath, curPath); // atomic claim into the single slot
     return { filename, path: curPath, message };

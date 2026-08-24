@@ -8,7 +8,7 @@
 // turn is injected and detected (TmuxSessionDriver is the real one). Per-session
 // detection state lives in the driver, not here.
 
-import type { Signal } from "@muxeon/core";
+import { type Signal, isSelfScheduled } from "@muxeon/core";
 import {
   type DequeuedItem,
   type QueuePaths,
@@ -165,10 +165,13 @@ export class Dispatcher {
 
   /** Re-send an in-flight cur/ file after a crash (at-least-once, §10.9). */
   async recover(signal?: AbortSignal): Promise<void> {
-    if (this.paused) return; // pause injects nothing, re-sends included (§16.3)
     if (this.#state.status !== "idle") return;
     const item = await readCur(this.#paths);
-    if (item !== null) await this.processOne(item, signal);
+    if (item === null) return;
+    // Pause injects nothing, re-sends included (§16.3) — except the agent's OWN
+    // scheduled item (§21, FR-199), which its own fence must not swallow.
+    if (this.paused && !isSelfScheduled(item.message)) return;
+    await this.processOne(item, signal);
   }
 
   /** Drain pending while idle, one message at a time. Returns the count processed. */
@@ -178,9 +181,15 @@ export class Dispatcher {
       await this.#control.drain(); // control ops apply between turns (§8.5)
       // The pause hold (§16.3, FR-118) is re-read every iteration — a pause set
       // mid-drain stops the NEXT turn, never the running one; the queue keeps its
-      // records and drains in full on resume (§10.3/§10.9).
-      if (this.paused) break;
-      const item = await dequeue(this.#paths, { skipIds: this.#doneIds });
+      // records and drains in full on resume (§10.3/§10.9). While paused the hold
+      // is SELECTIVE rather than total (§21, FR-199): the agent's own scheduled
+      // items are still claimed — a fence armed with /pause exists to keep others
+      // out of one's sequence, not to hold back the sequence itself — and
+      // everything else stays put, in order, for the resume.
+      const item = await dequeue(this.#paths, {
+        skipIds: this.#doneIds,
+        ...(this.paused ? { accept: isSelfScheduled } : {}),
+      });
       if (item === null) break; // empty, or cur busy
       if ((await this.processOne(item, signal)) === "aborted") break; // shutdown (T66)
       processed += 1;

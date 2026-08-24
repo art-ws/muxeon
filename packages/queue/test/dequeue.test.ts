@@ -136,3 +136,46 @@ describe("dequeue / complete / recovery / dedup (§5.3, §10.1/§10.8/§10.9)", 
     expect(await dequeue(paths)).toBeNull();
   });
 });
+
+// The selective claim (§16.3, FR-199): the dispatcher of a PAUSED agent admits
+// its own scheduled items and holds everything else — held, never dropped and
+// never reordered, so the queue still drains in full once the filter goes away.
+describe("selective claim — accept (§16.3, FR-199)", () => {
+  test("claims the oldest ACCEPTED record and leaves the rest in place", async () => {
+    await put(0, "outside-1");
+    await put(1, "mine");
+    await put(2, "outside-2");
+    const item = take(await dequeue(paths, { accept: (message) => message.id === "mine" }));
+    expect(item.message.id).toBe("mine");
+    expect(readdirSync(paths.pending)).toHaveLength(2); // both outsiders kept
+    expect(readdirSync(paths.cur)).toHaveLength(1);
+  });
+
+  test("nothing accepted ⇒ null, and NOTHING is claimed or dropped", async () => {
+    await put(0, "a");
+    await put(1, "b");
+    expect(await dequeue(paths, { accept: () => false })).toBeNull();
+    expect(readdirSync(paths.pending)).toHaveLength(2);
+    expect(readdirSync(paths.cur)).toHaveLength(0);
+  });
+
+  test("dropping the filter resumes the ORIGINAL order", async () => {
+    await put(0, "outside-1");
+    await put(1, "mine");
+    await put(2, "outside-2");
+    const first = take(await dequeue(paths, { accept: (message) => message.id === "mine" }));
+    await complete(paths, first.filename, "done");
+    expect(take(await dequeue(paths)).message.id).toBe("outside-1");
+  });
+
+  test("a duplicate is still dropped even when the filter would reject it (§10.9)", async () => {
+    await put(0, "dup");
+    await put(1, "mine");
+    const done = new Set(["dup"]);
+    const item = take(
+      await dequeue(paths, { skipIds: done, accept: (message) => message.id === "mine" }),
+    );
+    expect(item.message.id).toBe("mine");
+    expect(readdirSync(paths.pending)).toHaveLength(0); // the duplicate was reaped
+  });
+});

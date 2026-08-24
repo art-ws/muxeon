@@ -431,6 +431,42 @@ describe("router — pause gate (§16.2, §10.19, FR-117)", () => {
     expect(pending("writer-session")).toHaveLength(0);
   });
 
+  // §21/FR-199: the ONE thing a pause lets through for an agent. A fence armed
+  // with /pause (FR-198) exists to keep OTHERS out of one's own sequence; if the
+  // sequence itself bounced off it, the fence would defeat its own purpose.
+  test("the agent's OWN scheduled item passes the pause — the fence is not aimed at itself", async () => {
+    const r = paused(pausedWriter);
+    const own = { ...msg("writer", "writer", "chain:0"), origin: "schedule" };
+    expect(await r.route(own)).toMatchObject({ ok: true });
+    expect(pending("writer-session")).toHaveLength(1);
+  });
+
+  test("the exemption is exactly self + schedule — neither half alone opens the gate", async () => {
+    const r = paused(pausedWriter);
+    // scheduled, but addressed to someone else's queue: an ordinary refusal
+    expect(
+      await r.route({ ...msg("researcher", "writer", "x1"), origin: "schedule" }),
+    ).toMatchObject({ ok: false, code: "AGENT_PAUSED" });
+    // self-addressed, but not the scheduler's doing (a cwd routine, §16.2)
+    expect(await r.route({ ...msg("writer", "writer", "x2"), origin: "routine" })).toMatchObject({
+      ok: false,
+      code: "AGENT_PAUSED",
+    });
+    expect(pending("writer-session")).toHaveLength(0);
+  });
+
+  test("a self-scheduled item also skips the WIP cap — its author's own plan is not backpressure", async () => {
+    const r = paused(() => false, { wipLimitOf: () => 1 });
+    await r.route(msg("researcher", "writer", "fills-the-cap"));
+    expect(await r.route(msg("researcher", "writer", "over-the-cap"))).toMatchObject({
+      ok: false,
+      code: "WIP_LIMIT",
+    });
+    expect(
+      await r.route({ ...msg("writer", "writer", "chain:1"), origin: "schedule" }),
+    ).toMatchObject({ ok: true });
+  });
+
   test("the topology check comes FIRST: a non-neighbour learns TOPOLOGY_DENIED, not the pause", async () => {
     // writer↔operator has no edge; the operator is not paused, the writer is —
     // routing writer→operator must not leak anything about pause state either way.

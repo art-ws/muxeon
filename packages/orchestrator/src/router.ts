@@ -5,7 +5,14 @@
 // @muxeon/queue is depended on only by @muxeon/orchestrator (§8, enforced by the
 // architecture guard), and within it the router is the only caller of enqueue.
 
-import { type Signal, type Topology, appendServer, isFqn, splitFqn } from "@muxeon/core";
+import {
+  type Signal,
+  type Topology,
+  appendServer,
+  isFqn,
+  isSelfScheduled,
+  splitFqn,
+} from "@muxeon/core";
 import { enqueue, queueDepth, queuePaths, sanitizeFileId } from "@muxeon/queue";
 import {
   DEFAULT_HOP_CAP,
@@ -246,7 +253,17 @@ export class Router {
     // A user's pause is DND (§17.8, FR-134): the ONE deliberate asymmetry with the
     // agent gate above — a note to yourself still lands, because DND protects a
     // human from others, not from their own self-chat (§17.7).
-    if (this.#isPaused?.(message.to) === true && !this.#dndSelfDelivery(message)) {
+    // An agent's OWN scheduled item (§21, FR-199) is the second exemption, and it
+    // exists for the same reason the first one does: a pause protects you from
+    // OTHERS. An agent that fenced its own sequence with /pause (FR-198) would
+    // otherwise have the sequence bounce off its own fence — the chain's notes
+    // refused with AGENT_PAUSED and recorded as failed, which is precisely the
+    // "interrupted or polluted" outcome the fence was armed against.
+    if (
+      this.#isPaused?.(message.to) === true &&
+      !this.#dndSelfDelivery(message) &&
+      !isSelfScheduled(message)
+    ) {
       return this.#refuse(message, { ok: false, code: "AGENT_PAUSED" });
     }
     // WIP limit (§8.2, FR-104): a gated recipient at or above its cap gets NOTHING
@@ -257,7 +274,12 @@ export class Router {
     // can overshoot by the in-flight route count — acceptable, the flood still stops.
     // A rendezvous notice bypasses the gate (FR-105) — the double guard (flag AND
     // kind) keeps ordinary traffic gated, so §10.14 is untouched.
-    const bypass = options?.bypassWip === true && message.kind === "rendezvous";
+    // The self-scheduled item skips the cap too (§21, FR-199): the WIP bound is
+    // backpressure BETWEEN agents — it exists so a hub is not buried by its peers —
+    // and an agent's own plan is not another agent's pressure. Refusing it would
+    // make a chain silently conditional on how busy its author's own queue is.
+    const bypass =
+      (options?.bypassWip === true && message.kind === "rendezvous") || isSelfScheduled(message);
     const limit = bypass ? null : (this.#wipLimitOf?.(message.to) ?? null);
     if (limit !== null && limit > 0) {
       const depth = await queueDepth(queuePaths(this.#root, key));

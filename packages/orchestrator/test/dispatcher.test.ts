@@ -34,6 +34,17 @@ function msg(id: string): Message {
   return { id, from: "a", to: "b", kind: "message", ts: 0, payload: id };
 }
 
+/** The agent's OWN scheduled item (§21, FR-199): self-addressed, origin "schedule". */
+async function putOwnSchedule(id: string): Promise<void> {
+  seq += 1;
+  await enqueue(paths, {
+    unixMs: 1700000000000,
+    seq,
+    fileId: sanitizeFileId(id),
+    message: { id, from: "b", to: "b", kind: "message", ts: 0, payload: id, origin: "schedule" },
+  });
+}
+
 async function put(id: string): Promise<void> {
   seq += 1;
   await enqueue(paths, {
@@ -576,6 +587,39 @@ describe("pause hold (§16.3, §10.20, FR-118)", () => {
     expect(injected).toHaveLength(0);
     expect(jsonFiles(paths.pending)).toHaveLength(2); // nothing claimed
     expect(jsonFiles(paths.cur)).toHaveLength(0);
+  });
+
+  // §21/FR-199: the hold is SELECTIVE, not total. A fence armed with /pause keeps
+  // OTHERS out of the agent's own sequence — holding back the sequence itself
+  // would defeat it.
+  test("while paused, the agent's OWN scheduled item is still injected", async () => {
+    const injected: string[] = [];
+    await put("outside");
+    await putOwnSchedule("chain:0");
+    const dispatcher = pausable(okDriver(injected), { value: true });
+    expect(await dispatcher.pump()).toBe(1);
+    expect(injected).toHaveLength(1);
+    expect(injected[0]).toContain("id=chain:0");
+    // the outsider is HELD, not dropped and not reordered
+    expect(jsonFiles(paths.pending)).toHaveLength(1);
+    expect(jsonFiles(paths.done)).toHaveLength(1);
+  });
+
+  test("the held record still drains, in order, once the fence comes down", async () => {
+    const injected: string[] = [];
+    await put("outside-1");
+    await putOwnSchedule("chain:0");
+    await put("outside-2");
+    const paused = { value: true };
+    const dispatcher = pausable(okDriver(injected), paused);
+    expect(await dispatcher.pump()).toBe(1); // only the chain item
+    paused.value = false;
+    expect(await dispatcher.pump()).toBe(2);
+    expect(injected.map((text) => /id=([^\s]+)/.exec(text)?.[1])).toEqual([
+      "chain:0",
+      "outside-1",
+      "outside-2",
+    ]);
   });
 
   test("the resume drains everything that piled up (§10.3/§10.9 — no loss)", async () => {

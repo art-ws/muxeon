@@ -120,3 +120,29 @@ export const HUMAN_ORIGINS: ReadonlySet<string> = new Set([
 /** Did a person write this signal, as opposed to the transport (see {@link HUMAN_ORIGINS})? */
 export const isHumanOrigin = (origin: string | undefined): boolean =>
   origin !== undefined && HUMAN_ORIGINS.has(origin);
+
+/**
+ * The origin the deferred self-chain stamps (§21.3): an item the agent scheduled
+ * for ITSELF, fired by the tick. Not a channel and not a human — machinery the
+ * agent itself armed.
+ */
+export const SCHEDULE_ORIGIN = "schedule";
+
+/**
+ * Is this signal an agent's OWN scheduled item (§21, FR-199)? — self-addressed
+ * (`from == to`, which `schedule_self` guarantees structurally: it has no `to`
+ * parameter) and stamped by the scheduler.
+ *
+ * This is the one thing the transport gates let through unconditionally: an agent
+ * that fenced its own sequence with `/pause` (FR-198) must still receive the
+ * sequence, and a WIP cap that exists to protect it from OTHER agents must not
+ * refuse what it planned for itself. Everything else a pause refuses stays
+ * refused — including the agent's ordinary self-delivery (§16.2).
+ */
+export function isSelfScheduled(signal: {
+  readonly from: string;
+  readonly to: string;
+  readonly origin?: string;
+}): boolean {
+  return signal.from === signal.to && signal.origin === SCHEDULE_ORIGIN;
+}
