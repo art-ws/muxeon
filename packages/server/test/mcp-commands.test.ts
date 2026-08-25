@@ -200,24 +200,39 @@ describe.skipIf(!LOOPBACK_DIRECT)("internal commands on yourself (§16.5, FR-198
     expect(harness.calls).toEqual([]);
   });
 
-  test("list_commands on your own name shows the internal subset you are granted", async () => {
+  // T342: the self listing used to report ONLY the internal commands, so an agent
+  // granted `clear` on itself read "clear is not granted to me" — while the grant
+  // was there and the deferred path worked. Two lists, because there are two
+  // paths: what may run now, and what may only be armed with schedule_self.
+  test("list_commands on your own name separates what runs NOW from what must be scheduled", async () => {
     await connect({ alice: { alice: ["pause", "unpause", "clear"] } });
     expect(sc(await alice.callTool({ name: "list_commands", arguments: { to: "alice" } }))).toEqual(
       {
         to: "alice",
-        // `clear` is granted but not internal ⇒ not runnable on yourself, so it is
-        // not listed either: the list is what you may actually run.
         commands: ["pause", "unpause"],
+        schedulable: ["clear"],
       },
     );
   });
 
-  test("no self cell ⇒ an empty list, not a hint of what exists", async () => {
+  test("a grant for something outside your own catalog shows up in neither list", async () => {
+    await connect({ alice: { alice: ["pause", "usage"] } }); // `usage` is bob's catalog, not alice's
+    expect(sc(await alice.callTool({ name: "list_commands", arguments: { to: "alice" } }))).toEqual(
+      {
+        to: "alice",
+        commands: ["pause"],
+        schedulable: [],
+      },
+    );
+  });
+
+  test("no self cell ⇒ two empty lists, not a hint of what exists", async () => {
     await connect({ alice: { bob: ["clear"] } });
     expect(sc(await alice.callTool({ name: "list_commands", arguments: { to: "alice" } }))).toEqual(
       {
         to: "alice",
         commands: [],
+        schedulable: [],
       },
     );
   });

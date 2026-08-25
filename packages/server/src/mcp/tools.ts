@@ -425,8 +425,12 @@ export const AGENT_TOOLS: Tool[] = [
       "List the slash commands you may run on a NEIGHBOR via send_command — your " +
       "command grants intersected with that agent's command catalog. Restricted " +
       "to the caller's neighbors; empty when nothing is granted. Pass YOUR OWN " +
-      "name to see the internal commands you may run on yourself (pause, unpause, " +
-      "screenshot) — those are executed by Muxeon, not typed into a console.",
+      "name for what you may run on YOURSELF, in two lists: `commands` — the " +
+      "internal ones you may run right now (pause, unpause, screenshot: executed " +
+      "by Muxeon, never typed into a console) — and `schedulable` — console " +
+      "commands you are granted but can only arm through schedule_self, because a " +
+      "slash typed into your own pane mid-turn would interrupt the very turn " +
+      "asking for it.",
     inputSchema: {
       type: "object",
       properties: {
@@ -902,11 +906,19 @@ async function dispatch(
       // first place (§21.6). The self grant is an explicit cell, never a wildcard
       // (FR-193), so this list is empty until the operator signs it.
       if (to === caller) {
-        const own = (deps.listCommands?.(to) ?? []).filter(
-          (slash) =>
-            isInternalCommand(slash) && deps.commandGrants?.permitsSelf(caller, slash) === true,
+        const granted = (deps.listCommands?.(to) ?? []).filter(
+          (slash) => deps.commandGrants?.permitsSelf(caller, slash) === true,
         );
-        return ok({ to, commands: own });
+        // Two lists, because there are two PATHS and only one of them is
+        // synchronous (T342). Reporting only the internal ones read as "clear is
+        // not granted to me" while the grant was there all along and the deferred
+        // path worked — a surface that hides a right misleads as surely as one
+        // that invents it.
+        return ok({
+          to,
+          commands: granted.filter(isInternalCommand),
+          schedulable: granted.filter((slash) => !isInternalCommand(slash)),
+        });
       }
       // Neighbor-scope (§10.2/§10.11), like get_status: a command can only run
       // along an edge, so a non-neighbor reveals nothing.

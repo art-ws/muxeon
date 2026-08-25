@@ -128,7 +128,9 @@ itself (bring-up stays `provision`/auto-revive/operator territory).
   no console they need no idle session — the closing `unpause` fires even while
   the agent is busy, which is what keeps a self-pause from getting stuck.
   Addressing them to **your own name** is the one exception to the neighbour rule
-  (a pane command aimed at yourself is still refused). Grant them per agent, in
+  (a pane command aimed at yourself is still refused — `list_commands` on one's
+  own name reports such a command under `schedulable` instead, meaning "granted,
+  but arm it with schedule_self"). Grant them per agent, in
   its own cell — a `"*"` recipient does **not** cover the agent itself:
   `"commandGrants": { "dev": { "dev": ["pause", "unpause"] } }`. A chain's own
   items pass the fence unconditionally (FR-199): notes the agent scheduled for
