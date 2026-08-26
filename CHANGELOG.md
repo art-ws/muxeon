@@ -1,3 +1,12 @@
+## [0.1.26](https://github.com/art-ws/muxeon/compare/v0.1.25...v0.1.26) (2026-08-26)
+
+
+### Changes
+
+* **T342:** a self grant that is hidden reads as a missing one — list_commands says both
+
+  The operator asked to add `clear` to every park agent's self grant. It was already there — all 14 agents carry `["clear", "compact", "pause", "unpause"]` in their own cell, and `clear` is in every type's catalog. ([0006013](https://github.com/art-ws/muxeon/commit/0006013b1b37806a4863131ee03ecda6b40181a8))
+
 ## [0.1.25](https://github.com/art-ws/muxeon/compare/v0.1.24...v0.1.25) (2026-08-24)
 
 
