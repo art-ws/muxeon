@@ -1,3 +1,15 @@
+## [0.1.27](https://github.com/art-ws/muxeon/compare/v0.1.26...v0.1.27) (2026-09-03)
+
+
+### Changes
+
+* **T344:** the token histogram lays columns on TIME, at a fixed 5px pitch
+
+  The operator: the columns vary in width, they should be fixed and no wider than 5px; an interval with no data should leave a gap of exactly the same width, so the hour-long (per-minute) zone always keeps one width while the per-hour zone varies with the screen and shows only as many columns as fit. ([28bd72d](https://github.com/art-ws/muxeon/commit/28bd72dd1603ec81842ade3e42e06223896c925e))
+* **T345:** the histogram measured its box in an effect that fired before the box existed
+
+  Reported from the stand: after T344 the histogram was gone entirely. ([ce4fd1e](https://github.com/art-ws/muxeon/commit/ce4fd1e03aa5aac6c9e2890c7d6474fe1074f174))
+
 ## [0.1.26](https://github.com/art-ws/muxeon/compare/v0.1.25...v0.1.26) (2026-08-26)
 
 
