@@ -1,9 +1,8 @@
 // The histogram as it actually renders (§12.8, FR-103; T344). The geometry is pinned
 // in token-meter.test.ts; what is checked here is the JSX — the zone washes are the
 // widths the layout computed, an ABSENT zone leaves no zero-width `<rect>` behind, and
-// an unmeasured box (the first frame, before the ResizeObserver fires) draws nothing
-// rather than a wrong picture. The last header regression that reached the live stand
-// lived in exactly such a branch.
+// an unmeasured box draws the full grid rather than nothing (T345 — drawing nothing
+// there is exactly how the histogram disappeared from the live header).
 
 import { describe, expect, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
@@ -60,8 +59,15 @@ describe("histogram canvas (§12.8, FR-103; T344)", () => {
   });
 
   test("a box too narrow for one column ⇒ nothing drawn, not an empty svg", () => {
-    expect(draw(series, 0)).toBe("");
     expect(draw(series, SLOT_W - 1)).toBe("");
+  });
+
+  test("an unmeasured box still draws — the full grid, for the CSS to crop (T345)", () => {
+    // The box measures 0 until it exists; drawing nothing there is how the whole
+    // histogram vanished from the stand's header.
+    const out = draw(series, 0);
+    expect(out).toContain(`width="${(2 + 60) * SLOT_W}"`);
+    expect(out).toContain(">per-minute</title>");
   });
 
   test("every column carries its time + spend tooltip", () => {

@@ -6,6 +6,7 @@ import {
   healthColor,
   healthRatio,
   layoutHistogram,
+  measureWidth,
   orbText,
 } from "../src/token-meter";
 import type { TokenSeries } from "../src/types";
@@ -65,7 +66,7 @@ describe("histogram layout — fixed 5px time grid (§12.8, FR-103; T344)", () =
   const lay = (s: TokenSeries, box = WIDE, now = T0): ReturnType<typeof layoutHistogram> =>
     layoutHistogram(s, box, 20, now);
 
-  test("empty when there are no columns, no width, or no height", () => {
+  test("empty when there are no columns, no room for one, or no height", () => {
     const none: TokenSeries = {
       minutes: [],
       hours: [],
@@ -74,9 +75,18 @@ describe("histogram layout — fixed 5px time grid (§12.8, FR-103; T344)", () =
       maxThreshold: 1000,
     };
     expect(lay(none).bars).toEqual([]);
-    expect(lay(series, 0).bars).toEqual([]);
     expect(lay(series, 4).bars).toEqual([]); // less than one whole column fits
     expect(layoutHistogram(series, WIDE, 0, T0).bars).toEqual([]);
+  });
+
+  test("an UNMEASURED box (0) draws the whole grid — the widget never vanishes", () => {
+    // T345: a box of 0 means "not measured yet", not "no room". Drawing nothing there
+    // is how the histogram disappeared from the stand; the CSS crops the overflow.
+    const l = lay(series, 0);
+    expect(l.width).toBe((2 + 60) * SLOT_W); // every hour slot + the whole minute span
+    expect(l.droppedHours).toBe(0);
+    expect(l.bars).toHaveLength(5);
+    expect(lay(series, -1).width).toBe(l.width);
   });
 
   test("EVERY column is exactly SLOT_W wide — never wider, in either zone", () => {
@@ -346,5 +356,77 @@ describe("orb caption vs tooltip (§12.8, FR-103)", () => {
     expect(orbText(0, 1000, "tok").label).toBe("0%");
     expect(orbText(504, 1000, "tok").label).toBe("50%");
     expect(orbText(1500, 1000, "tok").label).toBe("150%"); // honest: over budget is visible
+  });
+});
+
+// ── T345: the width measurement itself, the piece that broke ──
+
+describe("measureWidth (§12.8; T345)", () => {
+  interface FakeObserver {
+    fire: () => void;
+    disconnected: boolean;
+    observed: unknown;
+  }
+  const withObserver = (run: (observer: () => FakeObserver | undefined) => void): void => {
+    const globals = globalThis as { ResizeObserver?: unknown };
+    const saved = globals.ResizeObserver;
+    let made: FakeObserver | undefined;
+    globals.ResizeObserver = class {
+      constructor(callback: () => void) {
+        made = { fire: callback, disconnected: false, observed: undefined };
+      }
+      observe(node: unknown): void {
+        if (made !== undefined) made.observed = node;
+      }
+      disconnect(): void {
+        if (made !== undefined) made.disconnected = true;
+      }
+    };
+    try {
+      run(() => made);
+    } finally {
+      globals.ResizeObserver = saved;
+    }
+  };
+
+  test("reports the width at once and again on every resize", () => {
+    withObserver((observer) => {
+      const node = { clientWidth: 400 };
+      const seen: number[] = [];
+      const detach = measureWidth(node, (w) => seen.push(w));
+      expect(seen).toEqual([400]); // measured the moment the node exists — no waiting
+      expect(observer()?.observed).toBe(node);
+      node.clientWidth = 250;
+      observer()?.fire();
+      expect(seen).toEqual([400, 250]);
+      detach();
+      expect(observer()?.disconnected).toBe(true);
+    });
+  });
+
+  test("a node that appears LATE is still measured (the regression)", () => {
+    // The meter renders nothing until its first poll answers, so the box attaches
+    // several renders in: measuring is tied to the NODE, never to mount time.
+    withObserver((observer) => {
+      const seen: number[] = [];
+      const detach = measureWidth({ clientWidth: 812 }, (w) => seen.push(w));
+      expect(seen).toEqual([812]);
+      expect(observer()?.observed).toBeDefined();
+      detach();
+    });
+  });
+
+  test("without a ResizeObserver it still measures once, and detaching is safe", () => {
+    const globals = globalThis as { ResizeObserver?: unknown };
+    const saved = globals.ResizeObserver;
+    globals.ResizeObserver = undefined;
+    try {
+      const seen: number[] = [];
+      const detach = measureWidth({ clientWidth: 640 }, (w) => seen.push(w));
+      expect(seen).toEqual([640]);
+      expect(() => detach()).not.toThrow();
+    } finally {
+      globals.ResizeObserver = saved;
+    }
   });
 });

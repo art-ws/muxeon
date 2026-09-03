@@ -173,8 +173,13 @@ export function layoutHistogram(
   height: number,
   now: number,
 ): HistLayout {
-  const capacity = Math.max(0, Math.floor(boxWidth / SLOT_W)); // whole columns only
-  if (capacity === 0 || height <= 0) return EMPTY;
+  // A box of 0 means NOT MEASURED YET (or never measured — a browser without a
+  // ResizeObserver): lay out the WHOLE grid and let the box's `overflow: hidden`
+  // crop it from the left. The picture is then one sliver-column off at the far
+  // edge, which is worth it — an unmeasured box used to draw NOTHING, and a widget
+  // that can vanish outright is worse than one that is 4px imprecise (T345).
+  const capacity = boxWidth <= 0 ? Number.POSITIVE_INFINITY : Math.floor(boxWidth / SLOT_W); // whole columns
+  if (capacity < 1 || height <= 0) return EMPTY;
 
   // Per-minute grid: `minuteSpan` slots ending at the current minute. Anchored on the
   // LATEST of the browser clock and the data, so a browser running behind the server
@@ -235,4 +240,36 @@ export function layoutHistogram(
   );
 
   return { bars, width: hoursW + minutesW, hoursW, minutesW, droppedHours: hourCut };
+}
+
+/** What the width measurement needs of a DOM node — its inner width in CSS pixels. */
+export interface WidthNode {
+  readonly clientWidth: number;
+}
+
+type WidthObserverCtor = new (
+  callback: () => void,
+) => {
+  observe: (node: WidthNode) => void;
+  disconnect: () => void;
+};
+
+/**
+ * Report `node`'s width now and on every resize; returns the detach.
+ *
+ * Framework-free on purpose — this is the piece that broke. The first cut measured
+ * inside a `useEffect([])`, which runs on MOUNT, while the meter still renders
+ * `null` (it has no series until the first poll answers). The box did not exist
+ * yet, the effect bailed, its empty deps kept it from ever running again, and the
+ * histogram was gone for good. The component now attaches this through a CALLBACK
+ * REF — fired when the node itself appears, however many renders later — and the
+ * logic is testable without a DOM.
+ */
+export function measureWidth(node: WidthNode, onWidth: (width: number) => void): () => void {
+  onWidth(node.clientWidth);
+  const Observer = (globalThis as { ResizeObserver?: WidthObserverCtor }).ResizeObserver;
+  if (Observer === undefined) return () => undefined; // no live updates; the box stays as measured
+  const observer = new Observer(() => onWidth(node.clientWidth));
+  observer.observe(node);
+  return () => observer.disconnect();
 }

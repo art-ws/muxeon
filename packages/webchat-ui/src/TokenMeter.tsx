@@ -11,7 +11,7 @@
 // the first measurement the box is 0 wide and the histogram simply doesn't draw —
 // one frame, and never a wrong picture. Geometry/colour maths live in token-meter.ts.
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { fetchTokenSeries } from "./api";
 import { useT } from "./i18n-context";
 import {
@@ -21,6 +21,7 @@ import {
   healthColor,
   healthRatio,
   layoutHistogram,
+  measureWidth,
   orbText,
 } from "./token-meter";
 import type { TokenSeries } from "./types";
@@ -108,22 +109,21 @@ export function HistCanvas({
 }
 
 /**
- * The histogram box's inner width in px, kept live by a ResizeObserver (0 until the
- * first measurement, and in a DOM-less render). The width decides how many hourly
- * columns fit, so it has to be a real number — the old stretched viewBox needed none.
+ * The histogram box's inner width in px, kept live by a ResizeObserver; 0 until the
+ * box exists (and in a DOM-less render), which the layout reads as "not measured"
+ * and answers with the full grid rather than with nothing.
+ *
+ * A CALLBACK REF, not an effect: the meter renders `null` until its first poll
+ * answers, so an effect with empty deps fires while there is no box to measure and
+ * never gets a second chance — that is exactly how the histogram disappeared (T345).
+ * A callback ref fires when the node attaches, whenever that turns out to be.
  */
-function useBoxWidth(): { ref: React.RefObject<HTMLDivElement | null>; width: number } {
-  const ref = useRef<HTMLDivElement | null>(null);
+function useBoxWidth(): { ref: (node: HTMLDivElement | null) => void; width: number } {
   const [width, setWidth] = useState(0);
-  useEffect(() => {
-    const box = ref.current;
-    if (box === null) return;
-    const measure = (): void => setWidth(box.clientWidth);
-    measure();
-    if (typeof ResizeObserver === "undefined") return; // non-DOM render: stays unmeasured
-    const observer = new ResizeObserver(measure);
-    observer.observe(box);
-    return () => observer.disconnect();
+  const detach = useRef<(() => void) | undefined>(undefined);
+  const ref = useCallback((node: HTMLDivElement | null): void => {
+    detach.current?.();
+    detach.current = node === null ? undefined : measureWidth(node, setWidth);
   }, []);
   return { ref, width };
 }

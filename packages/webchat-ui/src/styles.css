@@ -1398,8 +1398,12 @@ body,
   justify-content: flex-end;
   overflow: hidden;
 }
+/* never SHRINK the drawing: it is sized in real pixels, and a flex shrink would
+   rescale the whole viewBox (the stretching T344 removed). Too wide for the box —
+   because the box was never measured — it gets CROPPED from the left instead. */
 .token-hist svg {
   display: block;
+  flex: 0 0 auto;
 }
 
 /* orb + percentage: a horizontal pair, vertically centred, pinned right (last in
