@@ -1099,7 +1099,11 @@ export async function bootstrap(options: BootstrapOptions = {}): Promise<MuxeonS
       tokenSeries: (name) => {
         const cfg = tokenConfigs.get(name);
         if (cfg === undefined || !agents.has(name)) return undefined;
-        return { ...tokenStore.series(name, Date.now()), maxThreshold: cfg.maxThreshold };
+        return {
+          ...tokenStore.series(name, Date.now()),
+          maxThreshold: cfg.maxThreshold,
+          minuteSpanMs: cfg.minuteSpanMs, // fixed width of the panel's minute zone (T344)
+        };
       },
       // Session clock (§5.5, FR-197) — the SAME clock the agent plane serves,
       // rendered as durations: the panel runs on the viewer's browser clock, and

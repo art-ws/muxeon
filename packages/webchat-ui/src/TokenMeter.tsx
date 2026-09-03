@@ -1,25 +1,26 @@
-// The chat-header token meter (§12.8, FR-103): a full-width spend histogram (each
-// bar = tokens spent that minute/hour, coloured by the health of the level then,
-// same green→yellow→red scale as the orb) over a two-colour full-height zone wash
-// marking the hourly (older) vs per-minute (recent) regions, with per-bar tooltips
-// (time + spend); then, pinned right, the health orb with the token count. Polls
-// GET /api/agents/:name/tokens; renders nothing when the peer's type isn't tracked.
+// The chat-header token meter (§12.8, FR-103): a spend histogram (each bar = tokens
+// spent that minute/hour, coloured by the health of the level then, same green→yellow→
+// red scale as the orb) over a two-colour full-height zone wash marking the hourly
+// (older) vs per-minute (recent) regions, with per-bar tooltips (time + spend); then,
+// pinned right, the health orb with the token count. Polls GET /api/agents/:name/
+// tokens; renders nothing when the peer's type isn't tracked.
 //
-// The SVG uses a fixed viewBox stretched to the container (preserveAspectRatio
-// "none") so it fills the width with NO pixel measurement — it can never fail to
-// render on a layout-timing race. Geometry/colour maths live in token-meter.ts.
+// Since T344 the columns sit on a fixed 5px TIME grid instead of being stretched to
+// the container, so the SVG is drawn at its true pixel size and the box is MEASURED
+// (ResizeObserver, like the feed pin) to decide how many hourly columns fit. Before
+// the first measurement the box is 0 wide and the histogram simply doesn't draw —
+// one frame, and never a wrong picture. Geometry/colour maths live in token-meter.ts.
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { fetchTokenSeries } from "./api";
 import { useT } from "./i18n-context";
 import {
-  HIST_VBW,
   type HistBar,
-  buildBars,
+  type HistLayout,
   fmtTokens,
   healthColor,
   healthRatio,
-  hourZoneWidth,
+  layoutHistogram,
   orbText,
 } from "./token-meter";
 import type { TokenSeries } from "./types";
@@ -63,9 +64,74 @@ function Bars({ bars, unit }: { bars: readonly HistBar[]; unit: string }): React
   );
 }
 
+/**
+ * The drawn histogram at its true pixel size (T344): the two zone washes, then the
+ * columns. Split out of {@link TokenMeter} so a render test can pin the JSX branches
+ * — an empty zone must not leave a zero-width `<rect>` behind.
+ */
+export function HistCanvas({
+  layout,
+  height,
+  unit,
+  hourly,
+  perMinute,
+}: {
+  layout: HistLayout;
+  height: number;
+  unit: string;
+  hourly: string;
+  perMinute: string;
+}): React.JSX.Element | null {
+  if (layout.width <= 0) return null;
+  return (
+    <svg
+      width={layout.width}
+      height={height}
+      viewBox={`0 0 ${layout.width} ${height}`}
+      role="img"
+      aria-label="token spend histogram"
+    >
+      {/* full-height zone wash marks the region — blue = hourly (older), purple = per-minute */}
+      {layout.hoursW > 0 && (
+        <rect x={0} y={0} width={layout.hoursW} height={height} fill={HOUR_BG}>
+          <title>{hourly}</title>
+        </rect>
+      )}
+      {layout.minutesW > 0 && (
+        <rect x={layout.hoursW} y={0} width={layout.minutesW} height={height} fill={MIN_BG}>
+          <title>{perMinute}</title>
+        </rect>
+      )}
+      <Bars bars={layout.bars} unit={unit} />
+    </svg>
+  );
+}
+
+/**
+ * The histogram box's inner width in px, kept live by a ResizeObserver (0 until the
+ * first measurement, and in a DOM-less render). The width decides how many hourly
+ * columns fit, so it has to be a real number — the old stretched viewBox needed none.
+ */
+function useBoxWidth(): { ref: React.RefObject<HTMLDivElement | null>; width: number } {
+  const ref = useRef<HTMLDivElement | null>(null);
+  const [width, setWidth] = useState(0);
+  useEffect(() => {
+    const box = ref.current;
+    if (box === null) return;
+    const measure = (): void => setWidth(box.clientWidth);
+    measure();
+    if (typeof ResizeObserver === "undefined") return; // non-DOM render: stays unmeasured
+    const observer = new ResizeObserver(measure);
+    observer.observe(box);
+    return () => observer.disconnect();
+  }, []);
+  return { ref, width };
+}
+
 export function TokenMeter({ peer }: { peer: string }): React.JSX.Element | null {
   const t = useT();
   const [series, setSeries] = useState<TokenSeries | undefined>(undefined);
+  const box = useBoxWidth();
 
   useEffect(() => {
     let alive = true;
@@ -93,34 +159,21 @@ export function TokenMeter({ peer }: { peer: string }): React.JSX.Element | null
   const color = healthColor(healthRatio(series.current, series.maxThreshold));
   // Percentage on the header, exact count in the tooltip (operator request).
   const { label, title } = orbText(series.current, series.maxThreshold, unit);
-  const bars = buildBars(series, HIST_H);
-  const hoursW = hourZoneWidth(series);
+  const layout = layoutHistogram(series, box.width, HIST_H, Date.now());
 
   return (
     <div className="token-meter">
-      <div className="token-hist">
+      {/* the box is the measured surface; the histogram hugs its RIGHT edge, so "now"
+          always sits next to the orb and the older hours fall off to the left */}
+      <div className="token-hist" ref={box.ref}>
         {nCols > 0 && (
-          <svg
-            width="100%"
+          <HistCanvas
+            layout={layout}
             height={HIST_H}
-            viewBox={`0 0 ${HIST_VBW} ${HIST_H}`}
-            preserveAspectRatio="none"
-            role="img"
-            aria-label="token spend histogram"
-          >
-            {/* full-height zone wash marks the region — blue = hourly (older), purple = per-minute */}
-            {hoursW > 0 && (
-              <rect x={0} y={0} width={hoursW} height={HIST_H} fill={HOUR_BG}>
-                <title>{t("hourly")}</title>
-              </rect>
-            )}
-            {hoursW < HIST_VBW && (
-              <rect x={hoursW} y={0} width={HIST_VBW - hoursW} height={HIST_H} fill={MIN_BG}>
-                <title>{t("per-minute")}</title>
-              </rect>
-            )}
-            <Bars bars={bars} unit={unit} />
-          </svg>
+            unit={unit}
+            hourly={t("hourly")}
+            perMinute={t("per-minute")}
+          />
         )}
       </div>
       <div className="token-orb-wrap" title={title}>

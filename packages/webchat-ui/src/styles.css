@@ -1385,12 +1385,18 @@ body,
   gap: 14px;
 }
 
-/* the histogram fills ALL free horizontal space; bars fill the height, no padding */
+/* The histogram box takes the free horizontal space (basis 0 — its own content must
+   never feed back into the measured width, T344) and the drawn SVG, now sized in real
+   pixels on a 5px grid, hugs the RIGHT edge: the newest column ends up next to the orb
+   and the oldest hours are the ones that fall off a narrow screen. */
 .token-hist {
-  flex: 1 1 auto;
+  flex: 1 1 0;
   min-width: 0;
   height: 22px;
   line-height: 0;
+  display: flex;
+  justify-content: flex-end;
+  overflow: hidden;
 }
 .token-hist svg {
   display: block;

@@ -2,7 +2,7 @@
 // both the orb and each histogram bar), number formatting, and the bar geometry.
 // Kept out of the TSX so bun tests can pin the maths; the component is a thin view.
 
-import type { TokenSeries } from "./types";
+import type { TokenBucket, TokenSeries } from "./types";
 
 /** current / maxThreshold, clamped to [0, 1] (over-threshold pins at full red). */
 export function healthRatio(current: number, maxThreshold: number): number {
@@ -56,7 +56,30 @@ export function orbText(
   return { label: `${pct}%`, title: `${count} / ${fmtTokens(maxThreshold)} (${pct}%)` };
 }
 
-/** One histogram bar (viewBox units): geometry, health colour, and tooltip data. */
+// ── Histogram geometry: a fixed-pitch TIME grid (T344, operator 2026-09-03) ──
+//
+// Before T344 the columns were laid out BY INDEX inside a stretched viewBox: the
+// fewer buckets there were, the wider each one drew, and an interval with no samples
+// simply vanished — two columns an hour apart sat shoulder to shoulder. Now every
+// column occupies exactly `SLOT_W` px on a grid of real time, so a silent interval
+// leaves an EMPTY slot of the same width and the picture keeps its time axis.
+
+/** Grid steps of the two resolutions. */
+const MINUTE_MS = 60_000;
+const HOUR_MS = 3_600_000;
+
+/** Mirror of the sampler's `minuteSpan` default (§12.8) — used when the wire omits it. */
+export const DEFAULT_MINUTE_SPAN_MS = 60 * MINUTE_MS;
+
+/**
+ * Column pitch in PIXELS — fixed, never wider (operator: "не превышала 5px"). Every
+ * column, hourly or per-minute, is exactly this wide, and so is the gap left by an
+ * interval that has no samples: same width means the eye can compare two columns by
+ * height alone, and a hole in the history reads as a hole.
+ */
+export const SLOT_W = 5;
+
+/** One histogram bar (px): geometry, health colour, and tooltip data. */
 export interface HistBar {
   readonly x: number;
   readonly y: number;
@@ -66,99 +89,150 @@ export interface HistBar {
   readonly color: string;
   /** Bucket start (unix ms) — for the tooltip. */
   readonly t: number;
-  /** Tokens SPENT in this bucket (Δ level vs the previous same-resolution bucket). */
+  /** Tokens SPENT in this bucket (Δ level vs the previous SAMPLED bucket of the zone). */
   readonly spend: number;
   /** Which resolution this column belongs to (drives the X-axis colour band). */
   readonly zone: "hour" | "minute";
 }
 
-/**
- * Fixed viewBox width the bars are laid out in; the SVG stretches it to the real
- * container width (`preserveAspectRatio="none"`), so NO pixel measurement is needed
- * — the histogram always renders regardless of layout timing.
- */
-export const HIST_VBW = 1000;
+/** The whole histogram in pixels: what to draw and how wide the two zones are. */
+export interface HistLayout {
+  readonly bars: readonly HistBar[];
+  /** Total drawn width (px) — the SVG's width; the box right-aligns it under the orb. */
+  readonly width: number;
+  /** Width of the hourly (older, left) zone — 0 when no hourly column fits or exists. */
+  readonly hoursW: number;
+  /** Width of the per-minute (recent, right) zone. */
+  readonly minutesW: number;
+  /** Hourly columns dropped because the box was too narrow (the OLDEST ones). */
+  readonly droppedHours: number;
+}
+
+const EMPTY: HistLayout = { bars: [], width: 0, hoursW: 0, minutesW: 0, droppedHours: 0 };
 
 /**
- * Column widths (viewBox units): a minute column is laid out `MINUTE_SLOT_RATIO` of an
- * hour column's width, so the recent per-minute region reads as a narrower band than
- * the older hourly one; the two zones fill `HIST_VBW` exactly. A minute column never
- * renders thinner than `MINUTE_SLOT_MIN` — when that floor bites (many hour buckets),
- * minutes hold the floor and the hours absorb the remainder, so "not thinner than ~3px"
- * overrides the strict ratio. Horizontal units stretch to the container (the SVG does no
- * pixel measurement by design), so the floor is approximate.
+ * Spend per bucket: Δ level vs the previous bucket the sampler actually RECORDED in
+ * that resolution, clamped ≥0 (a drop from `/compact` or `/clear` is not consumption).
+ * A gap in the grid is not a reset — the comparison skips over it to the last level we
+ * really saw, so the spend after a silence is attributed to the column that ends it.
  */
-const MINUTE_SLOT_RATIO = 1 / 3;
-/** Minute-column slot floor in viewBox units (bar = ½ slot ⇒ ~3px visible). */
-export const MINUTE_SLOT_MIN = 6;
+function spends(buckets: readonly TokenBucket[]): readonly number[] {
+  return buckets.map((b, i) => {
+    const prev = buckets[i - 1];
+    return prev === undefined ? 0 : Math.max(0, b.tokens - prev.tokens);
+  });
+}
 
-function slotWidths(nH: number, nM: number): { slotH: number; slotM: number } {
-  const weight = nH + nM * MINUTE_SLOT_RATIO; // hour weight 1, minute weight 1/3
-  if (weight <= 0) return { slotH: 0, slotM: 0 };
-  let slotH = HIST_VBW / weight;
-  let slotM = slotH * MINUTE_SLOT_RATIO;
-  if (nM > 0 && slotM < MINUTE_SLOT_MIN) {
-    slotM = Math.min(MINUTE_SLOT_MIN, HIST_VBW / nM); // minutes alone can't overflow the width
-    slotH = nH > 0 ? Math.max((HIST_VBW - nM * slotM) / nH, 0) : 0;
+/** A bucket pinned to its slot on the zone's time grid, with its spend. */
+interface Placed {
+  readonly slot: number;
+  readonly bucket: TokenBucket;
+  readonly spend: number;
+}
+
+/** Drop buckets that fall outside the grid (clock skew, stale data), keep the rest. */
+function place(
+  buckets: readonly TokenBucket[],
+  gridStart: number,
+  step: number,
+  slots: number,
+  cut: number,
+): readonly Placed[] {
+  const sp = spends(buckets);
+  const out: Placed[] = [];
+  for (const [i, bucket] of buckets.entries()) {
+    const slot = Math.round((bucket.t - gridStart) / step);
+    if (slot < cut || slot >= slots) continue;
+    out.push({ slot, bucket, spend: sp[i] ?? 0 });
   }
-  return { slotH, slotM };
-}
-
-/** Width of the hourly region (== left edge of the per-minute region) — drives the zone wash. */
-export function hourZoneWidth(series: TokenSeries): number {
-  const { slotH } = slotWidths(series.hours.length, series.minutes.length);
-  return series.hours.length * slotH;
+  return out;
 }
 
 /**
- * Lay out spend spikes across the viewBox (`HIST_VBW` × `height`), no vertical padding.
- * Each column's HEIGHT is the tokens spent in that bucket — the growth of the level vs
- * the previous bucket of the SAME resolution, clamped ≥0 (a drop from /compact or /clear
- * is not consumption) — scaled to the busiest bucket of its OWN resolution, so hours and
- * minutes normalise independently and the tallest bar in each zone is full-height (an
- * hour's spend dwarfs a minute's; a shared scale would flatten the per-minute bars). Its
- * COLOUR is the green→red health scale applied to the bucket's ABSOLUTE token level —
- * the max sampled in that slot (`tokens / maxThreshold`, same scale as the orb): red means
- * the context was ~full then, INDEPENDENT of the bar's height — a short bar (little spent)
- * can be red if the level was high, and a tall one green if the level was low.
- * Hourly columns (older) sit left of the narrower per-minute columns (recent).
+ * Lay the two zones out inside a box `boxWidth` px wide, `height` px tall.
+ *
+ * **Widths.** Columns sit on a time grid at a fixed `SLOT_W` pitch, so the per-minute
+ * zone — always the whole `minuteSpan`, one column per minute whether or not that
+ * minute was sampled — is ALWAYS the same width. The hourly zone takes whatever is
+ * left and shows as many columns as fit, dropping the OLDEST first: the deep history
+ * is what a narrow window can afford to lose, the last hour of detail is not. On a box
+ * too narrow even for the minute zone, the minute columns trim the same way.
+ *
+ * **Heights.** A column's height is the tokens spent in that bucket (see `spends`),
+ * scaled to the busiest VISIBLE column of its OWN zone — hours and minutes normalise
+ * independently (an hour's spend dwarfs a minute's; a shared scale flattens the minute
+ * bars), and a spike scrolled out of the box no longer flattens the ones on screen.
+ *
+ * **Colour** stays the green→red health of the bucket's ABSOLUTE level (`tokens /
+ * maxThreshold`, the orb's scale), decoupled from height: a short column can be red
+ * (little spent while the context was nearly full) and a tall one green.
  */
-export function buildBars(series: TokenSeries, height: number): readonly HistBar[] {
-  const cols = [
-    ...series.hours.map((b) => ({ ...b, zone: "hour" as const })),
-    ...series.minutes.map((b) => ({ ...b, zone: "minute" as const })),
-  ];
-  const n = cols.length;
-  if (n === 0 || height <= 0) return [];
-  const spends = cols.map((c, i) => {
-    const prev = cols[i - 1];
-    if (prev === undefined || prev.zone !== c.zone) return 0; // first of a resolution
-    return Math.max(0, c.tokens - prev.tokens);
-  });
-  const nH = series.hours.length;
-  // Each resolution scales to ITS OWN busiest bucket, not a shared max: an hour
-  // accumulates far more than a minute, so one shared scale flattens the per-minute
-  // bars to nothing. Independent maxima keep the tallest bar in EACH zone full-height.
-  const maxSpendH = Math.max(1, ...spends.slice(0, nH));
-  const maxSpendM = Math.max(1, ...spends.slice(nH));
-  const { slotH, slotM } = slotWidths(nH, series.minutes.length);
-  const hoursW = nH * slotH; // hours fill [0, hoursW); the narrower minutes fill the rest
-  return cols.map((c, i) => {
-    const slot = c.zone === "hour" ? slotH : slotM;
-    const left = c.zone === "hour" ? i * slotH : hoursW + (i - nH) * slotM;
-    const spend = spends[i] ?? 0;
-    const maxSpend = c.zone === "hour" ? maxSpendH : maxSpendM;
-    const h = spend > 0 ? Math.max((spend / maxSpend) * height, 1) : 0;
-    const w = slot; // flush columns — each fills its full slot, no gaps between them
-    return {
-      x: left,
-      y: height - h,
-      w,
-      h,
-      color: healthColor(healthRatio(c.tokens, series.maxThreshold)), // absolute level (max in slot) vs ceiling
-      t: c.t,
-      spend,
-      zone: c.zone,
-    };
-  });
+export function layoutHistogram(
+  series: TokenSeries,
+  boxWidth: number,
+  height: number,
+  now: number,
+): HistLayout {
+  const capacity = Math.max(0, Math.floor(boxWidth / SLOT_W)); // whole columns only
+  if (capacity === 0 || height <= 0) return EMPTY;
+
+  // Per-minute grid: `minuteSpan` slots ending at the current minute. Anchored on the
+  // LATEST of the browser clock and the data, so a browser running behind the server
+  // still shows the newest column instead of dropping it off the grid.
+  const spanMs = series.minuteSpanMs ?? DEFAULT_MINUTE_SPAN_MS;
+  const minuteSlots = Math.max(1, Math.round(spanMs / MINUTE_MS));
+  const anchor = Math.max(now, series.updatedAt, series.minutes.at(-1)?.t ?? 0);
+  const minuteEnd = Math.floor(anchor / MINUTE_MS) * MINUTE_MS;
+  const minuteStart = minuteEnd - (minuteSlots - 1) * MINUTE_MS;
+
+  // Hourly grid: from the oldest hourly bucket the server still keeps to the newest —
+  // data-driven, so a young agent gets a short blue zone rather than a 24h empty band,
+  // while a gap INSIDE that range keeps its empty slot.
+  const oldestHour = series.hours[0]?.t;
+  const newestHour = series.hours.at(-1)?.t;
+  const hourSlots =
+    oldestHour === undefined || newestHour === undefined
+      ? 0
+      : Math.round((newestHour - oldestHour) / HOUR_MS) + 1;
+
+  const minuteVis = Math.min(minuteSlots, capacity); // the fixed zone claims the box first
+  const hourVis = Math.min(hourSlots, capacity - minuteVis);
+  const hoursW = hourVis * SLOT_W;
+  const minutesW = minuteVis * SLOT_W;
+  const hourCut = hourSlots - hourVis; // oldest columns that did not fit
+  const minuteCut = minuteSlots - minuteVis;
+
+  const bars: HistBar[] = [];
+  const draw = (
+    placed: readonly Placed[],
+    zone: "hour" | "minute",
+    cut: number,
+    originX: number,
+  ): void => {
+    const maxSpend = Math.max(1, ...placed.map((p) => p.spend));
+    for (const p of placed) {
+      const h = p.spend > 0 ? Math.max((p.spend / maxSpend) * height, 1) : 0;
+      bars.push({
+        x: originX + (p.slot - cut) * SLOT_W,
+        y: height - h,
+        w: SLOT_W,
+        h,
+        color: healthColor(healthRatio(p.bucket.tokens, series.maxThreshold)),
+        t: p.bucket.t,
+        spend: p.spend,
+        zone,
+      });
+    }
+  };
+  if (hourVis > 0 && oldestHour !== undefined) {
+    draw(place(series.hours, oldestHour, HOUR_MS, hourSlots, hourCut), "hour", hourCut, 0);
+  }
+  draw(
+    place(series.minutes, minuteStart, MINUTE_MS, minuteSlots, minuteCut),
+    "minute",
+    minuteCut,
+    hoursW,
+  );
+
+  return { bars, width: hoursW + minutesW, hoursW, minutesW, droppedHours: hourCut };
 }

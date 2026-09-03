@@ -192,6 +192,12 @@ export interface TokenSeries {
   readonly updatedAt: number;
   /** Token ceiling for the health orb — 100% / red. */
   readonly maxThreshold: number;
+  /**
+   * Depth of the per-minute zone (`types.<type>.tokens.minuteSpan`, §12.8) in ms —
+   * the histogram lays that many minute slots whether or not each was sampled, so the
+   * zone keeps ONE width (T344). Absent from an older server ⇒ the 60m default.
+   */
+  readonly minuteSpanMs?: number;
 }
 
 export interface BlobMeta {

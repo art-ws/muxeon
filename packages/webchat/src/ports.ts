@@ -33,6 +33,12 @@ export interface TokenSeries {
   readonly updatedAt: number;
   /** Token ceiling for the health orb — 100% / red. */
   readonly maxThreshold: number;
+  /**
+   * The type's `minuteSpan` in ms (§12.8): how deep the per-minute zone runs. The
+   * panel draws one slot per minute of it, sampled or not, so the zone has a FIXED
+   * width (T344) — without it the client would have to guess the span from the data.
+   */
+  readonly minuteSpanMs?: number;
 }
 
 /**

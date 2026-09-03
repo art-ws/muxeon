@@ -707,8 +707,17 @@ so in words. A person's chat has no chip: a human has no session.
 The header of an agent chat can show how loaded that agent's context is: a spend
 histogram across the last 24h, and — pinned right — a health orb with the
 percentage of the ceiling. **Hover the orb for the exact count and the ceiling it
-is a percentage of**; the header itself stays short so the histogram gets the
-width.
+is a percentage of**.
+
+The histogram is drawn on a grid of real time: every column is **5px wide,
+always**, and a stretch with no samples leaves an empty slot of the same width —
+so distance across the histogram means elapsed time, not "how many samples there
+happen to be". The recent per-minute zone (purple) always covers its whole
+`minuteSpan`, so it keeps one width; the older per-hour zone (blue) takes
+whatever width is left and shows as many hours as fit, dropping the oldest
+first — narrow the window and you lose deep history, never the last hour of
+detail. The drawing hugs the right edge, next to the orb, so "now" is always in
+the same place.
 
 **Where the number comes from — and what that implies.** Muxeon does not talk to
 any vendor API and counts nothing itself. It periodically captures the agent's
