@@ -1,3 +1,12 @@
+## [0.1.28](https://github.com/art-ws/muxeon/compare/v0.1.27...v0.1.28) (2026-09-25)
+
+
+### Changes
+
+* **T348:** four background loops left an abort listener behind on every tick
+
+  Reported from the stand: 65-70% CPU while idle, after 20 days of uptime. ([43bad4c](https://github.com/art-ws/muxeon/commit/43bad4c3dec419920ca7bf47eb839dff0c8a4126))
+
 ## [0.1.27](https://github.com/art-ws/muxeon/compare/v0.1.26...v0.1.27) (2026-09-03)
 
 
