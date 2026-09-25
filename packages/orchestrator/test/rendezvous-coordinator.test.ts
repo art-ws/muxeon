@@ -4,6 +4,7 @@ import { RendezvousStore } from "../src/rendezvous";
 import type { RendezvousFile } from "../src/rendezvous";
 import { RendezvousCoordinator, rendezvousPayload } from "../src/rendezvous-coordinator";
 import type { RendezvousStateStore } from "../src/rendezvous-state";
+import { countedSignal } from "./counted-signal";
 
 const T0 = 1_000_000;
 const WINDOW = 15_000;
@@ -39,6 +40,7 @@ function makeCoord(
     maxAttempts?: number;
     routeOk?: boolean;
     enabled?: boolean;
+    sleep?: (ms: number) => Promise<void>;
   } = {},
 ) {
   const store = new RendezvousStore();
@@ -63,6 +65,7 @@ function makeCoord(
     windowMs: WINDOW,
     maxAttempts: opts.maxAttempts ?? 3,
     ...(opts.enabled !== undefined ? { enabled: opts.enabled } : {}),
+    ...(opts.sleep !== undefined ? { sleep: opts.sleep } : {}),
     now: () => clock,
     log: (m) => logs.push(m),
   });
@@ -288,5 +291,21 @@ describe("RendezvousCoordinator (§8.2, FR-105)", () => {
       await settle();
       expect(h.store.has("b", "a")).toBe(false);
     });
+  });
+
+  test("run() detaches its abort listener every sweep — none pile up on the server signal (T348)", async () => {
+    const { controller, signal, attached } = countedSignal();
+    const seen: number[] = [];
+    const h = makeCoord({
+      sleep: async () => {
+        // Called BEFORE this sweep's listener is attached: only leftovers are counted.
+        seen.push(attached());
+        if (seen.length === 50) controller.abort();
+      },
+    });
+    await h.coord.run(signal);
+    expect(seen).toHaveLength(50);
+    expect(Math.max(...seen)).toBe(0);
+    expect(attached()).toBe(0);
   });
 });

@@ -12,6 +12,7 @@ import { type QueuePaths, enqueue, ensureQueueDirs, queuePaths } from "@muxeon/q
 import { Dispatcher } from "../src/dispatcher";
 import { createRetention } from "../src/retention";
 import { AgentState } from "../src/status";
+import { countedSignal } from "./counted-signal";
 
 let root: string;
 let paths: QueuePaths;
@@ -95,4 +96,26 @@ test("run() sweeps on its cadence until aborted", async () => {
   });
   await retention.run(controller.signal);
   expect(sweeps).toBe(3);
+});
+
+test("run()'s own sleep detaches its abort listener every sweep — none pile up (T348)", async () => {
+  // No injected sleep: this is the production path, a real timer racing the signal.
+  const { controller, signal, attached } = countedSignal();
+  const seen: number[] = [];
+  const retention = createRetention({
+    root,
+    targets: [],
+    blobAgeMs: 0,
+    intervalMs: 0,
+    extraSweeps: [
+      async () => {
+        seen.push(attached()); // the sleep before this sweep already ended
+        if (seen.length === 50) controller.abort();
+      },
+    ],
+  });
+  await retention.run(signal);
+  expect(seen).toHaveLength(50);
+  expect(Math.max(...seen)).toBe(0);
+  expect(attached()).toBe(0);
 });

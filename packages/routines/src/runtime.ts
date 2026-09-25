@@ -34,6 +34,25 @@ export async function prime(routines: readonly Routine[], deps: SchedulerDeps): 
   return absorbed;
 }
 
+/**
+ * Sleep that an abort cuts short. The listener is DETACHED when the timer wins:
+ * the signal only fires at stop(), so `{ once: true }` alone would leave one
+ * listener per tick on it for the process lifetime (T348 — ~1.7M after 20 days
+ * at the 1s cadence, all of it re-marked by every GC).
+ */
+export function abortableSleep(ms: number, signal: AbortSignal): Promise<void> {
+  return new Promise((resolve) => {
+    if (signal.aborted) return resolve();
+    const timer = setTimeout(done, ms);
+    function done(): void {
+      clearTimeout(timer);
+      signal.removeEventListener("abort", done);
+      resolve();
+    }
+    signal.addEventListener("abort", done, { once: true });
+  });
+}
+
 export interface SchedulerRuntimeOptions extends SchedulerDeps {
   readonly routinesDir: string;
   readonly knownAgents: Iterable<string>;
@@ -68,20 +87,7 @@ export function startScheduler(options: SchedulerRuntimeOptions): SchedulerHandl
   };
   const abort = new AbortController();
   // Default sleep is abortable, so stop() returns promptly instead of waiting out a tick.
-  const sleep =
-    options.sleep ??
-    ((delay: number) =>
-      new Promise<void>((resolve) => {
-        const timer = setTimeout(resolve, delay);
-        abort.signal.addEventListener(
-          "abort",
-          () => {
-            clearTimeout(timer);
-            resolve();
-          },
-          { once: true },
-        );
-      }));
+  const sleep = options.sleep ?? ((delay: number) => abortableSleep(delay, abort.signal));
 
   const refresh = async (): Promise<readonly Routine[]> => {
     const result = await rescan(rescanOpts);

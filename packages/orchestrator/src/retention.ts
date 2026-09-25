@@ -54,17 +54,18 @@ export interface RetentionHandle {
 }
 
 // Abort-aware sleep so stop() returns promptly instead of waiting out a sweep tick.
+// The listener is detached when the timer wins — the server signal fires only at
+// shutdown, so a `{ once: true }` listener would otherwise stay per sweep (T348).
 const abortableSleep = (ms: number, signal: AbortSignal): Promise<void> =>
   new Promise((resolve) => {
-    const timer = setTimeout(resolve, ms);
-    signal.addEventListener(
-      "abort",
-      () => {
-        clearTimeout(timer);
-        resolve();
-      },
-      { once: true },
-    );
+    if (signal.aborted) return resolve();
+    const timer = setTimeout(done, ms);
+    function done(): void {
+      clearTimeout(timer);
+      signal.removeEventListener("abort", done);
+      resolve();
+    }
+    signal.addEventListener("abort", done, { once: true });
   });
 
 export function createRetention(options: RetentionOptions): RetentionHandle {

@@ -10,6 +10,7 @@ import {
   LivenessProbeSweeper,
   type LivenessTarget,
 } from "../src/liveness-probe";
+import { countedSignal } from "./counted-signal";
 
 interface Kit {
   readonly target: LivenessTarget;
@@ -106,5 +107,22 @@ describe("LivenessProbeSweeper (FR-93, §5.1)", () => {
     await sweeper.tick();
     await flush();
     expect(calls).toBe(2); // not stuck in-flight after a throw
+  });
+
+  test("run() detaches its abort listener every tick — none pile up on the server signal (T348)", async () => {
+    const { controller, signal, attached } = countedSignal();
+    const seen: number[] = [];
+    const sweeper = new LivenessProbeSweeper({
+      targets: [],
+      sleep: async () => {
+        // Called BEFORE this tick's listener is attached: only leftovers are counted.
+        seen.push(attached());
+        if (seen.length === 50) controller.abort();
+      },
+    });
+    await sweeper.run(signal);
+    expect(seen).toHaveLength(50);
+    expect(Math.max(...seen)).toBe(0);
+    expect(attached()).toBe(0);
   });
 });

@@ -149,13 +149,21 @@ export class RendezvousCoordinator {
       await this.sweep();
       // Abort races the sweep sleep (FR-49 spirit): shutdown must never sit out
       // a tick — the injected #sleep stays plain, tests drive sweep() directly.
+      // The listener is detached after every race: the signal fires only at
+      // shutdown, so `{ once: true }` alone would leave one per sweep (T348).
       if (!signal.aborted) {
-        await Promise.race([
-          this.#sleep(this.#sweepIntervalMs),
-          new Promise<void>((resolve) =>
-            signal.addEventListener("abort", () => resolve(), { once: true }),
-          ),
-        ]);
+        let onAbort: (() => void) | undefined;
+        try {
+          await Promise.race([
+            this.#sleep(this.#sweepIntervalMs),
+            new Promise<void>((resolve) => {
+              onAbort = () => resolve();
+              signal.addEventListener("abort", onAbort, { once: true });
+            }),
+          ]);
+        } finally {
+          if (onAbort !== undefined) signal.removeEventListener("abort", onAbort);
+        }
       }
     }
   }

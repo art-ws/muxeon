@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createFsStateStore, startScheduler } from "../src/index";
+import { abortableSleep, createFsStateStore, startScheduler } from "../src/index";
 import { recRouter } from "./helpers";
 
 let root: string;
@@ -53,5 +53,35 @@ describe("startScheduler loop (§6)", () => {
       to: "researcher",
       payload: "wake up",
     });
+  });
+});
+
+describe("abortableSleep (T348)", () => {
+  test("a sleep the timer ends detaches its abort listener — ticks leave nothing on the signal", async () => {
+    const controller = new AbortController();
+    const { signal } = controller;
+    let attached = 0;
+    const add = signal.addEventListener.bind(signal);
+    const remove = signal.removeEventListener.bind(signal);
+    signal.addEventListener = ((type: string, listener: EventListener, options?: unknown) => {
+      attached += 1;
+      add(type, listener, options as AddEventListenerOptions);
+    }) as typeof signal.addEventListener;
+    signal.removeEventListener = ((type: string, listener: EventListener, options?: unknown) => {
+      attached -= 1;
+      remove(type, listener, options as EventListenerOptions);
+    }) as typeof signal.removeEventListener;
+    for (let i = 0; i < 50; i++) await abortableSleep(0, signal);
+    expect(attached).toBe(0); // the scheduler's signal fires only at stop()
+  });
+
+  test("abort cuts a long sleep short, and an aborted signal does not sleep at all", async () => {
+    const controller = new AbortController();
+    const started = Date.now();
+    const pending = abortableSleep(60_000, controller.signal);
+    controller.abort();
+    await pending;
+    await abortableSleep(60_000, controller.signal);
+    expect(Date.now() - started).toBeLessThan(1000);
   });
 });

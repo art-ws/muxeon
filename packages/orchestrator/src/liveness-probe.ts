@@ -75,13 +75,21 @@ export class LivenessProbeSweeper {
    */
   async run(signal: AbortSignal): Promise<void> {
     while (!signal.aborted) {
-      // Abort races the sleep (FR-49 spirit): shutdown never sits out a tick.
-      await Promise.race([
-        this.#sleep(this.#intervalMs),
-        new Promise<void>((resolve) =>
-          signal.addEventListener("abort", () => resolve(), { once: true }),
-        ),
-      ]);
+      // Abort races the sleep (FR-49 spirit): shutdown never sits out a tick. The
+      // listener is detached after every race — the signal fires only at shutdown,
+      // so `{ once: true }` alone would leave one per tick behind (T348).
+      let onAbort: (() => void) | undefined;
+      try {
+        await Promise.race([
+          this.#sleep(this.#intervalMs),
+          new Promise<void>((resolve) => {
+            onAbort = () => resolve();
+            signal.addEventListener("abort", onAbort, { once: true });
+          }),
+        ]);
+      } finally {
+        if (onAbort !== undefined) signal.removeEventListener("abort", onAbort);
+      }
       if (!signal.aborted) await this.tick();
     }
   }
