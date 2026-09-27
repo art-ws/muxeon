@@ -1,3 +1,15 @@
+## [0.1.29](https://github.com/art-ws/muxeon/compare/v0.1.28...v0.1.29) (2026-09-27)
+
+
+### Changes
+
+* **T353:** agent alarms — an agent's cry for any human's attention
+
+  Implements §22 (FR-202…FR-207, invariant §10.35). ([37edc88](https://github.com/art-ws/muxeon/commit/37edc886c135ded3cbb91d6ae0dd76cf95614d6f))
+* **T358:** the alarm modal's mute button is an SVG icon, not an emoji
+
+  The panel's icon set has one rule (T112): stroke SVGs on the 24-grid, currentColor, never an emoji glyph — emoji disagree in weight and render differently on every platform. The alarm modal broke it with 🔊/🔇 in its top-right corner (operator's screenshot). ([07d9b78](https://github.com/art-ws/muxeon/commit/07d9b78e91df800af6e231ca817eb0f3e464551e))
+
 ## [0.1.28](https://github.com/art-ws/muxeon/compare/v0.1.27...v0.1.28) (2026-09-25)
 
 
