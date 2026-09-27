@@ -522,6 +522,28 @@ export interface SchedulesConfig {
   readonly catchUpGrace?: string;
 }
 
+/**
+ * Agent alarms (§22.8, FR-207) — a TOP-LEVEL block like `schedules`: the caps an
+ * alarm must fit and the subsystem's kill switch. Absent ⇒ ON with the defaults
+ * below (the operator's request: "enabled by default"). Unlike reactions there is
+ * nothing to declare before the feature works — an alarm needs only a human
+ * neighbour to be heard by.
+ */
+export interface AlarmsConfig {
+  readonly enabled?: boolean;
+  /** Bytes of alarm text. */
+  readonly maxText?: number;
+  /** Answer options an alarm may offer. */
+  readonly maxOptions?: number;
+  /** Characters per answer option. */
+  readonly maxOptionLength?: number;
+}
+
+/** Defaults of the `alarms` block (§22.8). */
+export const ALARMS_DEFAULT_MAX_TEXT = 4096;
+export const ALARMS_DEFAULT_MAX_OPTIONS = 6;
+export const ALARMS_DEFAULT_MAX_OPTION_LENGTH = 80;
+
 export type TopologyMap = Readonly<Record<string, readonly string[]>>;
 
 export interface MuxeonConfig {
@@ -560,6 +582,11 @@ export interface MuxeonConfig {
    * on, but its command/control halves stay denied until a self grant exists).
    */
   readonly schedules?: SchedulesConfig;
+  /**
+   * Agent alarms (§22.8, FR-207): caps and the kill switch. Absent ⇒ the feature
+   * is ON with defaults; `enabled: false` switches every door off at once.
+   */
+  readonly alarms?: AlarmsConfig;
   /** Per-agent-type defaults keyed by adapter type (§7.1, FR-64). */
   readonly types?: Readonly<Record<string, AgentTypeConfig>>;
   /**
@@ -1428,6 +1455,34 @@ function validateSchedules(value: unknown, path: string): SchedulesConfig {
   return out;
 }
 
+// alarms: { enabled?, maxText?, maxOptions?, maxOptionLength? } — a closed shape
+// (§22.8, FR-207). A cap is a positive integer; a typo must fail the boot rather
+// than become a silent default on the one path an agent uses to cry for help.
+const ALARM_FIELDS = ["enabled", "maxText", "maxOptions", "maxOptionLength"];
+
+function validateAlarms(value: unknown, path: string): AlarmsConfig {
+  const obj = requireObject(value, path);
+  for (const key of Object.keys(obj)) {
+    if (!ALARM_FIELDS.includes(key)) {
+      throw new ConfigError(`unknown alarms field "${key}"`, { path: joinPointer(path, key) });
+    }
+  }
+  const out: {
+    enabled?: boolean;
+    maxText?: number;
+    maxOptions?: number;
+    maxOptionLength?: number;
+  } = {};
+  if (obj.enabled !== undefined) {
+    out.enabled = requireBoolean(obj.enabled, joinPointer(path, "enabled"));
+  }
+  for (const field of ["maxText", "maxOptions", "maxOptionLength"] as const) {
+    if (obj[field] !== undefined)
+      out[field] = requirePositiveInt(obj[field], joinPointer(path, field));
+  }
+  return out;
+}
+
 /** The §7.1 duration grammar in milliseconds — only for the cross-field check above. */
 function parseDurationMs(text: string): number {
   const match = /^(\d+)(ms|s|m|h|d)$/.exec(text);
@@ -1677,6 +1732,7 @@ export function validateStructure(value: unknown): MuxeonConfig {
     root.reactions === undefined ? undefined : validateReactions(root.reactions, "/reactions");
   const schedules =
     root.schedules === undefined ? undefined : validateSchedules(root.schedules, "/schedules");
+  const alarms = root.alarms === undefined ? undefined : validateAlarms(root.alarms, "/alarms");
   const users = root.users === undefined ? undefined : validateUsers(root.users, "/users");
   const imports =
     root.imports === undefined ? undefined : validateImports(root.imports, "/imports");
@@ -1695,6 +1751,7 @@ export function validateStructure(value: unknown): MuxeonConfig {
     ...(groups !== undefined ? { groups } : {}),
     ...(reactions !== undefined ? { reactions } : {}),
     ...(schedules !== undefined ? { schedules } : {}),
+    ...(alarms !== undefined ? { alarms } : {}),
     ...(imports !== undefined ? { imports } : {}),
     ...(federation !== undefined ? { federation } : {}),
   };

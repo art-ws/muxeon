@@ -4,6 +4,7 @@
 // (React elements only, no innerHTML — §12.6) plus copy/source hover actions.
 
 import { useEffect, useMemo, useReducer, useRef, useState } from "react";
+import { AlarmBanner } from "./Alarms";
 import { ConsoleDialog } from "./Console";
 import { FilterNote } from "./FilterNote";
 import { MessageText } from "./MessageText";
@@ -11,6 +12,8 @@ import { ReactionBar } from "./Reactions";
 import { RzArrows } from "./RzArrows";
 import { SessionClock } from "./SessionClock";
 import { TokenMeter } from "./TokenMeter";
+import { alarmLook, alarmRecordLevel } from "./alarm-look";
+import { alarmStyle } from "./alarms-context";
 import { agentAction, blobUrl, clearHistory, exportHistoryUrl, setAgentPaused } from "./api";
 import { usePinnedFeed } from "./feed-pin";
 import { matchesQuery } from "./filter";
@@ -178,6 +181,9 @@ export function ChatView(props: {
         )}
         {peer !== undefined && <ChatActionsMenu key={peer.name} peer={peer} />}
       </header>
+      {/* the quiet part of an alarm (§22.6.6): where "Open chat" lands, with the
+          options still at hand — agents only, a person raises no alarm */}
+      {peer !== undefined && !person && <AlarmBanner agent={peer.name} />}
       <MessageFeed
         peerName={peer?.name}
         thread={props.thread}
@@ -655,9 +661,16 @@ function Bubble(props: {
   // modifier and its API stayed: old history and anything sent through
   // `POST /api/send {raw:true}` must still read as a terminal, not as markdown.
   const asIs = props.record.raw === true || props.record.origin === "raw";
+  // An alarm's trace (§22.6.6): the answer or receipt a person sent from the modal
+  // or the banner wears the alarm's color as a stripe.
+  const alarmLevel = alarmRecordLevel(props.record);
   return (
     <div className={`bubble-row ${props.mine ? "mine" : "theirs"}`}>
-      <div className="bubble" data-msg-id={props.record.id}>
+      <div
+        className={`bubble${alarmLevel !== undefined ? " bubble-alarm alarm-themed" : ""}`}
+        data-msg-id={props.record.id}
+        {...(alarmLevel !== undefined ? { style: alarmStyle(alarmLook(alarmLevel).hue) } : {})}
+      >
         {/* the quoted message (FR-178): author + one trimmed line, clickable —
             a pointer to the message, never a copy of it */}
         {quote !== undefined && (

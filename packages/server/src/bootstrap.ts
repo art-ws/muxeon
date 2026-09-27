@@ -19,6 +19,9 @@ import {
 } from "@muxeon/adapters";
 import type { ChannelIdentity } from "@muxeon/channels";
 import {
+  ALARMS_DEFAULT_MAX_OPTIONS,
+  ALARMS_DEFAULT_MAX_OPTION_LENGTH,
+  ALARMS_DEFAULT_MAX_TEXT,
   type AgentConfig,
   DEFAULT_PRESENCE_SWEEP_MS,
   DEFAULT_PRESENCE_TTL,
@@ -114,6 +117,7 @@ import {
 import { buildSignal } from "@muxeon/signals";
 import {
   type AgentPairs,
+  AlarmsHub,
   type HistoryStore,
   PromptStore,
   type ReactionCatalog,
@@ -796,6 +800,18 @@ export async function bootstrap(options: BootstrapOptions = {}): Promise<MuxeonS
           ...(outcome.message !== undefined ? { message: outcome.message } : {}),
         };
       },
+      // The alarm door for an agent with no plane (§22.3). Read LAZILY like the
+      // two doors above: the hub is built with the channels, and the slot always
+      // belongs to the agent that owns this outbox.
+      alarm: async (input) => {
+        if (alarmsHub === undefined) {
+          return { ok: false, code: "ALARMS_DISABLED", message: "alarms are not wired" };
+        }
+        const outcome = await alarmsHub.call(agent.name, input);
+        return outcome.ok
+          ? { ok: true }
+          : { ok: false, code: outcome.code, message: outcome.message };
+      },
       ...(cadence.outboxPollMs !== undefined ? { pollIntervalMs: cadence.outboxPollMs } : {}),
     });
     if (autoStart) runs.push(outbox.run(abort.signal));
@@ -874,6 +890,9 @@ export async function bootstrap(options: BootstrapOptions = {}): Promise<MuxeonS
   // above (lazily, like the federation handle) and flushed on shutdown (§19.8).
   let reactionsHub: ReactionsHub | undefined;
   let reactionUsage: ReactionUsage | undefined;
+  // Alarms (§22): built with the channels in step 8b (the panel registers its
+  // sockets into it), read lazily by the MCP tool and the outbox drop above.
+  let alarmsHub: AlarmsHub | undefined;
   try {
     // 7. agent-plane core (§8.1): MCP, identity-bound (§8.6). Gated by server.mcp;
     //    mcp:false → no /mcp mount, only operator-plane/channels. No listener yet —
@@ -982,6 +1001,19 @@ export async function bootstrap(options: BootstrapOptions = {}): Promise<MuxeonS
                 ...(reactionsHub !== undefined
                   ? { reactions: agentReactionPlane(reactionsHub) }
                   : {}),
+                // Alarms (§22.3, FR-202): the caller's own slot, through the same
+                // hub the panel and the outbox drop use. Read lazily — the hub is
+                // assembled with the channels, below.
+                alarms: {
+                  call: (agent, input) =>
+                    alarmsHub === undefined
+                      ? Promise.resolve({
+                          ok: false as const,
+                          code: "ALARMS_DISABLED",
+                          message: "alarms are not wired",
+                        })
+                      : alarmsHub.call(agent, input),
+                },
                 // Deferred self-chains (§21.4, FR-190/FR-192). Read lazily like
                 // the reaction hub: the plane exists from step 11b, and MCP
                 // connections only open after the surface starts (step 9).
@@ -1429,6 +1461,43 @@ export async function bootstrap(options: BootstrapOptions = {}): Promise<MuxeonS
           });
     if (reactionsHub !== undefined) await usage.load();
 
+    // 8b'. alarms (§22, FR-202…FR-207): ONE slot per agent, ON unless the config
+    //      says `enabled: false`. The audience is every human neighbour of the
+    //      agent (§22.4) — a user, or in legacy mode a webchat-bound operator —
+    //      read from the topology each time, never stored. Built before the
+    //      channels so the panel can attach its sockets (the "watching" count).
+    const panelOperators = new Set(
+      config.channels.flatMap((channel) =>
+        channel.type === "webchat" && channel.bindOperator !== undefined
+          ? [channel.bindOperator]
+          : [],
+      ),
+    );
+    alarmsHub = new AlarmsHub({
+      enabled: config.alarms?.enabled ?? true,
+      limits: {
+        maxText: config.alarms?.maxText ?? ALARMS_DEFAULT_MAX_TEXT,
+        maxOptions: config.alarms?.maxOptions ?? ALARMS_DEFAULT_MAX_OPTIONS,
+        maxOptionLength: config.alarms?.maxOptionLength ?? ALARMS_DEFAULT_MAX_OPTION_LENGTH,
+      },
+      dir: join(location.configDir, "state", "alarms"),
+      isAgent: (name) => agents.has(name),
+      audienceOf: (agent) =>
+        topology.neighbors(agent).filter((name) => isUser(name) || panelOperators.has(name)),
+      // DND (FR-134): such a user gets the quiet part only (§22.11-Q3), and the
+      // agent's `watching` does not count them.
+      isPaused,
+      route: async (signal) => {
+        const result = await router.route(signal);
+        return result.ok
+          ? { ok: true }
+          : { ok: false, ...(result.code !== undefined ? { code: result.code } : {}) };
+      },
+      warn: (text) => void process.stderr.write(`muxeon: warning: ${text}\n`),
+      log: (line) => void process.stderr.write(`muxeon: ${line}\n`),
+    });
+    await alarmsHub.load();
+
     // The prompt library (§20, FR-183/FR-184): ONE store for the whole instance,
     // keyed by owner — the rack a request touches is the one its session names, so
     // there is nothing per-user to build at boot (§10.32).
@@ -1443,6 +1512,7 @@ export async function bootstrap(options: BootstrapOptions = {}): Promise<MuxeonS
       configDir: location.configDir,
       prompts: promptStore,
       ...(reactionsHub !== undefined ? { reactions: reactionsHub } : {}),
+      alarms: alarmsHub,
       usersOf: (channel) =>
         bindingsOf(channel).map((runtime) => ({
           name: runtime.name,

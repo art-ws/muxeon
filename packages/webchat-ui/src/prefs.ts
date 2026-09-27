@@ -38,7 +38,15 @@ export type BoolPref =
   // all/online switch at the top of the sidebar; OFF is the default (T291) — a
   // fresh browser gets the sidebar it always had. This is the panel's VISIBILITY;
   // what it holds persists separately (loadAgentFilter, below).
-  | "agent-filter";
+  | "agent-filter"
+  // Alarm sounds (§22.7, FR-207): ON (the default) lets an alarm be heard; OFF
+  // silences both the page's own sound and the OS notification's — "do not
+  // disturb the people around" must not leak through the operating system. The
+  // modal's 🔇 button flips the same pref.
+  | "alarm-sound"
+  // Desktop notifications for alarms (§22.7): ON by default; switching it on from
+  // Settings is also the user gesture the browser's permission prompt needs.
+  | "alarm-notify";
 
 interface PrefStorage {
   getItem(key: string): string | null;

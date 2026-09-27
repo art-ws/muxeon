@@ -30,6 +30,7 @@ import {
   sessionPaths,
 } from "@muxeon/orchestrator";
 import {
+  type AlarmsHub,
   HistoryStore,
   type PromptStore,
   type ReactionsHub,
@@ -62,6 +63,8 @@ export interface ConnectorDeps {
   readonly lifecycle?: WebchatLifecycle;
   /** The reaction hub (§19, FR-161…FR-168); absent ⇒ reactions are off. */
   readonly reactions?: ReactionsHub;
+  /** The alarm hub (§22, FR-202…FR-205); absent ⇒ no alarm surface. */
+  readonly alarms?: AlarmsHub;
   /** The prompt library store (§20, FR-183/FR-184); absent ⇒ the rack is off. */
   readonly prompts?: PromptStore;
 }
@@ -120,6 +123,8 @@ export interface WireChannelsOptions {
    * the agent-plane `react` tool alike. Absent ⇒ no reactions anywhere.
    */
   readonly reactions?: ReactionsHub;
+  /** Server-wide alarm hub (§22) — each panel attaches its sockets to it. */
+  readonly alarms?: AlarmsHub;
   /**
    * Server-wide prompt library (§20, FR-183/FR-184) — one store keyed by owner, so
    * every panel user gets their own rack out of the same instance.
@@ -171,6 +176,7 @@ export async function wireChannels(options: WireChannelsOptions): Promise<Channe
       ...(options.transport !== undefined ? { transport: options.transport } : {}),
       ...(lifecycle !== undefined ? { lifecycle } : {}),
       ...(options.reactions !== undefined ? { reactions: options.reactions } : {}),
+      ...(options.alarms !== undefined ? { alarms: options.alarms } : {}),
       ...(options.prompts !== undefined ? { prompts: options.prompts } : {}),
       ...(users.length > 0 ? { users } : {}),
       ...(identity !== undefined ? { identity } : {}),
@@ -381,6 +387,7 @@ function defaultConnectorFactory(config: ChannelConfig, deps: ConnectorDeps): Ch
       ...(deps.transport !== undefined ? { transport: deps.transport } : {}),
       ...(deps.lifecycle !== undefined ? { lifecycle: deps.lifecycle } : {}),
       ...(deps.reactions !== undefined ? { reactions: deps.reactions } : {}),
+      ...(deps.alarms !== undefined ? { alarms: deps.alarms } : {}),
       ...(deps.prompts !== undefined ? { prompts: deps.prompts } : {}),
       ...(bind !== undefined ? { bind } : {}),
       ...(basePath !== undefined ? { basePath } : {}),

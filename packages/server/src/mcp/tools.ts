@@ -161,6 +161,12 @@ export interface AgentPlaneDeps {
    * plan nothing will ever fire.
    */
   readonly schedules?: SchedulePlane;
+  /**
+   * Agent alarms (§22.3, FR-202): the caller's ONE slot — raise, replace or
+   * withdraw a cry for a human's attention. No recipient exists: the audience is
+   * derived from the topology. Absent ⇒ the tool answers ALARMS_DISABLED.
+   */
+  readonly alarms?: AlarmPlane;
   /** Clock for message ts; default Date.now. Injectable for tests. */
   readonly now?: () => number;
   /** Idempotency-id generator when send omits one (§5.3/§10.9); default randomUUID. */
@@ -225,6 +231,33 @@ export interface SchedulePlane {
   ): Promise<{ ok: boolean; code?: string; message?: string; value?: unknown }>;
 }
 
+/**
+ * The alarm plane the tool sees (§22.3) — structurally the webchat AlarmsHub,
+ * redeclared here so the tool set keeps its narrow, data-only dependency surface.
+ * The input is passed through untouched: the hub is the one place that decides
+ * what an alarm may contain, for the tool and the outbox drop alike.
+ */
+export interface AlarmPlane {
+  call(
+    agent: string,
+    input: unknown,
+  ): Promise<
+    | {
+        readonly ok: true;
+        readonly id: string;
+        readonly state: string;
+        readonly audience: readonly string[];
+        readonly watching: number;
+        readonly replaced?: {
+          readonly id: string;
+          readonly state: string;
+          readonly resolvedBy?: string;
+        };
+      }
+    | { readonly ok: false; readonly code: string; readonly message: string }
+  >;
+}
+
 /** A federated peer row (§18.4) — the FR-140 shape list_peers/get_status read. */
 export interface FederatedPeer {
   readonly name: string;
@@ -254,6 +287,7 @@ export const AGENT_TOOL_NAMES = [
   "schedule_self",
   "list_schedules",
   "cancel_schedule",
+  "alarm",
 ] as const;
 
 /** The internal slashes, for the one error that has to name them (§16.5, FR-198). */
@@ -621,6 +655,45 @@ export const AGENT_TOOLS: Tool[] = [
         index: { type: "number", description: "cancel just this item; omit for the whole chain" },
       },
       required: ["id"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "alarm",
+    description:
+      "Cry for a human's attention — the LOUD path, for when a person is needed now: " +
+      "you are blocked, about to do damage, or found something alarming. Every person " +
+      "who is your neighbour sees it at once: a modal in their panel, color and sound " +
+      "scaled by `level`, a desktop notification. `level` (0 to 1, required) is how " +
+      "loud: 0 is an FYI, 0.5 needs attention soon, 1 is a cry of pain — use the whole " +
+      "scale honestly, a constant 1 is noise. Optional `options` (short button labels) " +
+      "let the person answer with one click; the choice comes back to you as a notice " +
+      "(no reply expected — act on it). Without options the alarm only asks to be " +
+      "heard, and you are told when it was. You have ONE alarm: a new call replaces the " +
+      "previous one (the latest is your actual state), and `clear: true` withdraws it " +
+      "when the problem is gone. `watching` in the result says how many people will see " +
+      "it loudly right now — 0 means nobody has the panel open. For ordinary " +
+      "conversation use `send`.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        text: { type: "string", description: "what is wrong and what you need (markdown)" },
+        level: {
+          type: "number",
+          minimum: 0,
+          maximum: 1,
+          description: "how loud, 0…1 — required unless clear",
+        },
+        options: {
+          type: "array",
+          items: { type: "string" },
+          description: "one-click answers for the person, in your order (optional)",
+        },
+        clear: {
+          type: "boolean",
+          description: "true withdraws your active alarm; takes no other field",
+        },
+      },
       additionalProperties: false,
     },
   },
@@ -1140,6 +1213,19 @@ async function dispatch(
         return fail(outcome.code ?? "UNKNOWN_SCHEDULE", outcome.message ?? "refused");
       }
       return ok({ id, cancelled: outcome.value as number });
+    }
+
+    // The alarm door (§22.3). No gate here beyond having a session: the alarm is the
+    // caller's own slot, and its audience comes from the topology, never from the
+    // arguments — the hub validates the rest, for this door and the outbox alike.
+    case "alarm": {
+      if (deps.alarms === undefined) {
+        return fail("ALARMS_DISABLED", "alarms are switched off on this server");
+      }
+      const outcome = await deps.alarms.call(caller, args);
+      if (!outcome.ok) return fail(outcome.code, outcome.message);
+      const { ok: _ok, ...result } = outcome;
+      return ok({ ...result });
     }
 
     default:

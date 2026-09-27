@@ -30,6 +30,7 @@ import {
   operatorErrorText,
 } from "@muxeon/channels";
 import type { AgentStatus, Message, Signal } from "@muxeon/core";
+import type { Alarm, AlarmsHub } from "./alarms";
 import {
   LoginRateLimiter,
   type PasswordVerifier,
@@ -94,6 +95,16 @@ export type WebchatEvent =
       readonly peer: string;
       readonly messageId: string;
       readonly reactions: readonly ReactionView[];
+    }
+  | {
+      /**
+       * An agent's alarm slot changed (§22.4, FR-205) — the WHOLE slot, not an
+       * event: `null` means nothing is active for this agent any more. A tab
+       * simply replaces what it knows ("the latest is the actual one").
+       */
+      readonly type: "alarm";
+      readonly agent: string;
+      readonly alarm: Alarm | null;
     }
   | {
       /**
@@ -214,6 +225,12 @@ export interface WebchatConnectorOptions {
    * REACTIONS_DISABLED and the panel renders no picker.
    */
   readonly reactions?: ReactionsHub;
+  /**
+   * Agent alarms (§22, FR-202…FR-205): the one hub the agent-plane `alarm` tool,
+   * the outbox drop and this surface go through. Absent (or switched off) ⇒ the
+   * endpoints answer ALARMS_DISABLED and the panel shows no alarm surface.
+   */
+  readonly alarms?: AlarmsHub;
   /**
    * Prompt library (§20, FR-183/FR-184): the per-user rack of reusable prompts.
    * One store for every owner — it keys files by the signed-in name, which is why
@@ -483,6 +500,16 @@ export class WebchatConnector implements ChannelConnector {
         owner,
       );
     });
+    // Alarms (§22.4): the hub decides WHO sees an alarm (the agent's human
+    // neighbours); this surface only knows which of them have a tab open here —
+    // which is also the "watching" count the agent is told (§22.3).
+    options.alarms?.attachSurface({
+      push: (user, agent, alarm) => this.#push({ type: "alarm", agent, alarm }, user),
+      watching: (user) =>
+        [...this.#clients].some(
+          (client) => (client.data as { owner?: string } | undefined)?.owner === user,
+        ),
+    });
     // The journal's own push (§19.13, FR-182): an agent↔agent pair has no owner
     // with tabs, so the badge goes to whoever is watching the journal — role-gated
     // exactly like the transport feed itself (§17.7, FR-131).
@@ -736,6 +763,11 @@ export class WebchatConnector implements ChannelConnector {
     if (reaction !== null && (req.method === "POST" || req.method === "DELETE")) {
       return this.handleReaction(reaction, req, me);
     }
+    // Alarms (§22.4, FR-205): the viewer's neighbours' active alarms, and the three
+    // things a human can do to one. The user is the session, never a path segment.
+    if (url.pathname === "/api/alarms" && req.method === "GET") return this.handleAlarms(me);
+    const alarm = alarmRoute(url.pathname);
+    if (alarm !== null && req.method === "POST") return this.handleAlarmAction(alarm, req, me);
     const historySub = historySubRoute(url.pathname);
     if (historySub?.action === "export" && req.method === "GET") {
       return this.handleExport(historySub.peer, me);
@@ -1483,6 +1515,68 @@ export class WebchatConnector implements ChannelConnector {
     });
   }
 
+  // GET /api/alarms (§22.4): the ACTIVE alarms of the viewer's neighbours — the
+  // snapshot every tab reads on (re)connect, so an alarm raised while the panel
+  // was closed pops up the moment it opens.
+  handleAlarms(me: Identity): Response {
+    const hub = this.#options.alarms;
+    if (hub === undefined || !hub.enabled) {
+      return json({ error: "alarms are switched off", code: "ALARMS_DISABLED" }, 409);
+    }
+    return json({ alarms: hub.active(me.name) });
+  }
+
+  // POST /api/alarms/:agent/:id/seen             — "I am here" (raised → seen | acknowledged)
+  // POST /api/alarms/:agent/:id/answer {option}  — one of the agent's options
+  // POST /api/alarms/:agent/:id/dismiss          — close a seen alarm without an answer
+  //
+  // Every refusal names its code (§22.4): a click that lost the race is told who
+  // won, and an answer the router refused leaves the question open.
+  async handleAlarmAction(
+    route: { agent: string; id: string; action: "seen" | "answer" | "dismiss" },
+    req: Request,
+    me: Identity,
+  ): Promise<Response> {
+    const hub = this.#options.alarms;
+    if (hub === undefined || !hub.enabled) {
+      return json({ error: "alarms are switched off", code: "ALARMS_DISABLED" }, 409);
+    }
+    let outcome: Awaited<ReturnType<AlarmsHub["seen"]>>;
+    if (route.action === "answer") {
+      const body = await readJsonObject(req);
+      outcome = await hub.answer(me.name, route.agent, route.id, body?.option);
+    } else if (route.action === "dismiss") {
+      outcome = await hub.dismiss(me.name, route.agent, route.id);
+    } else {
+      outcome = await hub.seen(me.name, route.agent, route.id);
+    }
+    if (!outcome.ok) {
+      const status =
+        outcome.code === "UNKNOWN_ALARM" ? 404 : outcome.code === "UNKNOWN_OPTION" ? 400 : 409;
+      return json(
+        {
+          ok: false,
+          error: outcome.message,
+          code: outcome.code,
+          ...(outcome.alarm !== undefined ? { alarm: outcome.alarm } : {}),
+          ...(outcome.notify !== undefined ? { notify: outcome.notify } : {}),
+        },
+        status,
+      );
+    }
+    // The trace in the chat IS the signal (§22.5): the panel's outgoing is written
+    // after a successful route (§12.3), exactly like a typed message.
+    if (outcome.signal !== undefined) {
+      await me.history?.append(outcome.signal).catch(() => undefined);
+      this.#push({ type: "message", record: outcome.signal }, me.name);
+    }
+    return json({
+      ok: true,
+      alarm: outcome.alarm,
+      ...(outcome.notify !== undefined ? { notify: outcome.notify } : {}),
+    });
+  }
+
   // GET /api/prompts (§20.3, FR-184): the signed-in user's whole rack.
   async handlePromptLibrary(me: Identity): Promise<Response> {
     const store = this.#options.prompts;
@@ -1973,6 +2067,21 @@ function reactionRoute(pathname: string): { peer: string; messageId: string; key
   const key = segments.length === 5 ? decodeURIComponent(segments[4] ?? "") : undefined;
   if (segments.length === 5 && (key === undefined || key.length === 0)) return null;
   return { peer, messageId, ...(key !== undefined ? { key } : {}) };
+}
+
+/** /api/alarms/<agent>/<id>/(seen|answer|dismiss) by segments (§22.4); null = not one. */
+function alarmRoute(
+  pathname: string,
+): { agent: string; id: string; action: "seen" | "answer" | "dismiss" } | null {
+  if (!pathname.startsWith("/api/alarms/")) return null;
+  const segments = pathname.slice("/api/alarms/".length).split("/");
+  if (segments.length !== 3) return null;
+  const action = segments[2];
+  if (action !== "seen" && action !== "answer" && action !== "dismiss") return null;
+  const agent = decodeURIComponent(segments[0] ?? "");
+  const id = decodeURIComponent(segments[1] ?? "");
+  if (agent.length === 0 || id.length === 0) return null;
+  return { agent, id, action };
 }
 
 /**

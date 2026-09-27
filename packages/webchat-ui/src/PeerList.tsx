@@ -24,6 +24,8 @@
 import { useState } from "react";
 import { RzArrows } from "./RzArrows";
 import { type AgentFilter, filterActive, filterPeers, participantCount } from "./agent-filter";
+import { alarmLook, formatLevel } from "./alarm-look";
+import { alarmStyle, useAlarms } from "./alarms-context";
 import { useT } from "./i18n-context";
 import { IconChevron, IconGroup, IconMonitor, IconRadio, IconTag } from "./icons";
 import { agentColor } from "./palette";
@@ -355,6 +357,31 @@ function GroupRow(props: {
 // The printed label is the configured `title` when there is one (FR-156); the
 // NAME stays in the tooltip, and the accent still hashes from the name so a
 // title never repaints the sidebar.
+/**
+ * The live dot, ringed while the agent has an active alarm (§22.6.6): a ring in
+ * the alarm's color that pulses only while the alarm is still loud. A filter that
+ * hides the row does not hide the alarm — the modal is not a row.
+ */
+function useAlarmDot(
+  agent: string,
+  className: string,
+): {
+  className: string;
+  style?: React.CSSProperties;
+  title?: string;
+} {
+  const t = useT();
+  const { enabled, alarms } = useAlarms();
+  const alarm = enabled ? alarms.get(agent) : undefined;
+  if (alarm === undefined) return { className };
+  const look = alarmLook(alarm.level);
+  return {
+    className: `${className} alarm-ring alarm-themed${alarm.state === "raised" ? " loud" : ""}`,
+    style: alarmStyle(look.hue, look.pulseMs),
+    title: `${t("Alarm")} · ${t(look.band)} · ${formatLevel(alarm.level)}`,
+  };
+}
+
 function AgentRow(props: {
   row: TreeRow;
   collapsed: boolean;
@@ -364,6 +391,7 @@ function AgentRow(props: {
   const t = useT();
   const peer = props.row.peer;
   const label = peerLabel(peer);
+  const alarmDot = useAlarmDot(peer.name, dotClass(peer));
   if (props.collapsed) {
     return (
       <button
@@ -381,8 +409,9 @@ function AgentRow(props: {
         >
           {initialOf(label)}
           {/* the same live dot as the expanded row — pinned to the avatar; the
-              `paused` modifier mutes it and adds the pause glyph (§16.6) */}
-          <span className={dotClass(peer)} />
+              `paused` modifier mutes it and adds the pause glyph (§16.6); an
+              active alarm rings it in the alarm's color (§22.6.6) */}
+          <span {...alarmDot} />
         </span>
         {peer.unread > 0 && <span className="unread-badge">{peer.unread}</span>}
       </button>
@@ -409,7 +438,7 @@ function AgentRow(props: {
       }
       onClick={props.onSelect}
     >
-      <span className={dotClass(peer)} />
+      <span {...alarmDot} />
       {/* rendezvous markers (FR-105): after the activity dot, before the name */}
       <RzArrows peer={peer} />
       <span className="peer-info">

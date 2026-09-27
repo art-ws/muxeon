@@ -294,6 +294,16 @@ binds. A name that resolves to none of those aborts the boot.
     "catchUpGrace": "10m"               // tolerated lateness after the server was down
   },
 
+  // Agent alarms (§22): an agent's cry for ANY human neighbour's attention — a
+  // modal, a color from green to red, sound, a desktop notification. ON unless
+  // switched off here; absent ⇒ these defaults.
+  "alarms": {
+    "enabled": true,
+    "maxText": 4096,
+    "maxOptions": 6,
+    "maxOptionLength": 80
+  },
+
   // Message reactions (§19): a mark ON a message instead of a new message. To a
   // person it is a badge; to an AGENT it delivers `agentMessage` verbatim with
   // replyTo pointing at the marked message — so a reaction can be a full

@@ -4,6 +4,12 @@
 // visibility filter: show ALL agents in the sidebar or only a hand-picked set
 // (visibility.ts, persisted in localStorage).
 
+import { useState } from "react";
+import {
+  type NotificationPermissionState,
+  notificationState,
+  requestNotifications,
+} from "./alarm-audio";
 import { LANGS, type Lang, normalizeLang } from "./i18n";
 import { useT } from "./i18n-context";
 import { agentColor } from "./palette";
@@ -45,6 +51,14 @@ export function SettingsView(props: {
   onVisibility: (visibility: Visibility) => void;
   /** Server build info (FR-91) for the page footer; absent until fetched / if unwired. */
   serverInfo?: ServerInfo;
+  /** Does the server show alarms (§22.8)? Off ⇒ no Alarms section at all. */
+  alarms?: boolean;
+  /** "Play alarm sounds" (§22.7) — the same pref the modal's 🔇 flips. */
+  alarmSound?: boolean;
+  onAlarmSound?: (on: boolean) => void;
+  /** "Desktop notifications for alarms" (§22.7). */
+  alarmNotify?: boolean;
+  onAlarmNotify?: (on: boolean) => void;
 }): React.JSX.Element {
   const t = useT();
   const onlySelected = props.visibility.mode === "selected";
@@ -112,6 +126,14 @@ export function SettingsView(props: {
             </select>
           </div>
         </section>
+        {props.alarms === true && (
+          <AlarmSettings
+            sound={props.alarmSound ?? true}
+            onSound={props.onAlarmSound ?? (() => undefined)}
+            notify={props.alarmNotify ?? true}
+            onNotify={props.onAlarmNotify ?? (() => undefined)}
+          />
+        )}
         {/* the toolbar picker (§12.10.3, FR-173): the WHOLE catalogue, in the
             order the topbar prints it, so the list reads as a preview of the bar.
             Actions the open chat cannot take are listed all the same — the
@@ -213,6 +235,48 @@ export function SettingsView(props: {
         )}
       </div>
     </>
+  );
+}
+
+// The Alarms section (§22.7, FR-207). Alarms themselves cannot be switched off
+// here on purpose — they are an agent's state, not a taste of this tab; for "not
+// now" there is DND, for the whole stand the config. What this browser CAN decide
+// is how loud it is allowed to be: the sound, and the desktop notification.
+function AlarmSettings(props: {
+  sound: boolean;
+  onSound: (on: boolean) => void;
+  notify: boolean;
+  onNotify: (on: boolean) => void;
+}): React.JSX.Element {
+  const t = useT();
+  const [permission, setPermission] = useState<NotificationPermissionState>(notificationState);
+  // Switching notifications ON is the gesture the browser's permission prompt needs.
+  const onNotify = (on: boolean): void => {
+    props.onNotify(on);
+    if (on && permission === "default") void requestNotifications().then(setPermission);
+  };
+  const permissionNote: Record<NotificationPermissionState, string> = {
+    granted: "allowed by the browser",
+    default: "not yet allowed — switch on to ask",
+    denied: "blocked by the browser — allow them in the site settings",
+    unavailable: "unavailable here — the panel needs HTTPS or localhost",
+  };
+  return (
+    <section className="settings-section">
+      <h2>{t("Alarms")}</h2>
+      <SettingSwitch
+        label={t("Play alarm sounds")}
+        hint={t("Sound when an agent raises an alarm — off keeps the room quiet, the modal stays")}
+        checked={props.sound}
+        onChange={props.onSound}
+      />
+      <SettingSwitch
+        label={t("Desktop notifications for alarms")}
+        hint={`${t("A system notification for each alarm")} — ${t(permissionNote[permission])}`}
+        checked={props.notify}
+        onChange={onNotify}
+      />
+    </section>
   );
 }
 

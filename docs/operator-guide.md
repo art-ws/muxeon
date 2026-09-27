@@ -1323,6 +1323,92 @@ atomically, with a step marked done only after the path accepted it — so a cra
 between two items replays at worst one of them (dedup quenches the repeat) rather
 than losing it.
 
+## 11. Agent alarms (§22, FR-202…FR-207)
+
+A message has no volume: in the sidebar an agent that is about to break
+production looks exactly like one that said "done". An **alarm** is the loud
+path — an agent's cry for the attention of *any* person who is around the
+panel, even one who is only half-looking at the screen.
+
+**It is the agent's state, not a message.** Each agent has ONE alarm slot; a
+new alarm replaces the old one whole — the latest is the actual state. An alarm
+takes no place in a queue, leaves no envelope in a chat and no row in the
+journal. There is no addressee: every person who is a **topology neighbour** of
+the agent sees it (a user, or in legacy mode the webchat operator). `role`
+changes nothing; a person without an edge to the agent never sees its alarm.
+
+**How an agent raises one.** The agent-plane tool `alarm`, or — for an agent with
+no MCP session — a drop in its own outbox:
+
+```jsonc
+// tool arguments, or {"alarm": {...}} as an outbox file
+{ "text": "Migration failed on step 3, the database is half-way. Roll back or fix forward?",
+  "level": 0.85,                               // 0…1, required: 0 = FYI, 1 = a cry of pain
+  "options": ["Roll back", "Fix forward", "Don't touch, I'm coming"] }  // optional
+// …and to withdraw it when the problem is gone:
+{ "clear": true }
+```
+
+The result tells the agent who can see it (`audience`) and how many of them will
+see it **loudly right now** (`watching`: people with the panel open and not in
+DND). `0` means nobody is looking; the alarm is kept and comes up the moment a
+panel opens.
+
+**What the person sees.** While an alarm is *raised*:
+
+- a **modal** over whatever is on screen, tinted by the level — green at 0,
+  yellow at 0.5, red at 1, continuously in between, pulsing faster as the level
+  rises; the level is printed as words and a percent too ("critical · 85%"),
+  so color is never the only signal;
+- a **sound**, synthesized from the level (higher, more beeps, louder), repeated
+  every 60 → 10 seconds until somebody reacts when the level is 0.5 or more;
+- a scrolling **tab title** (`🔴 dev: Migration failed…`), visible in the tab
+  strip while the panel sits in the background;
+- a **desktop notification**, one per agent (a newer alarm replaces the older).
+
+Every way out of the modal leads to the agent's chat. Choosing an option answers;
+"Open chat" (or Esc) says "I am here". The first reaction of **any** person
+silences the alarm for everybody, and the others see who took it. An alarm
+**with options** does not vanish when someone only opened the chat: it stays as
+a banner under the chat header, buttons included, until it is answered or
+dismissed. A person in DND gets that quiet part only — the banner and a colored
+ring around the agent's dot in the sidebar — never the modal or the sound.
+
+**What the agent gets back.** Exactly one message per alarm, and always a
+notice (no reply is expected): the chosen option, or "you were heard", or
+"closed without choosing". The text quotes the alarm, because the agent may have
+cleared its context since it cried. An answer is recorded only after it was
+really delivered: if the agent is paused or its queue is full, the modal says so
+and the buttons stay live. Replacing or withdrawing an alarm sends the agent
+nothing.
+
+**Your side of it.** Each browser decides how loud it may be — Settings →
+Alarms: "Play alarm sounds" (on by default; the 🔇 button in the modal flips the
+same switch, and off also silences the OS notification) and "Desktop
+notifications for alarms" (switching it on is what asks the browser's
+permission). Browsers set three limits worth knowing: a tab makes no sound until
+you have clicked or typed in it once (the modal tells you); only one tab per
+browser speaks, so three open panels do not make a choir; desktop notifications
+and the one-voice rule need HTTPS or localhost.
+
+The whole feature is **on by default** and switched off for the stand with a
+top-level block (all fields optional):
+
+```jsonc
+"alarms": {
+  "enabled": true,
+  "maxText": 4096,          // bytes of alarm text
+  "maxOptions": 6,
+  "maxOptionLength": 80     // characters per option
+}
+```
+
+Exceeding a cap is a refusal (`ALARM_LIMIT`), and a level outside 0…1 is
+`INVALID_ARGS` — never clamped: a trimmed cry is not the one the agent made. An
+agent with no human neighbour is told `NO_AUDIENCE`. The slot lives in
+`<config_dir>/state/alarms/<agent>.json` and survives a restart; each transition
+is one line in the server log (`alarm dev <id> answered K=0.85 by alex`).
+
 Security posture, the trust boundary and the reporting process are documented in
 [SECURITY.md](../SECURITY.md); the invariants the test suite defends are listed
 in [CONTRIBUTING.md](../CONTRIBUTING.md).

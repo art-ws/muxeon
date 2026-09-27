@@ -12,13 +12,15 @@
 // invalid file becomes `<name>.rejected.json` IN PLACE + a warning — the agent
 // sees the refusal in its own folder.
 //
-// A drop is EITHER a message, a reaction or a schedule — never two of them:
+// A drop is EITHER a message, a reaction, a schedule or an alarm — never two:
 // `{"react": {"peer", "messageId", "key", "remove"?}}` places or removes one
 // reaction through the same hub the `react` tool uses (§19.13, decision Q2), and
 // `{"schedule": {"items": [...], "id"?}}` plans a deferred self-chain through the
-// same plane `schedule_self` uses (§21.4, decision Q6). Both are the second door,
-// for agents that have no agent-plane session — and for §21 that is the case that
-// matters most: a shim can be dead exactly when self-repair is needed.
+// same plane `schedule_self` uses (§21.4, decision Q6), and `{"alarm": {...}}`
+// raises, replaces or withdraws the agent's alarm through the hub the `alarm` tool
+// uses (§22.3). All three are the second door, for agents that have no agent-plane
+// session — and for §21/§22 that is the case that matters most: a shim can be dead
+// exactly when self-repair is needed, or when there is something to cry about.
 
 import { createHash } from "node:crypto";
 import { mkdir, readFile, readdir, rename, stat, unlink } from "node:fs/promises";
@@ -73,6 +75,13 @@ export interface OutboxMonitorOptions {
     readonly id?: string;
     readonly items: readonly unknown[];
   }) => Promise<{ ok: boolean; code?: string; message?: string }>;
+  /**
+   * Raise / replace / withdraw the agent's alarm (§22.3, FR-202): the SECOND door
+   * into the alarms hub. The owner of this outbox is the agent whose slot it is;
+   * the drop names no recipient, as the tool names none. Absent ⇒ an `alarm` drop
+   * is rejected like any unsupported shape.
+   */
+  readonly alarm?: (input: unknown) => Promise<{ ok: boolean; code?: string; message?: string }>;
   /** Pickup cadence (§7.1 outboxPollMs, NFR-10); default 1000ms. */
   readonly pollIntervalMs?: number;
   /** Parse-failure settle window in ticks (§13.4); default 3. */
@@ -262,6 +271,36 @@ export class OutboxMonitor {
       return;
     }
 
+    // An alarm drop (§22.3): no routing and no recipient — the hub validates the
+    // body and owns the slot. A refusal becomes a rejection file: an agent that
+    // cried must not be left believing somebody heard.
+    if (shape.kind === "alarm") {
+      const alarm = this.#o.alarm;
+      if (alarm === undefined) {
+        await this.#reject(claim, name, "asks for an alarm, but alarms are not available");
+        return;
+      }
+      let outcome: { ok: boolean; code?: string; message?: string };
+      try {
+        outcome = await alarm(shape.alarm);
+      } catch {
+        await rename(claim, path).catch(() => undefined); // transient — retry next tick
+        return;
+      }
+      if (!outcome.ok) {
+        await this.#reject(
+          claim,
+          name,
+          `was refused: ${outcome.code ?? "ALARM_FAILED"}${
+            outcome.message !== undefined ? ` — ${outcome.message}` : ""
+          }`,
+        );
+        return;
+      }
+      await unlink(claim).catch(() => undefined);
+      return;
+    }
+
     const refs: { blob: string; name: string; mime: string; size: number }[] = [];
     for (const file of shape.files) {
       const ingested = await this.#ingest(file);
@@ -417,7 +456,7 @@ export class OutboxMonitor {
   }
 }
 
-/** A drop is a message (§13.4), a reaction (§19.13) or a schedule (§21.4) — never two. */
+/** A drop is a message (§13.4), a reaction (§19.13), a schedule (§21.4) or an alarm (§22.3). */
 type OutboxShape =
   | {
       readonly kind: "message";
@@ -437,7 +476,8 @@ type OutboxShape =
       readonly kind: "schedule";
       readonly items: readonly unknown[];
       readonly id?: string;
-    };
+    }
+  | { readonly kind: "alarm"; readonly alarm: Record<string, unknown> };
 
 /**
  * Validate the §13.4 shape; returns the parsed shape or a refusal reason. `to` is
@@ -449,14 +489,33 @@ function validateShape(parsed: unknown): OutboxShape | string {
   if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
     return "is not a JSON object";
   }
-  const { to, payload, files, expectsReply, react, schedule } = parsed as {
+  const { to, payload, files, expectsReply, react, schedule, alarm } = parsed as {
     to?: unknown;
     payload?: unknown;
     files?: unknown;
     expectsReply?: unknown;
     react?: unknown;
     schedule?: unknown;
+    alarm?: unknown;
   };
+  // An alarm drop (§22.3) is a FOURTH shape on the same footing: it routes nothing
+  // and names no recipient. Only the outer shape is checked here — what an alarm
+  // may contain is the hub's call, one set of rules for the tool and this door.
+  if (alarm !== undefined) {
+    if (
+      schedule !== undefined ||
+      react !== undefined ||
+      to !== undefined ||
+      payload !== undefined ||
+      files !== undefined
+    ) {
+      return 'mixes "alarm" with other fields — a drop is a message, a reaction, a schedule OR an alarm';
+    }
+    if (typeof alarm !== "object" || alarm === null || Array.isArray(alarm)) {
+      return 'has a malformed "alarm" (expected an object)';
+    }
+    return { kind: "alarm", alarm: alarm as Record<string, unknown> };
+  }
   // A schedule drop (§21.4, Q6) is a THIRD shape on the same footing as the
   // reaction one: it routes nothing, carries no payload and names no recipient.
   if (schedule !== undefined) {

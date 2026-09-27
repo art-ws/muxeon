@@ -186,6 +186,12 @@
     "quietTimeout": "30m",
     "catchUpGrace": "10m"
   },
+  "alarms": {
+    "enabled": true,
+    "maxText": 4096,
+    "maxOptions": 6,
+    "maxOptionLength": 80
+  },
   "channels": [
     {
       "name": "web",

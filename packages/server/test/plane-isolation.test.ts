@@ -20,8 +20,11 @@ import { LOOPBACK_DIRECT, connectClient } from "./mcp-helpers";
 // recipient. They are the third bridge into an operator-shaped capability, and
 // the narrowest: deferred, self-only, and each item still passing the same ACL at
 // the moment it fires (§10.33), which is why the operator capabilities below stay
-// absent from this surface all the same.
+// absent from this surface all the same. Since §22.3 (FR-202) `alarm` joins them:
+// the caller's own slot, shown to its human neighbours — a cry, not a command, so
+// it opens no operator capability either.
 const TOOLS = [
+  "alarm",
   "cancel_schedule",
   "control_session",
   "get_history",

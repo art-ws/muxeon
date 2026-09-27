@@ -157,7 +157,7 @@ edge against the layering, a cycle, or an unauthorized consumer of
 | `schedules` | Deferred self-chains (§21): an agent plans work for ITSELF — planning, crash-safe state, the tick. Owns time, never authority. |
 | `channels` | Unified connector interface + telegram / slack / web. |
 | `federation` | Server-to-server links (§18): handshake + WS wire protocol, link client/listener, remote-actor registry, status publisher. Routing authority stays in `orchestrator`. |
-| `webchat` | Operator web panel surface: own port, auth gate, REST + WS, durable chat history, media via blobs, message reactions (§19). |
+| `webchat` | Operator web panel surface: own port, auth gate, REST + WS, durable chat history, media via blobs, message reactions (§19), agent alarms (§22). |
 | `webchat-ui` | React SPA of the panel — build-time only (`bun run build` → `dist/`), served by `webchat`, outside the runtime graph. |
 | `server` | Composition root: both network planes, channel wiring, admin, CLI. |
 

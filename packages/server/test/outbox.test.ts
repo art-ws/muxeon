@@ -44,6 +44,10 @@ function makeMonitor(
     noSchedules?: boolean;
     /** The plane's refusal code for a schedule drop. */
     scheduleRefusal?: string;
+    /** No alarm door wired (§22.3) — an alarm drop must be rejected. */
+    noAlarms?: boolean;
+    /** The hub's refusal code for an alarm drop. */
+    alarmRefusal?: string;
   } = {},
 ) {
   const routed: Signal[] = [];
@@ -51,6 +55,7 @@ function makeMonitor(
   const blobs: Uint8Array[] = [];
   const reactions: { peer: string; messageId: string; key: string; remove?: boolean }[] = [];
   const scheduled: { id?: string; items: readonly unknown[] }[] = [];
+  const alarms: unknown[] = [];
   const monitor = new OutboxMonitor({
     agent: "researcher",
     outboxDir,
@@ -95,8 +100,18 @@ function makeMonitor(
               : { ok: false, code: opts.scheduleRefusal, message: "nope" };
           },
         }),
+    ...(opts.noAlarms === true
+      ? {}
+      : {
+          alarm: async (input) => {
+            alarms.push(input);
+            return opts.alarmRefusal === undefined
+              ? { ok: true }
+              : { ok: false, code: opts.alarmRefusal, message: "nope" };
+          },
+        }),
   });
-  return { monitor, routed, warnings, blobs, reactions, scheduled };
+  return { monitor, routed, warnings, blobs, reactions, scheduled, alarms };
 }
 
 describe("outbox pickup (FR-55, §13.4)", () => {
@@ -569,5 +584,47 @@ describe("a schedule drop (§21.4, FR-190)", () => {
     await monitor.tick();
     expect(scheduled).toEqual([]);
     expect(warnings.join(" ")).toContain("schedule.items");
+  });
+});
+
+describe("an alarm drop (§22.3, FR-202)", () => {
+  test("{alarm:{…}} reaches the hub untouched and routes no message", async () => {
+    const body = { text: "migration failed", level: 0.85, options: ["Roll back"] };
+    await writeFile(join(outboxDir, "a.json"), JSON.stringify({ alarm: body }));
+    const { monitor, routed, alarms } = makeMonitor();
+    await monitor.tick();
+    expect(alarms).toEqual([body]); // the hub validates — one set of rules for both doors
+    expect(routed).toEqual([]); // a cry is not a message
+    expect(readdirSync(outboxDir)).toEqual([]);
+  });
+
+  test("the hub's refusal comes back as the agent's own .rejected.json", async () => {
+    await writeFile(join(outboxDir, "a.json"), JSON.stringify({ alarm: { text: "x", level: 2 } }));
+    const { monitor, warnings } = makeMonitor({ alarmRefusal: "INVALID_ARGS" });
+    await monitor.tick();
+    expect(existsSync(join(outboxDir, "a.rejected.json"))).toBe(true);
+    expect(warnings[0]).toContain("INVALID_ARGS");
+  });
+
+  test("a server without the door says so instead of swallowing the cry", async () => {
+    await writeFile(join(outboxDir, "a.json"), JSON.stringify({ alarm: { clear: true } }));
+    const { monitor, warnings } = makeMonitor({ noAlarms: true });
+    await monitor.tick();
+    expect(existsSync(join(outboxDir, "a.rejected.json"))).toBe(true);
+    expect(warnings[0]).toContain("alarms are not available");
+  });
+
+  test("mixing alarm with anything else is refused — a drop is one thing", async () => {
+    await writeFile(
+      join(outboxDir, "mix.json"),
+      JSON.stringify({ alarm: { text: "x", level: 1 }, to: "writer", payload: "hi" }),
+    );
+    const { monitor, alarms, routed, warnings } = makeMonitor();
+    await monitor.tick();
+    await monitor.tick();
+    await monitor.tick();
+    expect(alarms).toEqual([]);
+    expect(routed).toEqual([]);
+    expect(warnings.join(" ")).toContain("a schedule OR an alarm");
   });
 });

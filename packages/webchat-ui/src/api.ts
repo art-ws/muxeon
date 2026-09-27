@@ -4,6 +4,7 @@
 
 import type { ServerInfo } from "./server-info";
 import type {
+  AlarmView,
   BlobMeta,
   HistoryPage,
   PanelEvent,
@@ -143,6 +144,65 @@ export const blobUrl = (id: string): string => `api/blobs/${encodeURIComponent(i
  */
 export async function fetchReactionCatalog(): Promise<ReactionCatalog> {
   return jsonOrThrow<ReactionCatalog>(await fetch("api/reactions"));
+}
+
+/**
+ * The active alarms of the viewer's neighbours (§22.4). Rejects with a 409
+ * ApiError when the server has alarms switched off — the panel then shows no
+ * alarm surface at all.
+ */
+export async function fetchAlarms(): Promise<readonly AlarmView[]> {
+  return (await jsonOrThrow<{ alarms: readonly AlarmView[] }>(await fetch("api/alarms"))).alarms;
+}
+
+/** What an alarm action came back with (§22.4) — a refusal carries its code and the slot. */
+export type AlarmActionResult =
+  | { readonly ok: true; readonly alarm: AlarmView; readonly notify?: ReactionNotify }
+  | {
+      readonly ok: false;
+      readonly code: string;
+      readonly error: string;
+      readonly alarm?: AlarmView;
+      readonly notify?: ReactionNotify;
+    };
+
+/**
+ * seen / answer / dismiss (§22.4). Never throws on a refusal: a click that lost the
+ * race, a superseded question or a paused agent are ANSWERS the panel shows, not
+ * failures to swallow.
+ */
+export async function alarmAction(
+  agent: string,
+  id: string,
+  action: "seen" | "answer" | "dismiss",
+  option?: number,
+): Promise<AlarmActionResult> {
+  try {
+    const response = await fetch(
+      `api/alarms/${encodeURIComponent(agent)}/${encodeURIComponent(id)}/${action}`,
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(option !== undefined ? { option } : {}),
+      },
+    );
+    const body = (await response.json().catch(() => ({}))) as Record<string, unknown>;
+    if (response.ok)
+      return { ok: true, ...(body as { alarm: AlarmView; notify?: ReactionNotify }) };
+    return {
+      ok: false,
+      code: typeof body.code === "string" ? body.code : `HTTP_${response.status}`,
+      error: typeof body.error === "string" ? body.error : `HTTP ${response.status}`,
+      ...(body.alarm !== undefined ? { alarm: body.alarm as AlarmView } : {}),
+      ...(body.notify !== undefined ? { notify: body.notify as ReactionNotify } : {}),
+    };
+  } catch (failure) {
+    return {
+      ok: false,
+      code: "NETWORK",
+      error: failure instanceof Error ? failure.message : String(failure),
+    };
+  }
 }
 
 const reactionPath = (peer: string, messageId: string): string =>
@@ -375,6 +435,8 @@ export async function markRead(peer: string): Promise<void> {
 export function connectFeed(handlers: {
   onEvent: (event: PanelEvent) => void;
   onAuthLost: () => void;
+  /** Every (re)connect — the moment to re-read snapshots the socket does not replay (§22.4). */
+  onOpen?: () => void;
 }): () => void {
   let socket: WebSocket | undefined;
   let closed = false;
@@ -399,6 +461,7 @@ export function connectFeed(handlers: {
     });
     socket.addEventListener("open", () => {
       retryMs = 500;
+      handlers.onOpen?.();
     });
   };
 

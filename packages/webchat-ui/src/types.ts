@@ -208,8 +208,29 @@ export interface BlobMeta {
 }
 
 /** WS push events (§12.4). */
+/** An agent's alarm as the panel sees it (§22.2) — the wire shape of the slot. */
+export interface AlarmView {
+  readonly id: string;
+  readonly agent: string;
+  readonly text: string;
+  /** K ∈ [0, 1]; the panel prints it as a percent (§22.6.1). */
+  readonly level: number;
+  readonly options?: readonly string[];
+  readonly raisedAt: number;
+  readonly state: "raised" | "seen" | "answered" | "acknowledged" | "withdrawn" | "superseded";
+  readonly resolvedBy?: string;
+  readonly resolvedAt?: number;
+  readonly answer?: number;
+}
+
 export type PanelEvent =
   | { readonly type: "message"; readonly record: ChatRecord }
+  | {
+      /** An agent's alarm slot changed (§22.4): the whole slot, `null` = nothing active. */
+      readonly type: "alarm";
+      readonly agent: string;
+      readonly alarm: AlarmView | null;
+    }
   | { readonly type: "transport"; readonly record: ChatRecord }
   | { readonly type: "ack"; readonly id: string; readonly to: string }
   | { readonly type: "history-cleared"; readonly peer: string }
