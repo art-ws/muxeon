@@ -42,7 +42,7 @@ export type BoolPref =
   // Alarm sounds (§22.7, FR-207): ON (the default) lets an alarm be heard; OFF
   // silences both the page's own sound and the OS notification's — "do not
   // disturb the people around" must not leak through the operating system. The
-  // modal's 🔇 button flips the same pref.
+  // modal's mute button flips the same pref.
   | "alarm-sound"
   // Desktop notifications for alarms (§22.7): ON by default; switching it on from
   // Settings is also the user gesture the browser's permission prompt needs.

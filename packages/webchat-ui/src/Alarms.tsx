@@ -23,6 +23,7 @@ import { alarmLook, formatLevel, loudestFirst, shouldSound, titleFrame } from ".
 import { alarmStyle, useAlarms } from "./alarms-context";
 import type { AlarmActionResult } from "./api";
 import { useT } from "./i18n-context";
+import { IconVolume, IconVolumeOff } from "./icons";
 import { Markdown } from "./markdown";
 import { TimeStamp } from "./timestamp";
 import type { AlarmView } from "./types";
@@ -63,7 +64,7 @@ function refusalText(result: Extract<AlarmActionResult, { ok: false }>, t: Trans
 export function AlarmCenter(props: {
   /** Do-not-disturb of the viewer (FR-134): the loud part is withheld (§22.11-Q3). */
   dnd: boolean;
-  /** "Play alarm sounds" (§22.7) and its setter — the modal's 🔇 flips the same pref. */
+  /** "Play alarm sounds" (§22.7) and its setter — the modal's mute button flips the same pref. */
   sound: boolean;
   onSound: (on: boolean) => void;
   /** "Desktop notifications for alarms" (§22.7). */
@@ -274,14 +275,17 @@ function AlarmModal(props: {
             {props.label}
           </h2>
           <span className="alarm-level">{levelLabel(alarm.level, t)}</span>
+          {/* the panel's stroke icons, never an emoji (T112 — emoji disagree in
+              weight and render differently on every platform) */}
           <button
             type="button"
             className="alarm-mute"
             aria-pressed={!props.sound}
+            aria-label={props.sound ? t("Mute alarm sounds") : t("Unmute alarm sounds")}
             title={props.sound ? t("Mute alarm sounds") : t("Unmute alarm sounds")}
             onClick={() => props.onSound(!props.sound)}
           >
-            {props.sound ? "🔊" : "🔇"}
+            {props.sound ? <IconVolume size={18} /> : <IconVolumeOff size={18} />}
           </button>
         </header>
         <div className="alarm-meta">

@@ -53,7 +53,7 @@ export function SettingsView(props: {
   serverInfo?: ServerInfo;
   /** Does the server show alarms (§22.8)? Off ⇒ no Alarms section at all. */
   alarms?: boolean;
-  /** "Play alarm sounds" (§22.7) — the same pref the modal's 🔇 flips. */
+  /** "Play alarm sounds" (§22.7) — the same pref the modal's mute button flips. */
   alarmSound?: boolean;
   onAlarmSound?: (on: boolean) => void;
   /** "Desktop notifications for alarms" (§22.7). */

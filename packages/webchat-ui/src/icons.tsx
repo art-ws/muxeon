@@ -36,6 +36,24 @@ export const IconRadio = (props: IconProps): React.JSX.Element => (
   </Icon>
 );
 
+/** Alarm sound on (§22.6.2/§22.7) — a speaker with sound waves. */
+export const IconVolume = (props: IconProps): React.JSX.Element => (
+  <Icon {...props}>
+    <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5" />
+    <path d="M15.54 8.46a5 5 0 0 1 0 7.07" />
+    <path d="M19.07 4.93a10 10 0 0 1 0 14.14" />
+  </Icon>
+);
+
+/** Alarm sound muted (§22.7) — the speaker, crossed out. */
+export const IconVolumeOff = (props: IconProps): React.JSX.Element => (
+  <Icon {...props}>
+    <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5" />
+    <line x1="22" y1="9" x2="16" y2="15" />
+    <line x1="16" y1="9" x2="22" y2="15" />
+  </Icon>
+);
+
 /** The operator account (FR-68) — a person silhouette. */
 export const IconUser = (props: IconProps): React.JSX.Element => (
   <Icon {...props}>
