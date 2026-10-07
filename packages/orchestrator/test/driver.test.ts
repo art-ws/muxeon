@@ -377,3 +377,49 @@ describe("TmuxSessionDriver composer ownership (T359, FR-58)", () => {
     expect(polls()).toBe(before);
   });
 });
+
+// T361: `auto` now declares a composer for claude/codex only, so a pane of a
+// runtime it cannot probe (opencode/pi) never shows an empty marker. The gate of
+// T359 must not turn that into a permanent hang — the grace completes it.
+describe("TmuxSessionDriver unprobeable composer (T361)", () => {
+  const busy = (): string => "• Working (58m 29s • esc to interrupt)\n\n  x\n  ? for shortcuts";
+  // A pane of a runtime this adapter knows nothing about: ready, no composer marker.
+  const FOREIGN_READY = [
+    "   Вердикт отправлен через muxeon send к tl.",
+    "  ┃",
+    "  ┃  Build auto · Muse Spark 1.3 Free OpenCode Zen · xhigh",
+    "  ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀",
+    "  /srv/agents/test:main   215.0K (21%)  ctrl+p commands",
+  ].join("\n");
+
+  test("a foreign runtime completes after the grace instead of hanging forever", async () => {
+    const sent: string[] = [];
+    let i = 0;
+    let clock = 0;
+    const driver = new TmuxSessionDriver({
+      session,
+      adapter: {
+        type: "fake-auto",
+        render: (message) => String(message.payload),
+        detect: {
+          readyPrompt: /^(?![\s\S]*esc to interrupt)/,
+          composer: { empty: /^\s*›\s*(?:Ask Codex to do anything)?\s*$/m },
+        },
+        slashCommand: (name) => `/${name}`,
+      },
+      pollIntervalMs: 100,
+      sleep: async (ms) => {
+        clock += ms;
+      },
+      now: () => clock,
+      capture: async () => [busy(), FOREIGN_READY][Math.min(i++, 1)] ?? "",
+      sendKeys: async (_session, ...keys) => {
+        sent.push(keys.join(","));
+      },
+    });
+    await driver.awaitTurn("id1"); // resolves — the grace, not a hang
+    expect(sent).toEqual([]); // never presses: no pending marker to act on
+    expect(i).toBeGreaterThanOrEqual(50); // ~5s of grace at 100ms polls
+    expect(i).toBeLessThanOrEqual(60);
+  });
+});

@@ -73,6 +73,17 @@ export const SUBMIT_RETRIES = Math.ceil(SUBMIT_CONFIRM_WINDOW_MS / SUBMIT_CONFIR
 const COMPOSER_REGION_LINES = 8;
 /** Min gap between automatic re-presses while our message sits in the composer. */
 const SUBMIT_REPRESS_MS = 1000;
+// How long a DECLARED adapter's "composer not identifiable" state may hold a
+// finished turn before the plain front wins (T361). The gate of T359 demands
+// positive evidence that the composer is empty, because a repaint frame can hide
+// the composer while a paste is still parked in it; those frames resolve within
+// about a second (measured live, T359: ~1.1s false-ready windows), while a pane
+// of a runtime the adapter does not know — opencode/pi behind `auto`, which
+// declare no empty marker at all (their composer renders blank, with no
+// placeholder to probe) — would otherwise never complete a single turn. Five
+// seconds is a 5x margin over the measured hazard and costs only that much
+// latency on the runtimes that cannot be probed.
+const COMPOSER_UNKNOWN_GRACE_MS = 5_000;
 
 async function defaultReadStatus(path: string): Promise<NativeStatus | null> {
   try {
@@ -173,6 +184,7 @@ export class TmuxSessionDriver implements SessionDriver {
     // Best-effort confirmation (T78): a capture/send hiccup must not fail an
     // already-typed injection — from here the §5.2 detectors own the turn, and
     // a dead session is the down-probe's business (§5.1), not inject's.
+    let unknownSince: number | undefined; // T361: composer unidentifiable since
     try {
       for (let attempt = 0; attempt < SUBMIT_RETRIES; attempt += 1) {
         await this.#sleep(SUBMIT_CONFIRM_MS);
@@ -183,11 +195,24 @@ export class TmuxSessionDriver implements SessionDriver {
         // nothing about submission — press again and keep looking (T359). The
         // waiter below owns this state past this window; this branch just keeps
         // the warm path warm.
-        if (this.#composerState(pane) === "pending") {
+        const composer = this.#composerState(pane);
+        if (composer === "pending") {
+          unknownSince = undefined;
           await this.#sendKeys(this.#session.name, "Enter");
           continue;
         }
-        if (baseline !== undefined && pane !== baseline && this.#composerCleared(pane)) {
+        // Consumed proof (T359): the composer is VISIBLY empty, or the adapter
+        // declares none at all. A declared adapter whose composer shows no
+        // marker — a runtime it cannot probe (T361) — counts as consumed only
+        // after the same grace the waiter uses, so a torn repaint frame in
+        // between cannot fake a completed turn.
+        let consumed = this.#composerCleared(pane);
+        if (!consumed && composer === "unknown") {
+          const at = this.#now();
+          unknownSince ??= at;
+          consumed = at - unknownSince >= COMPOSER_UNKNOWN_GRACE_MS;
+        }
+        if (baseline !== undefined && pane !== baseline && consumed) {
           // Output appeared AND the prompt is back: the whole turn happened inside
           // this window. Tell awaitTurn, or it waits for a front already spent.
           this.#turnObservedDuringInject = true;
@@ -253,8 +278,10 @@ export class TmuxSessionDriver implements SessionDriver {
   // server — T145 live finding: killing a busy agent crashed the stand). So swallow it
   // and keep polling; the down-probe wins the race and aborts this loop via the signal.
   async #awaitOutput(readyPrompt: RegExp, signal?: AbortSignal): Promise<void> {
+    const declared = this.#adapter.detect.composer !== undefined;
     let sawBusy = false;
     let cleared = 0; // consecutive polls of "front reached + composer visibly empty"
+    let unknownSince: number | undefined; // first poll of an unidentifiable composer
     let lastSubmit = Number.NEGATIVE_INFINITY; // last automatic re-press (T359) — none yet
     while (signal?.aborted !== true) {
       let pane: string;
@@ -269,16 +296,39 @@ export class TmuxSessionDriver implements SessionDriver {
       if (!ready) {
         sawBusy = true;
         cleared = 0;
-      } else if (sawBusy && this.#composerCleared(pane)) {
-        // Front reached AND the composer is visibly empty: our input went
-        // through, the turn is over — confirmed on a second consecutive poll so
-        // a torn frame (the composer drawn a beat before the agent goes busy,
-        // T78's old race) cannot complete a turn that is just starting. While
-        // the composer still shows the paste, the "ready" is the agent's own
-        // turn ending with our message never submitted — completing there is
-        // exactly the false done of T359 (§10.1).
-        cleared += 1;
-        if (cleared >= this.#clearedPolls) return;
+        unknownSince = undefined;
+      } else if (sawBusy) {
+        if (!declared) {
+          // Adapter declares no composer: the pre-T359 front decides, as before.
+          return;
+        }
+        if (composer === "empty") {
+          // Front reached AND the composer is visibly empty: our input went
+          // through, the turn is over — confirmed on a second consecutive poll so
+          // a torn frame (the composer drawn a beat before the agent goes busy,
+          // T78's old race) cannot complete a turn that is just starting. While
+          // the composer still shows the paste, the "ready" is the agent's own
+          // turn ending with our message never submitted — completing there is
+          // exactly the false done of T359 (§10.1).
+          cleared += 1;
+          unknownSince = undefined;
+          if (cleared >= this.#clearedPolls) return;
+        } else if (composer === "pending") {
+          cleared = 0;
+          unknownSince = undefined;
+        } else {
+          // Declared, but no composer marker on screen: either a repaint frame
+          // (resolves on the next poll) or a runtime this adapter does not know
+          // (T361). The grace keeps the first from completing a turn whose paste
+          // is parked while never hanging the second.
+          cleared = 0;
+          const at = this.#now();
+          if (unknownSince === undefined) {
+            unknownSince = at;
+          } else if (at - unknownSince >= COMPOSER_UNKNOWN_GRACE_MS) {
+            return;
+          }
+        }
       } else {
         cleared = 0;
       }

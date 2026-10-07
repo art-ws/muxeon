@@ -89,3 +89,39 @@ describe("auto composer state (FR-58, T359)", () => {
     expect(detect.composer?.empty).toBe(AUTO_COMPOSER_EMPTY);
   });
 });
+
+// T361: the union must cover EVERY runtime the provisioner can launch. The park
+// ran opencode/pi agents under `auto`, and both hung exactly like the
+// codex-under-claude case the adapter exists to prevent.
+describe("auto busy union covers opencode and pi (T361)", () => {
+  const OPENCODE_BUSY = [
+    "  ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀",
+    "   ⬝⬝⬝⬝⬝⬝⬝⬝ esc interrupt       ↓ 1 shell  ctrl+p commands    /srv/agents/…",
+  ].join("\n");
+  const PI_BUSY = [
+    "── ⠴ Working ─────────────────────────────────────────────",
+    "",
+    "──────────────────────────────────────────────────────────",
+  ].join("\n");
+
+  test("opencode and pi busy panes read as NOT ready under auto", () => {
+    expect(AUTO_READY.test(OPENCODE_BUSY)).toBe(false);
+    expect(AUTO_READY.test(PI_BUSY)).toBe(false);
+  });
+
+  test("their idle panes read as ready", () => {
+    expect(
+      AUTO_READY.test(["  /srv/agents/test:main   215.0K (21%)  ctrl+p commands"].join("\n")),
+    ).toBe(true);
+    expect(AUTO_READY.test(["──────", "", "──────", "/srv/agents/test1 (main)"].join("\n"))).toBe(
+      true,
+    );
+  });
+
+  test("claude and codex panes still decide exactly as before", () => {
+    expect(AUTO_READY.test(CLAUDE_BUSY)).toBe(false);
+    expect(AUTO_READY.test(CODEX_BUSY)).toBe(false);
+    expect(AUTO_READY.test(CLAUDE_IDLE)).toBe(true);
+    expect(AUTO_READY.test(CODEX_IDLE)).toBe(true);
+  });
+});
