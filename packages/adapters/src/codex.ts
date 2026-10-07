@@ -47,6 +47,23 @@ export interface CodexAdapterOptions {
 export const CODEX_BUSY_SOURCE = String.raw`[\s\S]*(?:esc to interrupt|needs approval|Ctrl\+C to return)`;
 export const CODEX_READY: RegExp = new RegExp(`^(?!${CODEX_BUSY_SOURCE})`);
 
+// Composer state (FR-58, T359 — live finding 2026-10-08). Codex IGNORES Enter
+// while a turn runs: a message injected into a busy agent stays in the composer,
+// the footer advertises `tab to queue message` instead, and the pane still reads
+// READY by the idle check above (codex keeps the empty composer visible during a
+// turn — the same reason claude's adapter notes). With only ready/busy to go by,
+// the driver took "busy" for "submitted" (it was the agent's own turn) and
+// completed the message: the live stand marked messages done while their text sat
+// unsent in the composer for an hour, and a human had to press Enter by hand
+// (operator report through the panel). The composer is what visibly separates the
+// two: a large paste collapses to `[Pasted Content <n> chars]` THERE (the
+// submitted echo in the transcript prints the raw text, so this marker cannot
+// false-positive on a delivered message), and an empty composer is the exact
+// string `› Ask Codex to do anything` / a bare `›`. The driver reads these in the
+// pane's bottom region only.
+export const CODEX_COMPOSER_PENDING: RegExp = /\[Pasted Content \d+ chars?\]/;
+export const CODEX_COMPOSER_EMPTY: RegExp = /^\s*›\s*(?:Ask Codex to do anything)?\s*$/m;
+
 export function createCodexAdapter(options: CodexAdapterOptions): Adapter {
   // Shared convention: <stateDir>/adapters/codex/<session>.json — an external
   // status-writer (if any, §5.2) and the dispatcher compute the SAME path.
@@ -56,7 +73,11 @@ export function createCodexAdapter(options: CodexAdapterOptions): Adapter {
   return {
     type: "codex",
     render: makeDefaultRender(options.blobsDir !== undefined ? { blobsDir: options.blobsDir } : {}),
-    detect: { readyPrompt: CODEX_READY, statusFile },
+    detect: {
+      readyPrompt: CODEX_READY,
+      statusFile,
+      composer: { pending: CODEX_COMPOSER_PENDING, empty: CODEX_COMPOSER_EMPTY },
+    },
     // No extractReply (console-fallback, FR-47): codex renders its own prose AND
     // its tool actions under the same `•` glyph (`• Ответ записан …` vs `• Ran …`),
     // with no reliable prose/chrome split like claude's `⏺`/`⎿`. Scraping it would

@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import { AUTO_READY, createAutoAdapter } from "../src/auto";
+import { AUTO_COMPOSER_EMPTY, AUTO_READY, createAutoAdapter } from "../src/auto";
+import { CODEX_COMPOSER_PENDING } from "../src/codex";
 
 // The whole point of `auto`: one type that reads busy/idle for EITHER runtime.
 const CLAUDE_IDLE = ["⏺ Got it.", "❯ ", "  ⏵⏵ bypass permissions on"].join("\n");
@@ -55,5 +56,36 @@ describe("auto adapter (§5.2, §8.3, FR-11/FR-11b) — claude ∪ codex", () =>
     expect(adapter.extractReply?.(`❯ ${attr}\n⏺ 42\n──────`, attr)).toBe("42");
     // A codex `•` pane has no ⏺ blocks → null (nudge fires, no garbage forwarded).
     expect(adapter.extractReply?.(`› ${attr}\n• Ответ записан.\n──────`, attr)).toBeNull();
+  });
+});
+
+// Composer state (FR-58, T359) — composed from both runtimes, with one
+// asymmetry: `empty` is the UNION (the completion gate must fire for whichever
+// CLI is behind the pane, or a claude pane would wait forever for a `›`), while
+// `pending` is codex's paste marker only (claude queues on Enter and never
+// strands; its composer with text is not distinguishable from the transcript
+// echo, which codex's collapse marker is).
+describe("auto composer state (FR-58, T359)", () => {
+  test("the empty union matches both runtimes' idle composer", () => {
+    expect(AUTO_COMPOSER_EMPTY.test(CLAUDE_IDLE)).toBe(true);
+    expect(
+      AUTO_COMPOSER_EMPTY.test(
+        ["─ Worked for 1m 15s ──", "› Ask Codex to do anything", "  gpt-6-sol · /srv/a"].join("\n"),
+      ),
+    ).toBe(true);
+    expect(
+      AUTO_COMPOSER_EMPTY.test(["─ Worked for 1m 15s ──", "› ", "  gpt-6-sol · /srv/a"].join("\n")),
+    ).toBe(true);
+    // A composer HOLDING text is not empty — that is the parked-message state.
+    expect(AUTO_COMPOSER_EMPTY.test(CODEX_IDLE)).toBe(false);
+    expect(AUTO_COMPOSER_EMPTY.test(CLAUDE_BUSY)).toBe(true);
+    expect(AUTO_COMPOSER_EMPTY.test(["❯ [muxeon] from=tl id=…"].join("\n"))).toBe(false);
+    expect(AUTO_COMPOSER_EMPTY.test([" ❯ 1. Yes", "   2. No"].join("\n"))).toBe(false);
+  });
+
+  test("the adapter declares codex's pending marker and the empty union", () => {
+    const detect = createAutoAdapter({ stateDir: "/state" }).detect;
+    expect(detect.composer?.pending).toBe(CODEX_COMPOSER_PENDING);
+    expect(detect.composer?.empty).toBe(AUTO_COMPOSER_EMPTY);
   });
 });

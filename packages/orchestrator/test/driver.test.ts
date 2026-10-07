@@ -224,7 +224,7 @@ describe("TmuxSessionDriver submit confirmation (T78, FR-58)", () => {
     });
     await driver.inject("hello");
     // literal → settle pause → baseline capture → Enter → confirm pause → capture (busy ⇒ done)
-    expect(events).toEqual(["literal", "sleep:200", "capture", "enter", "sleep:350", "capture"]);
+    expect(events).toEqual(["literal", "sleep:1000", "capture", "enter", "sleep:350", "capture"]);
   });
 });
 
@@ -252,5 +252,128 @@ describe("TmuxSessionDriver crash-safety (T145 — vanished session mid-turn)", 
     // Must RESOLVE via the abort — never reject with the capture error.
     await expect(driver.awaitTurn("ignored", ac.signal)).resolves.toBeUndefined();
     expect(polls).toBeGreaterThanOrEqual(3);
+  });
+});
+
+// Composer ownership (T359, FR-58 — live finding 2026-10-08). Codex IGNORES
+// Enter while its own turn runs: a message injected into a busy agent parks in
+// the composer while its pane still reads READY (the composer stays visible in
+// both states, like claude's ❯). The old confirmation read that busy/ready as
+// proof of submission — on the live stand it marked messages done while their
+// text sat unsent for an hour, and a human had to press Enter by hand
+// (operator report through the panel). The driver now holds the turn open while
+// the adapter's composer visibly still shows our paste, and re-presses Enter on
+// the ready pane itself — the exact manual action, automated.
+describe("TmuxSessionDriver composer ownership (T359, FR-58)", () => {
+  const EMPTY = "› Ask Codex to do anything";
+  const PARKED = "› [Pasted Content 1328 chars]";
+  const ready = (composer: string): string =>
+    `• Ran bin/dsh -s dev1-inspect 'cd …'\n  └ 4 files changed\n\n${composer}\n  GPT-6-Sol high · /srv/agents/dev1 · 831K used\n  ? for shortcuts`;
+  const busy = (composer: string): string =>
+    `• Working (58m 29s • esc to interrupt) · 2 background terminals running\n\n${composer}\n  GPT-6-Sol high · /srv/agents/dev1 · 831K used\n  ? for shortcuts`;
+
+  /** The pane a live codex pane in a repaint window can look like: ready, composer not drawn. */
+  const TORN = "• Ran bin/dsh …\n  └ output…\n\n  ? for shortcuts";
+
+  function codexLikeAdapter(): Adapter {
+    return {
+      type: "fake-codex",
+      render: (message) => String(message.payload),
+      detect: {
+        readyPrompt: /^(?![\s\S]*esc to interrupt)/,
+        composer: {
+          pending: /\[Pasted Content \d+ chars?\]/,
+          empty: /^\s*›\s*(?:Ask Codex to do anything)?\s*$/m,
+        },
+      },
+      slashCommand: (name) => `/${name}`,
+    };
+  }
+
+  function driver(panes: string[]): {
+    driver: TmuxSessionDriver;
+    sent: string[];
+    polls: () => number;
+  } {
+    const sent: string[] = [];
+    let i = 0;
+    let clock = 0;
+    const instance = new TmuxSessionDriver({
+      session,
+      adapter: codexLikeAdapter(),
+      sleep: async (ms) => {
+        clock += ms; // virtual time: the re-press cadence works as in production
+      },
+      now: () => clock,
+      capture: async () => panes[Math.min(i++, panes.length - 1)] ?? "",
+      sendLiteral: async (_session, text) => {
+        sent.push(`literal:${text}`);
+      },
+      sendKeys: async (_session, ...keys) => {
+        sent.push(keys.join(","));
+      },
+    });
+    return { driver: instance, sent, polls: () => i };
+  }
+
+  test("a parked message is re-submitted on the ready pane, not completed (T359)", async () => {
+    const {
+      driver: d,
+      sent,
+      polls,
+    } = driver([
+      busy(PARKED), // the agent's OWN long turn — our paste waits in the composer
+      busy(PARKED),
+      ready(PARKED), // its turn ended: the exact pane of the operator's screenshot
+      busy(PARKED), // our automatic re-press landed — the CLI took the message
+      ready(EMPTY), // our turn ran and ended
+      ready(EMPTY),
+    ]);
+    await d.awaitTurn("id1");
+    expect(sent).toEqual(["Enter"]); // one press, on the READY+PARKED poll — never into busy
+    expect(polls()).toBe(6); // completed only once the composer was visibly empty
+  });
+
+  test("a torn repaint frame (composer not drawn) does not complete the turn (T359)", async () => {
+    const {
+      driver: d,
+      sent,
+      polls,
+    } = driver([
+      busy(PARKED),
+      TORN, // the false-ready window that used to complete the message
+      ready(PARKED),
+      busy(PARKED),
+      ready(EMPTY),
+      ready(EMPTY),
+    ]);
+    await d.awaitTurn("id1");
+    expect(sent).toEqual(["Enter"]); // no press on a pane whose composer is not visible
+    expect(polls()).toBe(6);
+  });
+
+  test("inject keeps pressing while the paste is parked instead of declaring a fast turn (T359)", async () => {
+    const { driver: d, sent } = driver([ready(PARKED)]); // ready forever, paste never taken
+    await d.inject("hello");
+    expect(sent[0]).toBe("literal:hello");
+    // initial Enter + the whole confirm window of re-presses — the T78 fallback
+    // is unchanged, it just no longer counts a parked paste as a completed turn.
+    expect(sent.filter((s) => s === "Enter").length).toBe(1 + SUBMIT_RETRIES);
+  });
+
+  test("a cleared composer on a changed pane still proves the fast turn (T359)", async () => {
+    const {
+      driver: d,
+      sent,
+      polls,
+    } = driver([
+      ready(PARKED), // pre-Enter baseline: the paste is in the composer
+      ready(EMPTY), // the whole turn happened inside the window — composer cleared
+    ]);
+    await d.inject("hello");
+    expect(sent).toEqual(["literal:hello", "Enter"]); // no empty-turn re-presses
+    const before = polls();
+    await d.awaitTurn("id1"); // the flag is consumed: returns without polling
+    expect(polls()).toBe(before);
   });
 });

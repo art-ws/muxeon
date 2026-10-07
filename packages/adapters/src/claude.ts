@@ -50,6 +50,17 @@ export interface ClaudeAdapterOptions {
 export const CLAUDE_BUSY_SOURCE = String.raw`(?:[\s\S]*\n)?(?:[·✢✳✶✻✽∗*+] \S[^\n]*…|[ \t]*❯ \d+\.)`;
 export const CLAUDE_READY: RegExp = new RegExp(`^(?!${CLAUDE_BUSY_SOURCE})`);
 
+// Composer state (FR-58, T359). Only the EMPTY form is declared: claude QUEUES a
+// message typed while it works (its footer says so — "Hit Enter to queue up
+// additional messages while Claude is …"), so there is no stranding to watch for
+// and no pending marker to match. What the empty form buys is the completion
+// gate: the input has visibly left the composer before the turn counts as done,
+// which is what keeps codex-style false completions (§ see codex.ts) out of the
+// turn waiter for claude panes too. A bare `❯` line is the empty composer — with
+// text it always carries content, and the selection cursor of an approval dialog
+// reads `❯ 1.` (busy, T139), so the pattern is unambiguous.
+export const CLAUDE_COMPOSER_EMPTY: RegExp = /^\s*❯\s*$/m;
+
 export function createClaudeAdapter(options: ClaudeAdapterOptions): Adapter {
   // Shared convention: <stateDir>/adapters/claude/<session>.json — computed the same
   // way by an external writer (if any, §5.2) and the dispatcher (reader).
@@ -59,7 +70,11 @@ export function createClaudeAdapter(options: ClaudeAdapterOptions): Adapter {
   return {
     type: "claude",
     render: makeDefaultRender(options.blobsDir !== undefined ? { blobsDir: options.blobsDir } : {}),
-    detect: { readyPrompt: CLAUDE_READY, statusFile },
+    detect: {
+      readyPrompt: CLAUDE_READY,
+      statusFile,
+      composer: { empty: CLAUDE_COMPOSER_EMPTY },
+    },
     extractReply: extractClaudeReply,
     slashCommand: (name: string, args?: string): string =>
       args !== undefined && args.length > 0 ? `/${name} ${args}` : `/${name}`,

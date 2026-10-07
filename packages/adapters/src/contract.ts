@@ -23,6 +23,29 @@ export interface Detect {
    * The dispatcher accepts idle only at the current turn token — edge, not level.
    */
   statusFile?(session: Session): string;
+  /**
+   * Composer state (FR-58, T359) — the CLI's input line, matched against the
+   * pane's BOTTOM region (the driver keeps the last COMPOSER_REGION lines). This
+   * is how the driver tells "my message left the composer" from "my message is
+   * still sitting there": a CLI that ignores a submit while a turn runs (codex:
+   * the footer invites `tab to queue message`) leaves the pasted text in the
+   * composer, and neither `busy` nor `ready` can prove the message was consumed.
+   * Declared only where the CLI distinguishes the two states; absent ⇒ the
+   * pre-composer heuristics (press-while-ready, busy⇒submitted) stay in force.
+   */
+  composer?: {
+    /**
+     * The composer holds an UNSENT paste. Only collapse markers that cannot
+     * appear in the transcript qualify (§5.2: the submitted echo prints the raw
+     * text) — a bare "composer has text" pattern would also match that echo and
+     * turn a completed turn back into a pending one. Omitted by a CLI whose
+     * Enter already queues the message while a turn runs (no stranding to
+     * watch for) — only `empty` is then used, as the completion gate.
+     */
+    readonly pending?: RegExp;
+    /** The composer is EMPTY — the turn's input has been handed to the CLI. */
+    readonly empty: RegExp;
+  };
 }
 
 /** Contents the native hook writes to its status file (§5.2). */

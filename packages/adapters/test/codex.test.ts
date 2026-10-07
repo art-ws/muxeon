@@ -1,7 +1,12 @@
 import { describe, expect, test } from "bun:test";
 import { join } from "node:path";
 import type { Message, Session } from "@muxeon/core";
-import { CODEX_READY, createCodexAdapter } from "../src/codex";
+import {
+  CODEX_COMPOSER_EMPTY,
+  CODEX_COMPOSER_PENDING,
+  CODEX_READY,
+  createCodexAdapter,
+} from "../src/codex";
 
 const session: Session = { name: "tl" };
 
@@ -106,5 +111,66 @@ describe("codex adapter (§5.2, §8.3, FR-11/FR-11b)", () => {
     const adapter = createCodexAdapter({ stateDir: "/state" });
     expect(adapter.slashCommand("mcp")).toBe("/mcp");
     expect(adapter.slashCommand("review", "my changes")).toBe("/review my changes");
+  });
+});
+
+// Composer state (FR-58, T359 — live finding 2026-10-08). Fixtures captured from
+// LIVE panes on the stand: codex ignores Enter while its own turn runs, so a
+// message injected into a busy agent parks in the composer while the pane still
+// reads READY. These two markers are what let the driver see the difference.
+const PANE_COMPOSER_EMPTY = [
+  "• Ответ записан в reply.md.",
+  "─ Worked for 1m 15s ────────────────────────────────────────────────────────────",
+  "",
+  "› Ask Codex to do anything",
+  "",
+  "  GPT-6-Sol high · /srv/agents/cto · 448K used",
+  "  ? for shortcuts                                     ⚠ 3 warnings · f2 to view",
+].join("\n");
+
+// The operator's screenshot, 2026-10-08: the message stuck unsent in a busy pane
+// for 55 minutes while the footer invited `tab to queue message`.
+const PANE_COMPOSER_PENDING = [
+  "• Waiting for background terminal (55m 26s • esc to interrupt) · 2 background t…",
+  "",
+  "› [Pasted Content 1328 chars]",
+  "  GPT-6-Sol high · /srv/agents/dev1 · 778K used",
+  "  tab to queue message",
+].join("\n");
+
+// A submitted message echoed in the transcript: same `›` prefix, RAW text. The
+// pending marker must never match it — a completed turn read back as pending
+// would park the driver on a message the agent already has.
+const PANE_TRANSCRIPT_ECHO = [
+  "› [muxeon] from=tl id=1145df87-bdb7-4126-9e78-a8ab8e37ac74CTO закрыл границу R…",
+  "• Ran bin/dsh -s dev1-inspect 'tail -16 /srv/agents/dev1/.tmp/ac…",
+  "  └       |  ELIFECYCLE  Command failed with exit code 1.",
+  "",
+  "› Ask Codex to do anything",
+  "  GPT-6-Sol high · /srv/agents/dev1 · 831K used",
+  "  ? for shortcuts                                      ⚠ 1 warning · f2 to view",
+].join("\n");
+
+describe("codex composer state (FR-58, T359)", () => {
+  test("an unsent paste in the composer matches pending, not empty", () => {
+    expect(CODEX_COMPOSER_PENDING.test(PANE_COMPOSER_PENDING)).toBe(true);
+    expect(CODEX_COMPOSER_EMPTY.test(PANE_COMPOSER_PENDING)).toBe(false);
+  });
+
+  test("an idle composer matches empty (placeholder and bare forms), not pending", () => {
+    expect(CODEX_COMPOSER_EMPTY.test(PANE_COMPOSER_EMPTY)).toBe(true);
+    expect(CODEX_COMPOSER_PENDING.test(PANE_COMPOSER_EMPTY)).toBe(false);
+    expect(CODEX_COMPOSER_EMPTY.test("› \n  gpt-5.5 default")).toBe(true);
+    expect(CODEX_COMPOSER_EMPTY.test("› Implement {feature}")).toBe(false);
+  });
+
+  test("the transcript echo of a submitted message is NOT pending", () => {
+    expect(CODEX_COMPOSER_PENDING.test(PANE_TRANSCRIPT_ECHO)).toBe(false);
+  });
+
+  test("the adapter declares the composer so the driver can hold the turn open", () => {
+    const detect = createCodexAdapter({ stateDir: "/state" }).detect;
+    expect(detect.composer?.pending).toBe(CODEX_COMPOSER_PENDING);
+    expect(detect.composer?.empty).toBe(CODEX_COMPOSER_EMPTY);
   });
 });

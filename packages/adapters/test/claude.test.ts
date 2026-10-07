@@ -1,7 +1,12 @@
 import { describe, expect, test } from "bun:test";
 import { join } from "node:path";
 import type { Message, Session } from "@muxeon/core";
-import { CLAUDE_READY, createClaudeAdapter, extractClaudeReply } from "../src/claude";
+import {
+  CLAUDE_COMPOSER_EMPTY,
+  CLAUDE_READY,
+  createClaudeAdapter,
+  extractClaudeReply,
+} from "../src/claude";
 
 const session: Session = { name: "researcher-session" };
 
@@ -199,5 +204,34 @@ describe("extractClaudeReply — console-fallback (§8.2, FR-47)", () => {
   test("nothing after the attribution → null (the nudge fires instead)", () => {
     expect(extractClaudeReply(`❯ ${ATTR}\nвопрос\n──────\n❯ `, ATTR)).toBeNull();
     expect(extractClaudeReply("совсем другой текст", ATTR)).toBeNull();
+  });
+});
+
+// Composer state (FR-58, T359). Claude QUEUES a message typed while it works
+// ("Hit Enter to queue up additional messages while Claude is …"), so only the
+// EMPTY form is declared: it is the driver's completion gate, not a stranding
+// watch. Fixtures: an idle composer is a bare `❯` (live panes: `muxeon`,
+// `sherlock`); an approval dialog carries `❯ 1.` (busy, T139) and must not read
+// as empty.
+describe("claude composer state (FR-58, T359)", () => {
+  test("a bare ❯ is empty; a composer with text and a dialog cursor are not", () => {
+    expect(
+      CLAUDE_COMPOSER_EMPTY.test(
+        ["⏺ Готово.", "❯", "──────", "  ⏵⏵ bypass permissions on"].join("\n"),
+      ),
+    ).toBe(true);
+    expect(CLAUDE_COMPOSER_EMPTY.test(["✢ Symbioting… (2m 22s)", "❯"].join("\n"))).toBe(true);
+    expect(CLAUDE_COMPOSER_EMPTY.test(["❯ [muxeon] from=tl id=…", "──────"].join("\n"))).toBe(
+      false,
+    );
+    expect(
+      CLAUDE_COMPOSER_EMPTY.test([" Do you want to proceed?", " ❯ 1. Yes", "   2. No"].join("\n")),
+    ).toBe(false);
+  });
+
+  test("the adapter declares the empty composer and no pending marker", () => {
+    const composer = createClaudeAdapter({ stateDir: "/state" }).detect.composer;
+    expect(composer?.empty).toBe(CLAUDE_COMPOSER_EMPTY);
+    expect(composer?.pending).toBeUndefined();
   });
 });

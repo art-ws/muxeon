@@ -18,6 +18,8 @@ export interface TmuxDriverOptions {
   readonly sendLiteral?: (session: string, text: string) => Promise<void>;
   readonly sendKeys?: (session: string, ...keys: string[]) => Promise<void>;
   readonly readStatus?: (path: string) => Promise<NativeStatus | null>;
+  /** Clock for the re-press cadence (T359) — injectable like sleep. */
+  readonly now?: () => number;
 }
 
 const defaultSleep = (ms: number): Promise<void> =>
@@ -41,10 +43,36 @@ const defaultSleep = (ms: number): Promise<void> =>
 // the loop returns the instant the pane goes busy (a warm submit still costs one
 // tick), and a selection/permission prompt now reads as BUSY (CLAUDE_READY, T139)
 // — the loop returns instead of answering a dialog.
-const SUBMIT_SETTLE_MS = 200;
+// Settle before the first Enter, measured on a live codex pane (T359, 2026-10-08):
+// with 250ms the paste is still "hot" — Enter is swallowed, the composer keeps
+// the text as `[Pasted Content <n> chars]` and the footer offers `tab to queue
+// message` (the operator's screenshot, verbatim); with 1s the very same text is
+// accepted and queued for the next tool call. The old 200ms sat on the wrong side
+// of that window for every large message, which is what filled the composers.
+const SUBMIT_SETTLE_MS = 1000;
 const SUBMIT_CONFIRM_MS = 350;
 const SUBMIT_CONFIRM_WINDOW_MS = 15_000;
 export const SUBMIT_RETRIES = Math.ceil(SUBMIT_CONFIRM_WINDOW_MS / SUBMIT_CONFIRM_MS);
+
+// Composer ownership (T359, FR-58 live finding 2026-10-08). The confirmation
+// above still gives up after its window — and on the live stand it gave up on a
+// message that then sat in the agent's composer for an hour (operator report:
+// «залипает отправка… нужно заходить в консоль и прожимать Enter»). The pane it
+// gave up on had read `busy` the whole time — but that busy was the agent's OWN
+// turn, and codex ignores Enter while a turn runs, so "busy ⇒ submitted" was
+// simply false there; the message was never submitted at all. The fix is to stop
+// inferring and start looking: an adapter that declares its composer (see
+// Detect.composer) lets the driver see the message still parked in it. Then
+//   1. a turn does NOT complete while the composer still shows our paste, and
+//   2. the driver keeps pressing Enter on the ready pane — the exact manual
+//      action the operator was performing — until the CLI takes the message.
+// Both are bounded by nothing but the turn's own lifetime (OOS-7: a turn that
+// never ends is not this detector's to time out), and both are no-ops for
+// adapters that declare no composer.
+/** Lines from the pane bottom that may hold the composer (T359). */
+const COMPOSER_REGION_LINES = 8;
+/** Min gap between automatic re-presses while our message sits in the composer. */
+const SUBMIT_REPRESS_MS = 1000;
 
 async function defaultReadStatus(path: string): Promise<NativeStatus | null> {
   try {
@@ -63,6 +91,15 @@ export class TmuxSessionDriver implements SessionDriver {
   readonly #sendLiteral: (session: string, text: string) => Promise<void>;
   readonly #sendKeys: (session: string, ...keys: string[]) => Promise<void>;
   readonly #readStatus: (path: string) => Promise<NativeStatus | null>;
+  readonly #now: () => number;
+  /**
+   * Consecutive "front reached + composer cleared" polls a turn needs (T359).
+   * A declared composer gets 2: the second poll is what rules out a torn frame
+   * completing a turn that is only now starting (T78's race). Adapters that
+   * declare nothing keep the single-poll front — their behavior is deliberately
+   * untouched, since no UI evidence about them exists.
+   */
+  readonly #clearedPolls: number;
   /**
    * Set by inject() when the agent answered INSIDE the submit-confirmation window
    * — a turn shorter than SUBMIT_CONFIRM_MS is already over before awaitTurn gets
@@ -81,6 +118,37 @@ export class TmuxSessionDriver implements SessionDriver {
     this.#sendLiteral = options.sendLiteral ?? sendLiteral;
     this.#sendKeys = options.sendKeys ?? sendKeys;
     this.#readStatus = options.readStatus ?? defaultReadStatus;
+    this.#now = options.now ?? Date.now;
+    this.#clearedPolls = options.adapter.detect.composer === undefined ? 1 : 2;
+  }
+
+  /**
+   * Composer state (§5.2, FR-58, T359): does the adapter's declared composer
+   * hold an unsent paste ("pending"), sit empty ("empty") — or is it not
+   * declared / not visible in this pane ("unknown")? Matched against the pane's
+   * bottom region only: the composer lives there, and the transcript above it
+   * carries `›`-prefixed echoes that must never be read as composer content.
+   */
+  #composerState(pane: string): "pending" | "empty" | "unknown" {
+    const composer = this.#adapter.detect.composer;
+    if (composer === undefined) return "unknown";
+    const region = pane.split("\n").slice(-COMPOSER_REGION_LINES).join("\n");
+    if (composer.pending?.test(region) === true) return "pending";
+    if (composer.empty.test(region)) return "empty";
+    return "unknown";
+  }
+
+  /**
+   * Positive proof that this turn's input is out of the composer (T359): the
+   * adapter's empty-composer marker is VISIBLY there. Deliberately not "not
+   * pending" — a pane mid-repaint can hide the composer for a frame while the
+   * paste is still sitting in it (the live false-ready windows above), and that
+   * frame is exactly what made the old detector complete a message nobody had
+   * received. An adapter that declares no composer keeps the old reading.
+   */
+  #composerCleared(pane: string): boolean {
+    if (this.#adapter.detect.composer === undefined) return true;
+    return this.#composerState(pane) === "empty";
   }
 
   async inject(text: string): Promise<void> {
@@ -110,7 +178,16 @@ export class TmuxSessionDriver implements SessionDriver {
         await this.#sleep(SUBMIT_CONFIRM_MS);
         const pane = (await this.#capture(this.#session.name)).trimEnd();
         if (!this.#adapter.detect.readyPrompt.test(pane)) return; // busy — submitted
-        if (baseline !== undefined && pane !== baseline) {
+        // The composer still holds OUR paste: the Enter was refused (codex
+        // ignores it while a turn runs), so the pane looking "ready" here says
+        // nothing about submission — press again and keep looking (T359). The
+        // waiter below owns this state past this window; this branch just keeps
+        // the warm path warm.
+        if (this.#composerState(pane) === "pending") {
+          await this.#sendKeys(this.#session.name, "Enter");
+          continue;
+        }
+        if (baseline !== undefined && pane !== baseline && this.#composerCleared(pane)) {
           // Output appeared AND the prompt is back: the whole turn happened inside
           // this window. Tell awaitTurn, or it waits for a front already spent.
           this.#turnObservedDuringInject = true;
@@ -177,6 +254,8 @@ export class TmuxSessionDriver implements SessionDriver {
   // and keep polling; the down-probe wins the race and aborts this loop via the signal.
   async #awaitOutput(readyPrompt: RegExp, signal?: AbortSignal): Promise<void> {
     let sawBusy = false;
+    let cleared = 0; // consecutive polls of "front reached + composer visibly empty"
+    let lastSubmit = Number.NEGATIVE_INFINITY; // last automatic re-press (T359) — none yet
     while (signal?.aborted !== true) {
       let pane: string;
       try {
@@ -186,8 +265,36 @@ export class TmuxSessionDriver implements SessionDriver {
         continue;
       }
       const ready = readyPrompt.test(pane);
-      if (!ready) sawBusy = true;
-      else if (sawBusy) return;
+      const composer = ready ? this.#composerState(pane) : "unknown";
+      if (!ready) {
+        sawBusy = true;
+        cleared = 0;
+      } else if (sawBusy && this.#composerCleared(pane)) {
+        // Front reached AND the composer is visibly empty: our input went
+        // through, the turn is over — confirmed on a second consecutive poll so
+        // a torn frame (the composer drawn a beat before the agent goes busy,
+        // T78's old race) cannot complete a turn that is just starting. While
+        // the composer still shows the paste, the "ready" is the agent's own
+        // turn ending with our message never submitted — completing there is
+        // exactly the false done of T359 (§10.1).
+        cleared += 1;
+        if (cleared >= this.#clearedPolls) return;
+      } else {
+        cleared = 0;
+      }
+      // Our message is parked in the composer and the agent is at the prompt:
+      // the same Enter a human presses by hand, on a cadence, until the CLI
+      // takes it (T359). Never while busy (codex ignores Enter mid-turn) and
+      // never into a selection dialog — a dialog reads busy (T139).
+      const now = this.#now();
+      if (ready && composer === "pending" && now - lastSubmit >= SUBMIT_REPRESS_MS) {
+        lastSubmit = now;
+        try {
+          await this.#sendKeys(this.#session.name, "Enter");
+        } catch {
+          // a dead session is the down-probe's to report — keep polling
+        }
+      }
       await this.#sleep(this.#pollIntervalMs);
     }
   }
