@@ -1,7 +1,13 @@
 import { describe, expect, test } from "bun:test";
 import type { Adapter, NativeStatus } from "@muxeon/adapters";
 import type { Session } from "@muxeon/core";
-import { SUBMIT_RETRIES, TmuxSessionDriver } from "../src/driver";
+import {
+  SUBMIT_RETRIES,
+  TYPE_CHUNK_BYTES,
+  TYPE_CHUNK_GAP_MS,
+  TmuxSessionDriver,
+  splitForTyping,
+} from "../src/driver";
 
 const session: Session = { name: "s" };
 const noSleep = async (): Promise<void> => undefined;
@@ -225,6 +231,78 @@ describe("TmuxSessionDriver submit confirmation (T78, FR-58)", () => {
     await driver.inject("hello");
     // literal → settle pause → baseline capture → Enter → confirm pause → capture (busy ⇒ done)
     expect(events).toEqual(["literal", "sleep:1000", "capture", "enter", "sleep:350", "capture"]);
+  });
+});
+
+// T366 live finding: one `send-keys -l` of a message past ~1 KB reached Claude Code
+// as a ~1022-byte read (the macOS tty queue) plus the rest; the CLI took the big
+// read for a paste and dropped it, so the agent saw only `ther channel]`. The text
+// must go out in bursts small enough to read as typing, never cut inside a char.
+describe("TmuxSessionDriver typing in bursts (T366, FR-58)", () => {
+  const bytes = (s: string): number => new TextEncoder().encode(s).length;
+
+  test("splitForTyping keeps every piece within the byte cap and loses nothing", () => {
+    const text = `[muxeon] from=a id=1\n${"ж".repeat(700)}\n${"x".repeat(300)}`;
+    const pieces = splitForTyping(text, TYPE_CHUNK_BYTES);
+    expect(pieces.join("")).toBe(text);
+    expect(pieces.length).toBeGreaterThan(1);
+    for (const piece of pieces) expect(bytes(piece)).toBeLessThanOrEqual(TYPE_CHUNK_BYTES);
+  });
+
+  test("splitForTyping never cuts a code point — Cyrillic and astral chars stay whole", () => {
+    const pieces = splitForTyping("ж😀".repeat(50), 7); // 2 + 4 bytes per pair
+    expect(pieces.join("")).toBe("ж😀".repeat(50));
+    for (const piece of pieces) {
+      expect(
+        new TextDecoder("utf-8", { fatal: true }).decode(new TextEncoder().encode(piece)),
+      ).toBe(piece);
+      expect(piece).not.toMatch(/[\uD800-\uDBFF]$/); // no dangling high surrogate
+    }
+  });
+
+  test("text that fits is one piece; a char wider than the cap still goes out alone", () => {
+    expect(splitForTyping("hello", TYPE_CHUNK_BYTES)).toEqual(["hello"]);
+    expect(splitForTyping("😀😀", 2)).toEqual(["😀", "😀"]);
+  });
+
+  test("inject types a long message in capped bursts with a gap, then settles", async () => {
+    const message = `[muxeon] from=operator-web id=b7fd\n${"восстанови контекст ".repeat(40)}\n[reply contract: …channel]`;
+    const events: string[] = [];
+    const typed: string[] = [];
+    const driver = new TmuxSessionDriver({
+      session,
+      adapter: outputAdapter(),
+      sleep: async (ms) => {
+        events.push(`sleep:${ms}`);
+      },
+      capture: async () => {
+        events.push("capture");
+        return "working...";
+      },
+      sendLiteral: async (_session, text) => {
+        events.push("literal");
+        typed.push(text);
+      },
+      sendKeys: async () => {
+        events.push("enter");
+      },
+    });
+    await driver.inject(message);
+    expect(typed.join("")).toBe(message); // the head survives — the T366 loss
+    expect(typed.length).toBeGreaterThan(1);
+    for (const piece of typed) expect(bytes(piece)).toBeLessThanOrEqual(TYPE_CHUNK_BYTES);
+    const typing = events.slice(0, events.indexOf("sleep:1000"));
+    const expected = typed.flatMap((_, i) =>
+      i === 0 ? ["literal"] : [`sleep:${TYPE_CHUNK_GAP_MS}`, "literal"],
+    );
+    expect(typing).toEqual(expected); // every burst after the first waits its gap
+    expect(events.slice(typing.length)).toEqual([
+      "sleep:1000",
+      "capture",
+      "enter",
+      "sleep:350",
+      "capture",
+    ]);
   });
 });
 

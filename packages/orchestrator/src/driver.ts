@@ -50,6 +50,20 @@ const defaultSleep = (ms: number): Promise<void> =>
 // accepted and queued for the next tool call. The old 200ms sat on the wrong side
 // of that window for every large message, which is what filled the composers.
 const SUBMIT_SETTLE_MS = 1000;
+// Typing in bounded bursts (T366, FR-58 live finding 2026-10-10). One
+// `send-keys -l` of the whole message reaches the CLI as whatever the pty hands
+// over per read — on macOS at most ~1 KB (the tty input queue), so every message
+// past that arrived as a ~1022-byte read plus the rest. Claude Code 2.1.x takes a
+// read that large for a paste and loses it once more input follows ("paste again
+// to expand" in its footer): the agent got only the tail of the reply contract —
+// `ther channel]` — with the attribution, the payload and the message path gone.
+// Reads under ~800 bytes are plain typing to every runtime the park launches
+// (claude, codex, opencode, pi — measured live, same 1039-byte message), so the
+// text goes out in bursts well below that, each given time to be read before the
+// next one lands: 256 bytes / 40 ms delivered the full text to all four. A
+// split never falls inside a code point (Cyrillic payloads are 2 bytes a char).
+export const TYPE_CHUNK_BYTES = 256;
+export const TYPE_CHUNK_GAP_MS = 40;
 const SUBMIT_CONFIRM_MS = 350;
 const SUBMIT_CONFIRM_WINDOW_MS = 15_000;
 export const SUBMIT_RETRIES = Math.ceil(SUBMIT_CONFIRM_WINDOW_MS / SUBMIT_CONFIRM_MS);
@@ -84,6 +98,30 @@ const SUBMIT_REPRESS_MS = 1000;
 // seconds is a 5x margin over the measured hazard and costs only that much
 // latency on the runtimes that cannot be probed.
 const COMPOSER_UNKNOWN_GRACE_MS = 5_000;
+
+/**
+ * Cuts `text` into consecutive pieces of at most `maxBytes` UTF-8 bytes, only
+ * between code points (T366). Joined back they are `text` exactly; text that
+ * already fits comes back as the single piece it is.
+ */
+export function splitForTyping(text: string, maxBytes: number): string[] {
+  const encoder = new TextEncoder();
+  const pieces: string[] = [];
+  let piece = "";
+  let bytes = 0;
+  for (const char of text) {
+    const size = encoder.encode(char).length;
+    if (bytes + size > maxBytes && piece !== "") {
+      pieces.push(piece);
+      piece = "";
+      bytes = 0;
+    }
+    piece += char;
+    bytes += size;
+  }
+  pieces.push(piece);
+  return pieces;
+}
 
 async function defaultReadStatus(path: string): Promise<NativeStatus | null> {
   try {
@@ -164,7 +202,10 @@ export class TmuxSessionDriver implements SessionDriver {
 
   async inject(text: string): Promise<void> {
     this.#turnObservedDuringInject = false; // never let a previous turn's flag leak
-    await this.#sendLiteral(this.#session.name, text);
+    for (const [index, piece] of splitForTyping(text, TYPE_CHUNK_BYTES).entries()) {
+      if (index > 0) await this.#sleep(TYPE_CHUNK_GAP_MS);
+      await this.#sendLiteral(this.#session.name, piece);
+    }
     await this.#sleep(SUBMIT_SETTLE_MS);
     // Baseline: the pane with the text typed but NOT yet submitted. "Ready" alone
     // cannot prove the Enter was swallowed — an agent whose turn is SHORTER than
