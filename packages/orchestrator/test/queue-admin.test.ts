@@ -11,7 +11,7 @@ import {
   ensureQueueDirs,
   queuePaths,
 } from "@muxeon/queue";
-import { cancelPendingById, peekQueue, requeueFailedById } from "../src/queue-admin";
+import { cancelPendingById, isQueuedById, peekQueue, requeueFailedById } from "../src/queue-admin";
 
 let root: string;
 let paths: QueuePaths;
@@ -100,5 +100,32 @@ describe("queue admin ops (§8.5, §10.8/§10.9)", () => {
   test("requeue of an unknown id → not-found", async () => {
     const result = await requeueFailedById(paths, "ghost", { unixMs: 1, seq: 1 }, new Set());
     expect(result).toEqual({ outcome: "not-found" });
+  });
+});
+
+// §10.15 (T374): the rendezvous coordinator asks whether its last notice still
+// waits in the target's queue — by the LOGICAL id, which a file name only
+// approximates (`rv:a:b:0` is stored as `…-rv_a_b_0.json`).
+describe("isQueuedById (§10.15)", () => {
+  async function putRaw(id: string): Promise<void> {
+    seq += 1;
+    await enqueue(paths, {
+      unixMs: 1700000000000,
+      seq,
+      fileId: id.replace(/[^A-Za-z0-9_-]/g, "_"),
+      message: msg(id),
+    });
+  }
+
+  test("pending and the running turn count as queued; done and unknown do not", async () => {
+    await putRaw("rv:a:b:0");
+    expect(await isQueuedById(paths, "rv:a:b:0")).toBe(true);
+    expect(await isQueuedById(paths, "rv_a_b_0")).toBe(false); // the file name is not the id
+    const item = await dequeue(paths); // B starts the turn: pending → cur
+    expect(item).not.toBeNull();
+    expect(await isQueuedById(paths, "rv:a:b:0")).toBe(true);
+    if (item !== null) await complete(paths, item.filename, "done");
+    expect(await isQueuedById(paths, "rv:a:b:0")).toBe(false);
+    expect(await isQueuedById(queuePaths(root, "missing"), "rv:a:b:0")).toBe(false);
   });
 });

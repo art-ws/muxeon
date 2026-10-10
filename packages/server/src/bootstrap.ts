@@ -94,6 +94,7 @@ import {
   ensureSessionQueue,
   fedQueueRoot,
   inFlightId,
+  isQueuedById,
   loadSessionDoneIds,
   parseRetainAge,
   probeSession,
@@ -458,6 +459,12 @@ export async function bootstrap(options: BootstrapOptions = {}): Promise<MuxeonS
       persist: createFsRendezvousStore(location.stateDir),
       route: (message, opts) => router.route(message, opts),
       statusOf: (name) => agents.get(name)?.state.status, // agents only (operators ⇒ undefined)
+      // One pending nudge per pair (§10.15, T374): the coordinator asks whether its
+      // last notice still waits in the target's queue before it opens a new round.
+      noticePending: async (to, id) => {
+        const runtime = agents.get(to);
+        return runtime !== undefined && isQueuedById(sessionPaths(root, runtime.session), id);
+      },
       windowMs: parseRetainAge(resolvedRendezvous.window),
       maxAttempts: resolvedRendezvous.maxAttempts,
       sweepIntervalMs: config.server.cadence?.rendezvousSweepMs ?? DEFAULT_RENDEZVOUS_SWEEP_MS,

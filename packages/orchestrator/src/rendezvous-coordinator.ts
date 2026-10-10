@@ -11,6 +11,14 @@
 // an idle one. `onRefused` also kicks a fast-path tick (a no-op unless A is already
 // idle). Notices carry a deterministic id (`rv:<A>:<B>:<attempt>`) so a duplicate
 // (concurrent tick, redelivery) collapses in the done/ dedup window (§10.9).
+//
+// One pending nudge per pair (§10.15, T374 live finding 2026-10-10): the window is
+// counted from the SEND, so a target busy on a long turn never saw the notice, the
+// window elapsed anyway and the next attempt — a new id — landed beside it. Eight
+// windows later `dev` held eight identical `rv:tl:dev:0…7` notices; they passed its
+// WIP gate by design and so pushed its depth past the limit, refusing everybody
+// else. A round now starts only once B has TAKEN the previous notice: while it
+// still waits in B's queue, the intent steps aside unspent (`rotateFront`).
 
 import type { AgentStatus, Signal } from "@muxeon/core";
 import { isNotificationOnly } from "@muxeon/core";
@@ -29,6 +37,12 @@ export interface RendezvousCoordinatorOptions {
   readonly route: RendezvousRoute;
   /** Live status of a participant — undefined for a non-agent (operator/hub/unknown). */
   readonly statusOf: (name: string) => AgentStatus | undefined;
+  /**
+   * Is notice `id` still waiting in `to`'s queue — pending, or in the turn now
+   * running (§10.15)? Absent ⇒ never (the pre-T374 behavior, for tests that do
+   * not model a queue).
+   */
+  readonly noticePending?: (to: string, id: string) => Promise<boolean>;
   /** Notify window in ms (resolved from `server.rendezvous.window`, FR-105). */
   readonly windowMs: number;
   /** Max notify rounds before an intent is dropped (FR-105). */
@@ -45,6 +59,10 @@ export interface RendezvousCoordinatorOptions {
 }
 
 /** The notice payload delivered to B: sender A is free, reach out to it (FR-105). */
+/** The deterministic id of the notice for round `attempt` of (from → to) (§10.15). */
+export const rendezvousNoticeId = (from: string, to: string, attempt: number): string =>
+  `rv:${from}:${to}:${attempt}`;
+
 export function rendezvousPayload(from: string, to: string): string {
   return [
     `Agent "${from}" tried to reach you ("${to}") earlier, but your queue was full (WIP limit, FR-104), so its message was refused.`,
@@ -62,6 +80,7 @@ export class RendezvousCoordinator {
   readonly #persist: RendezvousStateStore;
   readonly #route: RendezvousRoute;
   readonly #statusOf: (name: string) => AgentStatus | undefined;
+  readonly #noticePending: (to: string, id: string) => Promise<boolean>;
   readonly #windowMs: number;
   readonly #maxAttempts: number;
   readonly #enabled: boolean;
@@ -78,6 +97,7 @@ export class RendezvousCoordinator {
     this.#persist = options.persist;
     this.#route = options.route;
     this.#statusOf = options.statusOf;
+    this.#noticePending = options.noticePending ?? (async () => false);
     this.#windowMs = options.windowMs;
     this.#maxAttempts = options.maxAttempts;
     this.#enabled = options.enabled ?? true;
@@ -200,6 +220,20 @@ export class RendezvousCoordinator {
     this.#ticking.add(from);
     try {
       const now = this.#now();
+      // 0) one pending nudge per pair (§10.15): a front whose round is over — its
+      //    window elapsed, or it waits for the next one — but whose last notice B
+      //    has not taken yet steps aside unspent; no new notice, no attempt burnt.
+      const head = this.#store.front(from);
+      if (
+        head !== undefined &&
+        head.attempts > 0 &&
+        (head.phase === "waiting" || this.#store.windowExpired(from, now)) &&
+        (await this.#noticePending(head.to, rendezvousNoticeId(from, head.to, head.attempts - 1)))
+      ) {
+        this.#store.rotateFront(from);
+        await this.#flush(from);
+        return;
+      }
       // 1) an elapsed round: rotate to the back, or drop at maxAttempts.
       if (this.#store.windowExpired(from, now)) {
         const res = this.#store.expireFront(from, this.#maxAttempts);
@@ -216,7 +250,7 @@ export class RendezvousCoordinator {
       if (front !== undefined && front.phase === "waiting" && this.#statusOf(from) === "idle") {
         const to = front.to;
         const notice: Signal = {
-          id: `rv:${from}:${to}:${front.attempts}`,
+          id: rendezvousNoticeId(from, to, front.attempts),
           from, // the A→B edge exists (it was the blocked edge, §10.2)
           to,
           kind: "rendezvous",

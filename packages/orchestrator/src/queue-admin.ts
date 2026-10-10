@@ -30,6 +30,22 @@ export async function peekQueue(paths: QueuePaths): Promise<PeekResult> {
   };
 }
 
+/**
+ * Is a record with this LOGICAL id still queued — waiting in pending/, or the turn
+ * now running in cur/ (§10.15, the rendezvous one-pending-nudge check)? Read-only;
+ * compares the id inside each record, not the lossy file name.
+ */
+export async function isQueuedById(paths: QueuePaths, id: string): Promise<boolean> {
+  for (const sub of ["pending", "cur"] as const) {
+    try {
+      if ((await listEntries(paths, sub)).some((entry) => entry.message.id === id)) return true;
+    } catch {
+      // the session queue does not exist yet — nothing is queued
+    }
+  }
+  return false;
+}
+
 export type CancelOutcome = "cancelled" | "in-flight" | "not-found";
 
 /**

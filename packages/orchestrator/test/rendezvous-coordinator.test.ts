@@ -41,6 +41,8 @@ function makeCoord(
     routeOk?: boolean;
     enabled?: boolean;
     sleep?: (ms: number) => Promise<void>;
+    /** Notice ids the target has not taken yet — its pending/cur (§10.15). */
+    queued?: Set<string>;
   } = {},
 ) {
   const store = new RendezvousStore();
@@ -62,6 +64,9 @@ function makeCoord(
       return { ok: opts.routeOk ?? true };
     },
     statusOf: (n) => status.get(n),
+    ...(opts.queued !== undefined
+      ? { noticePending: async (_to: string, id: string) => opts.queued?.has(id) === true }
+      : {}),
     windowMs: WINDOW,
     maxAttempts: opts.maxAttempts ?? 3,
     ...(opts.enabled !== undefined ? { enabled: opts.enabled } : {}),
@@ -307,5 +312,60 @@ describe("RendezvousCoordinator (§8.2, FR-105)", () => {
     expect(seen).toHaveLength(50);
     expect(Math.max(...seen)).toBe(0);
     expect(attached()).toBe(0);
+  });
+
+  // §10.15 / T374 live finding: `dev` was busy on one long turn; every 15s window
+  // elapsed while the notice sat unread in its queue, and each round queued a new
+  // one — rv:tl:dev:0…7, which then held dev's depth past its WIP limit.
+  describe("one pending nudge per pair (§10.15, T374)", () => {
+    test("while B has not taken the notice, no new round starts and no attempt is spent", async () => {
+      const queued = new Set<string>();
+      const h = makeCoord({ maxAttempts: 8, queued });
+      h.coord.onRefused(msg("a", "b"), wip);
+      await settle();
+      expect(h.notices.map((n) => n.msg.id)).toEqual(["rv:a:b:0"]);
+      queued.add("rv:a:b:0"); // B is busy: the notice waits in its pending/
+      for (let round = 1; round <= 10; round += 1) {
+        h.setClock(T0 + round * WINDOW + 1);
+        await h.coord.sweep();
+      }
+      expect(h.notices).toHaveLength(1); // ten windows later: still exactly one
+      expect(h.store.intents("a")).toMatchObject([{ to: "b", attempts: 1 }]); // not given up
+      queued.delete("rv:a:b:0"); // B took it and did not answer
+      h.setClock(T0 + 11 * WINDOW + 1);
+      await h.coord.sweep();
+      expect(h.notices.map((n) => n.msg.id)).toEqual(["rv:a:b:0", "rv:a:b:1"]); // round 2
+    });
+
+    test("after a restart, a notice B has not taken is not sent again", async () => {
+      const queued = new Set<string>(["rv:a:b:0"]);
+      const h = makeCoord({ queued });
+      h.persist.files.set("a", { version: 1, intents: [["b", 1]] });
+      await h.coord.rehydrate();
+      await h.coord.sweep();
+      expect(h.notices).toHaveLength(0);
+      queued.clear();
+      await h.coord.sweep();
+      expect(h.notices.map((n) => n.msg.id)).toEqual(["rv:a:b:1"]);
+    });
+
+    test("the sender's other targets are not starved while one notice waits", async () => {
+      const queued = new Set<string>();
+      const status = new Map<string, AgentStatus>([
+        ["a", "idle"],
+        ["b", "busy"],
+        ["c", "idle"],
+      ]);
+      const h = makeCoord({ status, maxAttempts: 8, queued });
+      h.coord.onRefused(msg("a", "b"), wip);
+      await settle();
+      queued.add("rv:a:b:0");
+      h.coord.onRefused(msg("a", "c"), wip);
+      await settle();
+      h.setClock(T0 + WINDOW + 1);
+      await h.coord.sweep(); // (a,b) steps aside unspent
+      await h.coord.sweep(); // (a,c) is the front now
+      expect(h.notices.map((n) => n.msg.id)).toEqual(["rv:a:b:0", "rv:a:c:0"]);
+    });
   });
 });

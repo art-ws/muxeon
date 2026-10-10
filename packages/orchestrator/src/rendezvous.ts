@@ -122,6 +122,23 @@ export class RendezvousStore {
     return { to: front.to, outcome: "rotated" };
   }
 
+  /**
+   * Step the front aside WITHOUT spending a round (§10.15): its last notice is
+   * still unread in B's queue, so the round has not happened yet. The front goes
+   * to the back as `waiting` with its attempts untouched — A's other intents get
+   * their turn, and this one is neither re-sent nor given up meanwhile. Only an
+   * actual reorder is persisted (a single intent has nowhere to move).
+   */
+  rotateFront(from: string): void {
+    const list = this.#bySender.get(from);
+    const front = list?.shift();
+    if (list === undefined || front === undefined) return;
+    front.phase = "waiting";
+    front.windowUntil = 0;
+    list.push(front);
+    if (list.length > 1) this.#dirty.add(from);
+  }
+
   /** True while the front intent's notify window is still open at `now` (guards re-notify). */
   windowOpen(from: string, now: number): boolean {
     const front = this.#bySender.get(from)?.[0];
