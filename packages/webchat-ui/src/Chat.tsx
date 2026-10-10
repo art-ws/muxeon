@@ -103,6 +103,13 @@ export function ChatView(props: {
    * message" has no single envelope to travel in.
    */
   onReply?: (record: ChatRecord) => void;
+  /**
+   * The topic control (§23.4, FR-215) — an agent chat with topics on. It takes the
+   * free middle of the header row, right of the session clock (operator, T367).
+   */
+  topicControl?: React.ReactNode;
+  /** A one-line notice under the header — e.g. the open topic was deleted (§23.3). */
+  notice?: string;
 }): React.JSX.Element {
   const t = useT();
   const peer = props.peer;
@@ -173,6 +180,7 @@ export function ChatView(props: {
             the agent IS, these two spans say for how long. Agents only: a person
             has no session to be up, and no signals to be quiet between. */}
         {peer !== undefined && !person && <SessionClock peer={peer.name} />}
+        {!person && props.topicControl}
         {/* token meter (§12.8, FR-103) fills the empty span between status and the
             kebab; hidden when the Settings token-usage switch is off (FR-72) and
             for a person — a human burns no tokens and has no series to ask for */}
@@ -184,6 +192,7 @@ export function ChatView(props: {
       {/* the quiet part of an alarm (§22.6.6): where "Open chat" lands, with the
           options still at hand — agents only, a person raises no alarm */}
       {peer !== undefined && !person && <AlarmBanner agent={peer.name} />}
+      {props.notice !== undefined && <output className="topic-notice">{props.notice}</output>}
       <MessageFeed
         peerName={peer?.name}
         thread={props.thread}

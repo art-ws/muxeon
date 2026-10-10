@@ -1,7 +1,15 @@
 // Pure panel state + reducer (§12.7) — all chat/dynamics logic lives here,
 // DOM-free, so `bun test` covers it without a browser. Components stay thin.
 
-import type { ChatRecord, MessagePhase, PanelEvent, PeerInfo, ReactionView } from "./types";
+import { topicThreadKey } from "./topics";
+import type {
+  ChatRecord,
+  MessagePhase,
+  PanelEvent,
+  PeerInfo,
+  ReactionView,
+  TopicList,
+} from "./types";
 
 export interface ChatThread {
   /** Chronological records (oldest → newest), §12.3 order. */
@@ -24,9 +32,22 @@ export interface PanelState {
    * record as its pair thread does (§17.7), so one entry serves both views.
    */
   readonly reactions: Readonly<Record<string, readonly ReactionView[]>>;
+  /** Topic trees of agent chats by peer (§23.3) — the GET/push snapshot. */
+  readonly topics: Readonly<Record<string, TopicList>>;
+  /**
+   * The topic on screen for `selected` (§23.4); undefined = the whole log (topics
+   * off, §23.6, or a chat that has no topics). Decides which arrivals are "seen".
+   */
+  readonly openTopic?: string;
 }
 
-export const initialState: PanelState = { peers: [], threads: {}, phases: {}, reactions: {} };
+export const initialState: PanelState = {
+  peers: [],
+  threads: {},
+  phases: {},
+  reactions: {},
+  topics: {},
+};
 
 const EMPTY_THREAD: ChatThread = { records: [], loaded: false };
 
@@ -127,19 +148,74 @@ export function applyPeers(
   };
 }
 
-export function selectPeer(state: PanelState, peer: string | undefined): PanelState {
+export function selectPeer(
+  state: PanelState,
+  peer: string | undefined,
+  topicId?: string,
+): PanelState {
   // undefined = no chat open (home/transport route, FR-60) — unread badges must
   // keep counting for every peer again.
   if (peer === undefined) {
-    const { selected: _, ...rest } = state;
+    const { selected: _, openTopic: __, ...rest } = state;
     return rest;
   }
+  if (topicId !== undefined) {
+    // A topic opens (§23.3): only ITS unread is read — the badge keeps the others.
+    const { openTopic: _, ...rest } = state;
+    return settleOpenTopic({ ...rest, selected: peer, openTopic: topicId });
+  }
   // selecting clears the unread badge locally; the server watermark moves via api.markRead
+  const { openTopic: _, ...rest } = state;
   return {
-    ...state,
+    ...rest,
     selected: peer,
     peers: state.peers.map((info) => (info.name === peer ? { ...info, unread: 0 } : info)),
   };
+}
+
+/**
+ * With a topic open, its unread is read and the peer's badge is the sum of the
+ * OTHER topics (§23.3) — recomputed from the tree whenever it is known.
+ */
+function settleOpenTopic(state: PanelState): PanelState {
+  const peer = state.selected;
+  const open = state.openTopic;
+  if (peer === undefined || open === undefined) return state;
+  const list = state.topics[peer];
+  if (list === undefined) return state;
+  const topics = list.topics.map((topic) =>
+    topic.id === open && topic.unread !== 0 ? { ...topic, unread: 0 } : topic,
+  );
+  const unread = topics.reduce((sum, topic) => sum + topic.unread, 0);
+  return {
+    ...state,
+    topics: { ...state.topics, [peer]: { ...list, topics } },
+    peers: state.peers.map((info) => (info.name === peer ? { ...info, unread } : info)),
+  };
+}
+
+/** A pair's topic tree arrived (GET or the `topics-changed` push, §23.3). */
+export function applyTopicList(state: PanelState, peer: string, list: TopicList): PanelState {
+  const next = { ...state, topics: { ...state.topics, [peer]: list } };
+  return peer === state.selected ? settleOpenTopic(next) : next;
+}
+
+/** Remove exactly these records from every feed of the pair and from the self feed. */
+function withoutRecords(
+  state: PanelState,
+  peer: string,
+  ids: ReadonlySet<string>,
+  self?: string,
+): PanelState {
+  const threads: Record<string, ChatThread> = { ...state.threads };
+  for (const [key, thread] of Object.entries(state.threads)) {
+    const ofPeer = key === peer || key.startsWith(`${peer}\u0001`) || key === self;
+    if (!ofPeer || !thread.records.some((record) => ids.has(record.id))) continue;
+    threads[key] = { ...thread, records: thread.records.filter((record) => !ids.has(record.id)) };
+  }
+  const reactions = { ...state.reactions };
+  for (const id of ids) delete reactions[id];
+  return { ...state, threads, reactions };
 }
 
 /**
@@ -160,9 +236,26 @@ function withMirror(
   return withThread(next, self, appendRecord(threadOf(next, self), record));
 }
 
+/** Also file a record under its topic feed (§23.3), when it has one. */
+function withTopic(
+  state: PanelState,
+  peer: string,
+  record: ChatRecord,
+  topicId: string | undefined,
+): PanelState {
+  if (topicId === undefined) return state;
+  const key = topicThreadKey(peer, topicId);
+  return withThread(state, key, appendRecord(threadOf(state, key), record));
+}
+
 /** An optimistic outbound record (echoed by WS too — the dedup absorbs it). */
-export function applyOutgoing(state: PanelState, record: ChatRecord, self?: string): PanelState {
-  const next = withMirror(state, record.to, record, self);
+export function applyOutgoing(
+  state: PanelState,
+  record: ChatRecord,
+  self?: string,
+  topicId?: string,
+): PanelState {
+  const next = withTopic(withMirror(state, record.to, record, self), record.to, record, topicId);
   return { ...next, phases: { ...next.phases, [record.id]: "queued" } };
 }
 
@@ -181,11 +274,36 @@ export function applyEvent(
       // "not written by us" — a note to self (§17.7) is ours, so it raises no badge
       const fromAgent =
         self !== undefined ? event.record.from !== self : !isOperator(event.record.from);
-      const next = withMirror(state, peer, event.record, self);
-      // a live inbound message bumps the unread badge unless the chat is open —
-      // on the PAIR row only: the self row mirrors every chat, and counting there
-      // too would double every badge in the sidebar.
-      if (fromAgent && state.selected !== peer) {
+      const topicId = event.topicId;
+      let next = withTopic(
+        withMirror(state, peer, event.record, self),
+        peer,
+        event.record,
+        topicId,
+      );
+      // "Seen" = this chat is open AND (no topic is open — the whole log is on
+      // screen — or it is the arrival's own topic, §23.3).
+      const seen =
+        state.selected === peer && (state.openTopic === undefined || state.openTopic === topicId);
+      const list = next.topics[peer];
+      if (fromAgent && !seen && topicId !== undefined && list !== undefined) {
+        next = {
+          ...next,
+          topics: {
+            ...next.topics,
+            [peer]: {
+              ...list,
+              topics: list.topics.map((topic) =>
+                topic.id === topicId ? { ...topic, unread: topic.unread + 1 } : topic,
+              ),
+            },
+          },
+        };
+      }
+      // a live inbound message bumps the unread badge unless it is seen — on the
+      // PAIR row only: the self row mirrors every chat, and counting there too
+      // would double every badge in the sidebar.
+      if (fromAgent && !seen) {
         return {
           ...next,
           peers: next.peers.map((info) =>
@@ -201,12 +319,31 @@ export function applyEvent(
       // Live badge update (§19.5): every tab of this user, including the one that
       // placed it — one mechanism, no local guesswork (the FR-84 clear-push rule).
       return applyReactions(state, event.messageId, event.reactions);
+    case "topics-changed":
+      return applyTopicList(state, event.peer, {
+        topics: event.topics,
+        defaultId: event.defaultId,
+      });
     case "history-cleared": {
+      // A topic delete/clear (§23.3) names exactly what left: those records go
+      // from every feed of the pair — the whole log, the topic feeds, the self
+      // feed — and nothing else does.
+      if (event.ids !== undefined) {
+        return withoutRecords(state, event.peer, new Set(event.ids), options.self);
+      }
       // FR-84: the server dropped the pair's log — empty the thread in EVERY
       // tab (the clearing one included; it relies on this same push) and zero
-      // the badge: nothing is left to be unread.
+      // the badge: nothing is left to be unread. Its topic feeds empty too (§23.1).
       const cleared = threadOf(state, event.peer).records;
-      const next = withThread(state, event.peer, { records: [], loaded: true });
+      const emptied = Object.fromEntries(
+        Object.keys(state.threads)
+          .filter((key) => key.startsWith(`${event.peer}\u0001`))
+          .map((key) => [key, { records: [], loaded: true }]),
+      );
+      const next = withThread({ ...state, threads: { ...state.threads, ...emptied } }, event.peer, {
+        records: [],
+        loaded: true,
+      });
       // The sidecar went with the log (§19.4) — drop the badges of those records too.
       const reactions = { ...next.reactions };
       for (const record of cleared) delete reactions[record.id];

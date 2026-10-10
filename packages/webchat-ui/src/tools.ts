@@ -26,6 +26,7 @@ import {
   IconRadio,
   IconRotate,
   IconShelf,
+  IconTopics,
   IconTrash,
 } from "./icons";
 import { chatSurface, hasConsole } from "./peer-surface";
@@ -40,6 +41,7 @@ export type ToolId =
   | "shutdown"
   | "transport"
   | "agent-filter"
+  | "topics"
   | "prompts"
   | "settings"
   | "logout";
@@ -173,6 +175,18 @@ export const TOOLS: readonly Tool[] = [
     label: "Agent filter",
     hint: "the name / online filter above the sidebar list",
     icon: IconFilter,
+    available: () => true,
+  },
+  {
+    // Conversation topics (§23.6, FR-217): a STATE toggle like the two above —
+    // its "menu item" is the Settings switch "Use topics in agent chats", and
+    // both write the one pref. Offered always: topics depend on neither the open
+    // peer nor the viewer's role.
+    id: "topics",
+    scope: "panel",
+    label: "Topics",
+    hint: "split agent chats into topics",
+    icon: IconTopics,
     available: () => true,
   },
   {

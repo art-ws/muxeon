@@ -38,6 +38,9 @@ export function Toolbar(props: {
   onAgentFilter?: (show: boolean) => void;
   transport?: boolean;
   onTransport?: (show: boolean) => void;
+  /** Conversation topics (§23.6, FR-217) — the same pref as the Settings switch. */
+  topics?: boolean;
+  onTopics?: (on: boolean) => void;
   /**
    * The viewer's role (FR-131) — the journal shortcut is admin-only (T291). Named
    * `viewerRole`, not `role`: on a JSX element that word is the ARIA attribute.
@@ -87,6 +90,10 @@ export function Toolbar(props: {
         const on = props.transport === true;
         return { on, label: t(on ? "Hide the Transport page" : "Show the Transport page") };
       }
+      case "topics": {
+        const on = props.topics === true;
+        return { on, label: t(on ? "Disable topics" : "Enable topics") };
+      }
       default:
         return undefined;
     }
@@ -109,6 +116,8 @@ export function Toolbar(props: {
         return async () => props.onAgentFilter?.(props.agentFilter !== true);
       case "transport":
         return async () => props.onTransport?.(props.transport !== true);
+      case "topics":
+        return async () => props.onTopics?.(props.topics !== true);
       case "prompts":
         return async () => props.onPrompts?.();
       case "settings":

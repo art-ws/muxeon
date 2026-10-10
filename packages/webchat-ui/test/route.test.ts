@@ -100,3 +100,23 @@ describe("transport filters in the URL (FR-85)", () => {
     expect(parseRoute("#/chat/dev?x=1")).toEqual({ view: "chat", peer: "dev" });
   });
 });
+
+// §23.4: the open topic of an agent chat rides the hash — a deep link opens it,
+// back/forward walk topics, and the codec round-trips it beside the message id.
+describe("chat topic in the hash (§23.4)", () => {
+  test("?topic=<id> parses and round-trips; a blank one is dropped", () => {
+    expect(parseRoute("#/chat/dev?topic=t1")).toEqual({ view: "chat", peer: "dev", topic: "t1" });
+    expect(routeHash({ view: "chat", peer: "dev", topic: "a b" })).toBe("#/chat/dev?topic=a%20b");
+    expect(parseRoute(routeHash({ view: "chat", peer: "dev", topic: "a b" }))).toEqual({
+      view: "chat",
+      peer: "dev",
+      topic: "a b",
+    });
+    expect(parseRoute("#/chat/dev?topic=")).toEqual({ view: "chat", peer: "dev" });
+  });
+
+  test("a message deep link keeps its topic", () => {
+    const route = { view: "chat", peer: "dev", message: "m1", topic: "t1" } as const;
+    expect(parseRoute(routeHash(route))).toEqual(route);
+  });
+});

@@ -15,23 +15,31 @@ import type {
   ReactionNotify,
   ReactionView,
   TokenSeries,
+  TopicList,
+  TopicView,
 } from "./types";
 
 /** Client-generated message id — the §10.9 idempotency key for send retries. */
 export const newMessageId = (): string => crypto.randomUUID();
 
 async function jsonOrThrow<T>(response: Response): Promise<T> {
-  const body = (await response.json().catch(() => ({}))) as { error?: string } & T;
-  if (!response.ok) throw new ApiError(body.error ?? `HTTP ${response.status}`, response.status);
+  const body = (await response.json().catch(() => ({}))) as { error?: string; code?: unknown } & T;
+  if (!response.ok) {
+    const code = typeof body.code === "string" ? body.code : undefined;
+    throw new ApiError(body.error ?? `HTTP ${response.status}`, response.status, code);
+  }
   return body;
 }
 
 export class ApiError extends Error {
   readonly status: number;
-  constructor(message: string, status: number) {
+  /** The server's machine-readable reason, when it gives one (e.g. §23.3 topic codes). */
+  readonly code: string | undefined;
+  constructor(message: string, status: number, code?: string) {
     super(message);
     this.name = "ApiError";
     this.status = status;
+    this.code = code;
   }
 }
 
@@ -105,9 +113,63 @@ export async function logout(): Promise<void> {
   await jsonOrThrow(await fetch("api/logout", { method: "POST" }));
 }
 
-export async function fetchHistory(peer: string, before?: string): Promise<HistoryPage> {
-  const query = before !== undefined ? `?before=${encodeURIComponent(before)}` : "";
+/** One history page (§12.4) — of a single topic when `topicId` is given (§23.3). */
+export async function fetchHistory(
+  peer: string,
+  before?: string,
+  topicId?: string,
+): Promise<HistoryPage> {
+  const params = new URLSearchParams();
+  if (before !== undefined) params.set("before", before);
+  if (topicId !== undefined) params.set("topicId", topicId);
+  const query = params.size > 0 ? `?${params.toString()}` : "";
   return jsonOrThrow<HistoryPage>(await fetch(`api/history/${encodeURIComponent(peer)}${query}`));
+}
+
+// Topics of an agent chat (§23.3). Every change answers with the result and the
+// server ALSO pushes `topics-changed` to every tab — the list on screen follows
+// the push, the return value is for the caller that wants the id at once.
+
+const topicsPath = (peer: string, id?: string): string =>
+  `api/topics/${encodeURIComponent(peer)}${id !== undefined ? `/${encodeURIComponent(id)}` : ""}`;
+
+export async function fetchTopics(peer: string): Promise<TopicList> {
+  return jsonOrThrow<TopicList>(await fetch(topicsPath(peer)));
+}
+
+export async function createTopic(peer: string, path: string): Promise<{ id: string }> {
+  const body = await jsonOrThrow<{ topic: { id: string } }>(
+    await fetch(topicsPath(peer), {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ path }),
+    }),
+  );
+  return body.topic;
+}
+
+export async function renameTopic(peer: string, id: string, path: string): Promise<void> {
+  await jsonOrThrow<{ topics: readonly TopicView[] }>(
+    await fetch(topicsPath(peer, id), {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ path }),
+    }),
+  );
+}
+
+/** 204 has no body — success is the status alone. */
+async function noContent(response: Response): Promise<void> {
+  if (response.ok) return;
+  await jsonOrThrow(response);
+}
+
+export async function deleteTopic(peer: string, id: string): Promise<void> {
+  await noContent(await fetch(topicsPath(peer, id), { method: "DELETE" }));
+}
+
+export async function clearTopic(peer: string, id: string): Promise<void> {
+  await noContent(await fetch(`${topicsPath(peer, id)}/clear`, { method: "POST" }));
 }
 
 export async function sendMessage(options: {
@@ -117,6 +179,8 @@ export async function sendMessage(options: {
   blobs?: readonly string[];
   /** Quoted message id (FR-178): the envelope's `replyTo`, not part of the text. */
   replyTo?: string;
+  /** The topic the message is filed under (§23.2) — history metadata, not Signal. */
+  topicId?: string;
 }): Promise<void> {
   await jsonOrThrow(
     await fetch("api/send", {
@@ -418,12 +482,13 @@ export async function clearHistory(peer: string): Promise<void> {
   );
 }
 
-export async function markRead(peer: string): Promise<void> {
+/** Move the read watermark (§12.7): of one topic, or — without one — of the whole pair. */
+export async function markRead(peer: string, topicId?: string): Promise<void> {
   await jsonOrThrow(
     await fetch("api/read", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ peer }),
+      body: JSON.stringify({ peer, ...(topicId !== undefined ? { topicId } : {}) }),
     }),
   );
 }

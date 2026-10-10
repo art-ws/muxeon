@@ -12,6 +12,7 @@ import { PeerList } from "./PeerList";
 import { PromptsPage } from "./PromptsPage";
 import { SettingsView } from "./Settings";
 import { Toolbar } from "./Toolbar";
+import { TopicPicker } from "./TopicPicker";
 import { TransportView } from "./Transport";
 import { type AlarmsApi, AlarmsContext } from "./alarms-context";
 import * as api from "./api";
@@ -42,6 +43,7 @@ import {
   applyOutgoing,
   applyPeers,
   applyReactions,
+  applyTopicList,
   initialState,
   reactionsOf,
   selectPeer,
@@ -49,21 +51,24 @@ import {
 } from "./store";
 import { type Theme, applyTheme, loadTheme } from "./theme";
 import { type ToolId, loadToolbar, sameToolSurface, saveToolbar } from "./tools";
+import { loadLastTopic, resolveTopic, saveLastTopic, topicThreadKey } from "./topics";
 import {
   type AlarmView,
   type ChatRecord,
   type PanelEvent,
   type PeerInfo,
   type ReactionView,
+  type TopicList,
   peerKind,
 } from "./types";
 import { loadVisibility, saveVisibility, visiblePeers } from "./visibility";
 
 type Action =
   | { kind: "peers"; peers: Parameters<typeof applyPeers>[1] }
-  | { kind: "select"; peer: string | undefined }
+  | { kind: "select"; peer: string | undefined; topicId?: string }
   | { kind: "page"; peer: string; page: Parameters<typeof applyHistoryPage>[2] }
-  | { kind: "outgoing"; record: ChatRecord }
+  | { kind: "outgoing"; record: ChatRecord; topicId?: string }
+  | { kind: "topics"; peer: string; list: TopicList }
   | { kind: "reactions"; messageId: string; reactions: readonly ReactionView[] }
   | { kind: "event"; event: PanelEvent };
 
@@ -79,11 +84,13 @@ const makeReducer =
       case "peers":
         return applyPeers(state, action.peers);
       case "select":
-        return selectPeer(state, action.peer);
+        return selectPeer(state, action.peer, action.topicId);
       case "page":
         return applyHistoryPage(state, action.peer, action.page);
       case "outgoing":
-        return applyOutgoing(state, action.record, self());
+        return applyOutgoing(state, action.record, self(), action.topicId);
+      case "topics":
+        return applyTopicList(state, action.peer, action.list);
       case "reactions":
         return applyReactions(state, action.messageId, action.reactions);
       case "event":
@@ -173,6 +180,11 @@ export function App(): React.JSX.Element {
   // #/transport URL keeps working either way.
   const [showTransport, setShowTransport] = useState(() => loadPref("transport", true));
   useEffect(() => savePref("transport", showTransport), [showTransport]);
+  // Conversation topics (§23.6, FR-217): ON by default; OFF is the panel as it was
+  // before §23. Two places flip it — the Settings switch and the topbar tool — so
+  // it lives here, above both, like the two sidebar toggles.
+  const [topicsOn, setTopicsOn] = useState(() => loadPref("topics", true));
+  useEffect(() => savePref("topics", topicsOn), [topicsOn]);
   // The viewer's role (FR-131), reported up with their identity: the journal is an
   // admin capability, so its shortcut is not offered to a plain user (T291).
   const [role, setRole] = useState<"admin" | "user" | undefined>(undefined);
@@ -245,6 +257,8 @@ export function App(): React.JSX.Element {
               onAgentFilter={setAgentFilter}
               transport={showTransport}
               onTransport={setShowTransport}
+              topics={topicsOn}
+              onTopics={setTopicsOn}
               {...(role !== undefined ? { viewerRole: role } : {})}
               onSettings={() => {
                 location.hash = routeHash({ view: "settings" });
@@ -303,6 +317,8 @@ export function App(): React.JSX.Element {
             onPrompts={setShowPrompts}
             transport={showTransport}
             onTransport={setShowTransport}
+            topics={topicsOn}
+            onTopics={setTopicsOn}
             viewerRole={role}
             showTokens={showTokens}
             onShowTokens={setShowTokens}
@@ -418,6 +434,9 @@ function Panel(props: {
   /** The sidebar Transport entry (T115) — same pair of switches (FR-177). */
   transport: boolean;
   onTransport: (show: boolean) => void;
+  /** Conversation topics (§23.6) — the Settings switch and the topbar tool. */
+  topics: boolean;
+  onTopics: (on: boolean) => void;
   /** The viewer's role (FR-131) — owned by App, which the toolbar reads too. */
   viewerRole: "admin" | "user" | undefined;
   /** Token-usage display: true (default) shows the chat-header token meter, false hides it. */
@@ -617,6 +636,59 @@ function Panel(props: {
     });
   }, [props.onAuthLost, onIdentity, applyAlarm, loadAlarms]);
 
+  // Topics (§23.4, §23.6): an AGENT chat with topics on shows one topic's feed.
+  // Which one: the link's, else this pair's last, else the default — checked
+  // against the tree once it is here (a stale link opens the default + notice).
+  const routeChat = route.view === "chat" ? route.peer : undefined;
+  const routePeer =
+    routeChat !== undefined ? state.peers.find((info) => info.name === routeChat) : undefined;
+  const peersLoaded = state.peers.length > 0;
+  const topicsActive =
+    props.topics && routePeer !== undefined && chatSurface(routePeer) === "agent";
+  const topicList = routeChat !== undefined ? state.topics[routeChat] : undefined;
+  const owner = self ?? "operator";
+  const resolved =
+    topicsActive && routeChat !== undefined
+      ? resolveTopic(
+          topicList,
+          route.view === "chat" ? route.topic : undefined,
+          loadLastTopic(owner, routeChat),
+        )
+      : { id: undefined, stale: false };
+  // Only an id checked against the tree is acted on — no request for a topic
+  // that may not exist.
+  const topicId = topicsActive && topicList !== undefined ? resolved.id : undefined;
+  const [topicNotice, setTopicNotice] = useState<string | undefined>(undefined);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: a notice belongs to the chat it was raised in
+  useEffect(() => setTopicNotice(undefined), [routeChat]);
+  const refreshTopics = useCallback((peer: string): void => {
+    void api
+      .fetchTopics(peer)
+      .then((list) => dispatch({ kind: "topics", peer, list }))
+      .catch(() => undefined);
+  }, []);
+  useEffect(() => {
+    if (topicsActive && routeChat !== undefined) refreshTopics(routeChat);
+  }, [topicsActive, routeChat, refreshTopics]);
+  // The hash always names the topic on screen (§23.4): a chat opened without one,
+  // or with a stale one, is REPLACED in place — back/forward then walk topics the
+  // user picked, not the panel's own corrections.
+  useEffect(() => {
+    if (routeChat === undefined || topicId === undefined) return;
+    if (route.view === "chat" && route.topic === topicId) return;
+    if (resolved.stale) {
+      setTopicNotice(t("This topic no longer exists — the default topic is open"));
+    }
+    location.replace(
+      routeHash({
+        view: "chat",
+        peer: routeChat,
+        ...(route.view === "chat" && route.message !== undefined ? { message: route.message } : {}),
+        topic: topicId,
+      }),
+    );
+  }, [route, routeChat, topicId, resolved.stale, t]);
+
   // The route drives the store: an open chat selects the peer (badge + server
   // watermark) and lazily loads its first history page; home/transport deselect.
   useEffect(() => {
@@ -625,6 +697,23 @@ function Panel(props: {
       return;
     }
     const peer = route.peer;
+    // With topics on, nothing is marked read before we know whether this is an
+    // agent chat and which topic is open — the pair-wide read would clear them all.
+    if (props.topics && !peersLoaded) return;
+    if (topicsActive) {
+      if (topicId === undefined) return; // the tree is on its way
+      dispatch({ kind: "select", peer, topicId });
+      void api.markRead(peer, topicId).catch(() => undefined);
+      saveLastTopic(owner, peer, topicId);
+      const key = topicThreadKey(peer, topicId);
+      if (!threadOf(stateRef.current, key).loaded) {
+        void api
+          .fetchHistory(peer, undefined, topicId)
+          .then((page) => dispatch({ kind: "page", peer: key, page }))
+          .catch(() => undefined);
+      }
+      return;
+    }
     dispatch({ kind: "select", peer });
     // groups/tags (§15) have no unread watermark — skip markRead for a known
     // broadcast target; an unknown/not-yet-loaded name is treated as an agent.
@@ -636,62 +725,72 @@ function Panel(props: {
     if (!threadOf(stateRef.current, peer).loaded) {
       void api.fetchHistory(peer).then((page) => dispatch({ kind: "page", peer, page }));
     }
-  }, [route]);
+  }, [route, props.topics, peersLoaded, topicsActive, topicId, owner]);
 
   const navigate = useCallback((target: Route): void => {
     location.hash = routeHash(target);
   }, []);
 
-  const loadOlder = useCallback((peer: string): void => {
-    const cursor = threadOf(stateRef.current, peer).nextBefore;
+  const loadOlder = useCallback((peer: string, topic?: string): void => {
+    const key = topic === undefined ? peer : topicThreadKey(peer, topic);
+    const cursor = threadOf(stateRef.current, key).nextBefore;
     if (cursor === undefined) return;
-    void api.fetchHistory(peer, cursor).then((page) => dispatch({ kind: "page", peer, page }));
+    void api
+      .fetchHistory(peer, cursor, topic)
+      .then((page) => dispatch({ kind: "page", peer: key, page }));
   }, []);
 
-  const send = useCallback(async (to: string, draft: Draft, replyTo?: string): Promise<void> => {
-    const id = api.newMessageId(); // §10.9: the client owns the retry id
-    const blobs = draft.blobs.map((blob) => blob.id);
-    await api.sendMessage({
-      to,
-      id,
-      ...(draft.text !== "" ? { text: draft.text } : {}),
-      ...(blobs.length > 0 ? { blobs } : {}),
-      // The quote travels in the ENVELOPE (FR-178) — the payload is what was
-      // typed, nothing is pasted into it.
-      ...(replyTo !== undefined ? { replyTo } : {}),
-    });
-    dispatch({
-      kind: "outgoing",
-      record: {
-        id,
-        // Our own NAME (T236): the bubble prints its route (FR-148), and the
-        // placeholder used to surface there as a literal "(me) → agent". The
-        // server echoes the same record with the same name — the id dedup keeps
-        // one bubble. A legacy panel (§17.9) has no name and keeps the marker.
-        from: selfName.current ?? "(me)",
+  const send = useCallback(
+    async (to: string, draft: Draft, replyTo?: string, topic?: string): Promise<void> => {
+      const id = api.newMessageId(); // §10.9: the client owns the retry id
+      const blobs = draft.blobs.map((blob) => blob.id);
+      await api.sendMessage({
         to,
-        kind: "message",
-        ts: Date.now(),
-        // The panel IS the origin the server will stamp (§12.4) — saying so here
-        // keeps the optimistic bubble identical to the echoed record, and a quote
-        // (FR-178) renders the moment the message appears, not a round-trip later.
-        origin: "webchat",
+        id,
+        ...(draft.text !== "" ? { text: draft.text } : {}),
+        ...(blobs.length > 0 ? { blobs } : {}),
+        // The quote travels in the ENVELOPE (FR-178) — the payload is what was
+        // typed, nothing is pasted into it.
         ...(replyTo !== undefined ? { replyTo } : {}),
-        payload:
-          blobs.length === 0
-            ? draft.text
-            : {
-                ...(draft.text !== "" ? { text: draft.text } : {}),
-                blobs: draft.blobs.map((blob) => ({
-                  blob: blob.id,
-                  name: blob.name,
-                  mime: blob.mime,
-                  size: blob.size,
-                })),
-              },
-      },
-    });
-  }, []);
+        // The open topic files the message (§23.2): the composer's choice wins
+        // over the quoted message's topic.
+        ...(topic !== undefined ? { topicId: topic } : {}),
+      });
+      dispatch({
+        kind: "outgoing",
+        ...(topic !== undefined ? { topicId: topic } : {}),
+        record: {
+          id,
+          // Our own NAME (T236): the bubble prints its route (FR-148), and the
+          // placeholder used to surface there as a literal "(me) → agent". The
+          // server echoes the same record with the same name — the id dedup keeps
+          // one bubble. A legacy panel (§17.9) has no name and keeps the marker.
+          from: selfName.current ?? "(me)",
+          to,
+          kind: "message",
+          ts: Date.now(),
+          // The panel IS the origin the server will stamp (§12.4) — saying so here
+          // keeps the optimistic bubble identical to the echoed record, and a quote
+          // (FR-178) renders the moment the message appears, not a round-trip later.
+          origin: "webchat",
+          ...(replyTo !== undefined ? { replyTo } : {}),
+          payload:
+            blobs.length === 0
+              ? draft.text
+              : {
+                  ...(draft.text !== "" ? { text: draft.text } : {}),
+                  blobs: draft.blobs.map((blob) => ({
+                    blob: blob.id,
+                    name: blob.name,
+                    mime: blob.mime,
+                    size: blob.size,
+                  })),
+                },
+        },
+      });
+    },
+    [],
+  );
 
   const openChat = route.view === "chat" ? route.peer : undefined;
   const openPeer =
@@ -818,6 +917,8 @@ function Panel(props: {
                   onAgentFilter={props.onAgentFilter}
                   prompts={props.prompts}
                   onPrompts={props.onPrompts}
+                  topics={props.topics}
+                  onTopics={props.onTopics}
                   showTokens={props.showTokens}
                   onShowTokens={props.onShowTokens}
                   tools={props.tools}
@@ -847,11 +948,31 @@ function Panel(props: {
               >
                 <ChatView
                   peer={openPeer}
-                  thread={threadOf(state, openChat)}
+                  thread={threadOf(
+                    state,
+                    topicId !== undefined ? topicThreadKey(openChat, topicId) : openChat,
+                  )}
                   phases={state.phases}
                   isPeer={(name) => peerSet.current.has(name)}
                   self={self}
-                  onLoadOlder={() => loadOlder(openChat)}
+                  onLoadOlder={() => loadOlder(openChat, topicId)}
+                  {...(topicsActive
+                    ? {
+                        topicControl: (
+                          <TopicPicker
+                            peer={openChat}
+                            list={topicList}
+                            current={topicId}
+                            onOpen={() => refreshTopics(openChat)}
+                            onSelect={(id) => {
+                              setTopicNotice(undefined);
+                              navigate({ view: "chat", peer: openChat, topic: id });
+                            }}
+                          />
+                        ),
+                      }
+                    : {})}
+                  {...(topicNotice !== undefined ? { notice: topicNotice } : {})}
                   follow={props.follow}
                   showTokens={props.showTokens}
                   query={props.query}
@@ -876,7 +997,7 @@ function Panel(props: {
                   key={openChat}
                   peer={openChat}
                   onSend={async (draft) => {
-                    await send(openChat, draft, replyTo?.id);
+                    await send(openChat, draft, replyTo?.id, topicId);
                     setReplyTo(undefined); // the quote belongs to the message that just left
                   }}
                   {...(replyTo !== undefined

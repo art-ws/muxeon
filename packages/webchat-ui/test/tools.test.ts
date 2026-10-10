@@ -91,7 +91,7 @@ describe("the catalogue (FR-171)", () => {
   // FR-177: the catalogue's STATE toggles — their "menu item" is a Settings
   // switch, so they are offered off any view and never confirm (nothing to undo).
   test("the view toggles are panel tools, available off any view, unarmed", () => {
-    for (const id of ["agent-filter", "transport"] as const) {
+    for (const id of ["agent-filter", "transport", "topics"] as const) {
       const tool = TOOLS.find((entry) => entry.id === id);
       expect(tool?.scope).toBe("panel");
       expect(tool?.confirm).toBeUndefined();
@@ -139,6 +139,7 @@ describe("what the bar prints (FR-172)", () => {
     expect(ids(ALL, undefined)).toEqual([
       "transport",
       "agent-filter",
+      "topics",
       "prompts",
       "settings",
       "logout",
@@ -146,7 +147,14 @@ describe("what the bar prints (FR-172)", () => {
   });
 
   test("a broadcast target has no status and no lifecycle — no chat tools", () => {
-    expect(ids(ALL, group)).toEqual(["transport", "agent-filter", "prompts", "settings", "logout"]);
+    expect(ids(ALL, group)).toEqual([
+      "transport",
+      "agent-filter",
+      "topics",
+      "prompts",
+      "settings",
+      "logout",
+    ]);
   });
 
   test("a person has history and DND but no terminal and no lifecycle", () => {
@@ -156,6 +164,7 @@ describe("what the bar prints (FR-172)", () => {
       "pause",
       "transport",
       "agent-filter",
+      "topics",
       "prompts",
       "settings",
       "logout",
@@ -173,6 +182,7 @@ describe("what the bar prints (FR-172)", () => {
       "clear",
       "transport",
       "agent-filter",
+      "topics",
       "prompts",
       "settings",
       "logout",

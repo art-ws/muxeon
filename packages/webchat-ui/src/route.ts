@@ -16,7 +16,13 @@
 
 export type Route =
   | { readonly view: "home" }
-  | { readonly view: "chat"; readonly peer: string; readonly message?: string }
+  | {
+      readonly view: "chat";
+      readonly peer: string;
+      readonly message?: string;
+      /** The open topic of an agent chat (§23.4): `#/chat/<peer>?topic=<id>`. */
+      readonly topic?: string;
+    }
   | {
       readonly view: "transport";
       /** From-filter names (FR-85), canonical (deduped, sorted); absent = all. */
@@ -67,10 +73,12 @@ export function parseRoute(hash: string): Route {
       const peer = decodeURIComponent(split === -1 ? rest : rest.slice(0, split));
       const message = split === -1 ? undefined : decodeURIComponent(rest.slice(split + 3));
       if (peer.length > 0) {
+        const topic = mark === -1 ? null : new URLSearchParams(full.slice(mark + 1)).get("topic");
         return {
           view: "chat",
           peer,
           ...(message !== undefined && message.length > 0 ? { message } : {}),
+          ...(topic !== null && topic.length > 0 ? { topic } : {}),
         };
       }
     } catch {
@@ -85,7 +93,7 @@ export function routeHash(route: Route): string {
     case "chat":
       return `#/chat/${encodeURIComponent(route.peer)}${
         route.message !== undefined ? `/m/${encodeURIComponent(route.message)}` : ""
-      }`;
+      }${route.topic !== undefined ? `?topic=${encodeURIComponent(route.topic)}` : ""}`;
     case "transport": {
       const params = [
         ...[...new Set(route.from ?? [])].sort().map((n) => `from=${encodeURIComponent(n)}`),

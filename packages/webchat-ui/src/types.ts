@@ -223,8 +223,36 @@ export interface AlarmView {
   readonly answer?: number;
 }
 
+/**
+ * One topic of an agent chat (§23.3) as GET /api/topics lists it — already in
+ * tree order (depth-first, siblings by 30-day usage).
+ */
+export interface TopicView {
+  readonly id: string;
+  /** Full path — `/` separates levels (§23.1). */
+  readonly path: string;
+  readonly parentId: string | null;
+  readonly createdAt: number;
+  readonly usage30d: number;
+  readonly lastUsedAt: number | null;
+  readonly unread: number;
+  readonly messageCount: number;
+  readonly subtreeMessageCount: number;
+}
+
+/** A pair's tree plus the id of its default topic (§23.1). */
+export interface TopicList {
+  readonly topics: readonly TopicView[];
+  readonly defaultId: string;
+}
+
 export type PanelEvent =
-  | { readonly type: "message"; readonly record: ChatRecord }
+  | {
+      readonly type: "message";
+      readonly record: ChatRecord;
+      /** The record's topic in an agent chat (§23.3); absent elsewhere. */
+      readonly topicId?: string;
+    }
   | {
       /** An agent's alarm slot changed (§22.4): the whole slot, `null` = nothing active. */
       readonly type: "alarm";
@@ -232,8 +260,15 @@ export type PanelEvent =
       readonly alarm: AlarmView | null;
     }
   | { readonly type: "transport"; readonly record: ChatRecord }
-  | { readonly type: "ack"; readonly id: string; readonly to: string }
-  | { readonly type: "history-cleared"; readonly peer: string }
+  | { readonly type: "ack"; readonly id: string; readonly to: string; readonly topicId?: string }
+  | {
+      readonly type: "history-cleared";
+      readonly peer: string;
+      /** A topic delete/clear (§23.3): its root, and exactly the removed ids. */
+      readonly topicId?: string;
+      readonly ids?: readonly string[];
+    }
+  | ({ readonly type: "topics-changed"; readonly peer: string } & TopicList)
   | {
       /** A message's reactions changed (§19.5, FR-162): the folded state, not a delta. */
       readonly type: "reaction";

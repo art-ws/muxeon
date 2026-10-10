@@ -39,6 +39,9 @@ export function SettingsView(props: {
   /** The prompt rack (§20, FR-189): OFF (the default) hides every entry to it. */
   prompts: boolean;
   onPrompts: (show: boolean) => void;
+  /** Conversation topics (§23.6, FR-217): ON (default) — off is the panel before §23. */
+  topics: boolean;
+  onTopics: (on: boolean) => void;
   /** Token-usage display (FR-72): true (default) shows the chat-header token meter. */
   showTokens: boolean;
   onShowTokens: (show: boolean) => void;
@@ -97,6 +100,14 @@ export function SettingsView(props: {
             )}
             checked={props.prompts}
             onChange={props.onPrompts}
+          />
+          {/* §23.6: off means the panel as it was — the whole log, sends without a
+              topic; the topics themselves stay on the server */}
+          <SettingSwitch
+            label={t("Use topics in agent chats")}
+            hint={t("Split each agent chat into topics — off shows the whole chat as one feed")}
+            checked={props.topics}
+            onChange={props.onTopics}
           />
           <SettingSwitch
             label={t("Show token usage")}

@@ -46,7 +46,11 @@ export type BoolPref =
   | "alarm-sound"
   // Desktop notifications for alarms (§22.7): ON by default; switching it on from
   // Settings is also the user gesture the browser's permission prompt needs.
-  | "alarm-notify";
+  | "alarm-notify"
+  // Conversation topics (§23.6, FR-217): ON (the default) splits an agent chat
+  // into topic feeds; OFF is the panel as it was before §23 — the whole log, sends
+  // without a topic. The topbar "topics" tool flips the same pref.
+  | "topics";
 
 interface PrefStorage {
   getItem(key: string): string | null;

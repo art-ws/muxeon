@@ -310,3 +310,18 @@ export const IconShelf = (props: IconProps): React.JSX.Element => (
     <line x1="3" y1="20" x2="21" y2="20" />
   </Icon>
 );
+
+/** Add something — the "New topic" row (§23.4). */
+export const IconPlus = (props: IconProps): React.JSX.Element => (
+  <Icon {...props}>
+    <path d="M12 5v14M5 12h14" />
+  </Icon>
+);
+
+/** Conversation topics (§23.6) — a speech bubble split into feeds, the toolbar entry. */
+export const IconTopics = (props: IconProps): React.JSX.Element => (
+  <Icon {...props}>
+    <path d="M4 5h16v11H9l-5 4z" />
+    <path d="M8 9h8M8 12.5h5" />
+  </Icon>
+);
