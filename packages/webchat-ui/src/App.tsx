@@ -643,8 +643,14 @@ function Panel(props: {
   const routePeer =
     routeChat !== undefined ? state.peers.find((info) => info.name === routeChat) : undefined;
   const peersLoaded = state.peers.length > 0;
+  // A chat whose tree could not be read (a server without §23, a failed call)
+  // falls back to the whole log — topics must never cost the chat itself.
+  const [topicsUnavailable, setTopicsUnavailable] = useState<ReadonlySet<string>>(new Set());
   const topicsActive =
-    props.topics && routePeer !== undefined && chatSurface(routePeer) === "agent";
+    props.topics &&
+    routePeer !== undefined &&
+    chatSurface(routePeer) === "agent" &&
+    !topicsUnavailable.has(routePeer.name);
   const topicList = routeChat !== undefined ? state.topics[routeChat] : undefined;
   const owner = self ?? "operator";
   const resolved =
@@ -665,7 +671,11 @@ function Panel(props: {
     void api
       .fetchTopics(peer)
       .then((list) => dispatch({ kind: "topics", peer, list }))
-      .catch(() => undefined);
+      .catch(() =>
+        setTopicsUnavailable((current) =>
+          current.has(peer) ? current : new Set(current).add(peer),
+        ),
+      );
   }, []);
   useEffect(() => {
     if (topicsActive && routeChat !== undefined) refreshTopics(routeChat);
