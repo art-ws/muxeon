@@ -3377,6 +3377,9 @@ dialog.alarm-dialog::backdrop {
   max-width: 560px;
 }
 
+/* Quiet at rest (operator, T376): no fill and no frame — the topic is context,
+   not a call to action. The frame appears on hover, focus and while the tree is
+   open, which is all a control needs to read as one. */
 .topic-trigger {
   display: flex;
   align-items: center;
@@ -3384,9 +3387,9 @@ dialog.alarm-dialog::backdrop {
   width: 100%;
   min-width: 0;
   padding: 3px 10px;
-  border: 1px solid var(--border);
+  border: 1px solid transparent;
   border-radius: 8px;
-  background: var(--bg);
+  background: transparent;
   color: var(--text);
   font: inherit;
   font-size: 13px;
@@ -3394,7 +3397,10 @@ dialog.alarm-dialog::backdrop {
   cursor: pointer;
 }
 
-.topic-trigger:hover,
+.topic-trigger:hover {
+  border-color: var(--border);
+}
+
 .topic-trigger[aria-expanded="true"] {
   border-color: var(--accent);
 }
@@ -3422,7 +3428,7 @@ dialog.alarm-dialog::backdrop {
   overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;
-  font-weight: 600;
+  font-weight: 500;
 }
 
 .topic-trigger .topic-unread {
