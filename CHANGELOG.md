@@ -1,3 +1,27 @@
+## [0.1.30](https://github.com/art-ws/muxeon/compare/v0.1.29...v0.1.30) (2026-10-10)
+
+
+### Changes
+
+* **T359:** a message parked in the agent's composer is re-submitted, not completed
+
+  An operator report through the panel, with a screenshot: message sending had started to stick — the text sat in the agent's input box and a human had to press Enter by hand. ([9965a99](https://github.com/art-ws/muxeon/commit/9965a99f51a5717ce6c24ed860c461ed3943649f))
+* **T361:** auto knows the park's console runtimes — opencode and pi busy markers
+
+  A peer agent's report, with a read-only diagnosis by another peer: two agents whose console runtime is neither claude nor codex sat at finished prompts while the coordinator held their in-flight turns and the WIP limit (FR-104) walled off everything queued behind them — a delivery defect on the critical path. ([4557572](https://github.com/art-ws/muxeon/commit/45575720bc40c9c35d32c1b981a760fce95e3e4a))
+* **T366:** a long message is typed in bursts, not lost to the CLI's paste detection
+
+  One `send-keys -l` of a whole message reached the agent as whatever the pty hands over per read; on macOS that is at most ~1 KB, so anything longer arrived as a ~1022-byte read plus the rest. ([85a8c43](https://github.com/art-ws/muxeon/commit/85a8c43eb60add7e78a2f1c40c156e5a297743ce))
+* **T369:** conversation topics, server side — a tree per (user, agent) chat
+
+  A topic splits the panel history of one pair into feeds (§23, FR-208…FR-216). The pair's JSONL stays the single log; membership lives in a sidecar beside it (`<peer>.topics.json`), keyed by message id, so the whole pre-topic log belongs to the default topic without being rewritten. ([822e366](https://github.com/art-ws/muxeon/commit/822e366b82b269b4e53aa664e2d1f1ab112ebb70))
+* **T370:** conversation topics in the panel — the header field, the tree, the switch
+
+  The panel side of §23 (FR-213…FR-215, FR-217) on top of T369. ([9bdf77e](https://github.com/art-ws/muxeon/commit/9bdf77eab07fb76cc407c29666e5df1d1b43c0a3))
+* **T371:** a chat whose topic tree cannot be read falls back to the whole log
+
+  With topics on, an agent chat waited for its topic tree before it selected the peer, marked it read and loaded a feed. When GET /api/topics failed — a server without §23 behind a newer panel bundle, or any failed call — the tree never came and the chat stayed empty. ([fa320df](https://github.com/art-ws/muxeon/commit/fa320df2086535581ee6990a182cfd43ec1571a1))
+
 ## [0.1.29](https://github.com/art-ws/muxeon/compare/v0.1.28...v0.1.29) (2026-09-27)
 
 
