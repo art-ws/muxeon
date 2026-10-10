@@ -39,7 +39,7 @@ import {
   verifyPassword,
 } from "./auth";
 import { ConsoleLineBuffer } from "./console-input";
-import type { HistoryStore } from "./history";
+import type { HistoryPage, HistoryStore } from "./history";
 import type {
   ConsoleAttachment,
   MessagePhase,
@@ -50,6 +50,7 @@ import type {
 } from "./ports";
 import { PromptError, type PromptLibrary, type PromptStore } from "./prompts";
 import type { ReactionView, ReactionsHub } from "./reactions";
+import { TopicError, type TopicView } from "./topics";
 
 export const SESSION_COOKIE = "muxeon_webchat";
 
@@ -85,10 +86,28 @@ const INLINE_MIME_PREFIXES = ["image/", "audio/", "video/"];
 
 /** WS push events (§12.4). */
 export type WebchatEvent =
-  | { readonly type: "message"; readonly record: Signal }
+  | {
+      readonly type: "message";
+      readonly record: Signal;
+      /** The record's topic in an agent chat (§23.3) — history metadata, not Signal. */
+      readonly topicId?: string;
+    }
   | { readonly type: "transport"; readonly record: Signal }
-  | { readonly type: "ack"; readonly id: string; readonly to: string }
-  | { readonly type: "history-cleared"; readonly peer: string }
+  | { readonly type: "ack"; readonly id: string; readonly to: string; readonly topicId?: string }
+  | {
+      readonly type: "history-cleared";
+      readonly peer: string;
+      /** A topic delete/clear (§23.3): the subtree root, and exactly the removed ids. */
+      readonly topicId?: string;
+      readonly ids?: readonly string[];
+    }
+  | {
+      /** The pair's topic tree changed (§23.3) — the whole sorted tree, not a delta. */
+      readonly type: "topics-changed";
+      readonly peer: string;
+      readonly topics: readonly TopicView[];
+      readonly defaultId: string;
+    }
   | {
       /** A message's reactions changed (§19.5, FR-162) — the folded state, not a delta. */
       readonly type: "reaction";
@@ -680,7 +699,10 @@ export class WebchatConnector implements ChannelConnector {
     }
     const fresh = await history.append(signal);
     if (fresh) {
-      this.#push({ type: "message", record: signal }, this.bindOperator);
+      const operator =
+        this.bindOperator === undefined ? undefined : this.#identities.get(this.bindOperator);
+      const topic = this.#topicOf(operator, history.peerOf(signal), signal.id);
+      this.#push({ type: "message", record: signal, ...topic }, this.bindOperator);
       this.#options.onDelivered?.(signal);
     }
   }
@@ -692,8 +714,13 @@ export class WebchatConnector implements ChannelConnector {
    * reconnect (§12.3). Unknown user (not bound to this channel) ⇒ a no-op.
    */
   pushTo(user: string, signal: Signal): void {
-    if (!this.#identities.has(user)) return;
-    this.#push({ type: "message", record: signal }, user);
+    const identity = this.#identities.get(user);
+    if (identity === undefined) return;
+    const peer = identity.history?.peerOf(signal) ?? signal.from;
+    this.#push(
+      { type: "message", record: signal, ...this.#topicOf(identity, peer, signal.id) },
+      user,
+    );
     this.#options.onDelivered?.(signal);
   }
 
@@ -779,6 +806,9 @@ export class WebchatConnector implements ChannelConnector {
       return this.handleHistory(url, me);
     }
     if (url.pathname === "/api/read" && req.method === "POST") return this.handleRead(req, me);
+    // Topics (§23.3): the signed-in user's tree for ONE visible agent chat.
+    const topicTarget = topicRoute(url.pathname);
+    if (topicTarget !== null) return this.handleTopics(topicTarget, req, me);
     // GET /api/agents/:name/tokens (§12.8, FR-103): the token-usage series the
     // panel widgets poll; matched by suffix before the screen catch-all.
     if (
@@ -974,6 +1004,12 @@ export class WebchatConnector implements ChannelConnector {
         return json({ error: `unknown message "${replyTo}" — nothing to reply to` }, 422);
       }
     }
+    // Topic (§23.2): an agent chat only; validated and fixed BEFORE route, so a
+    // wrong id never reaches the agent and never lands silently in the default.
+    const topicId = body.topicId;
+    if (topicId !== undefined && (typeof topicId !== "string" || topicId.length === 0)) {
+      return json({ error: '"topicId" must be a non-empty topic id' }, 400);
+    }
     const blobIds = Array.isArray(body.blobs) ? body.blobs : [];
     const hasText = typeof text === "string" && text.length > 0;
     if (raw && blobIds.length > 0) {
@@ -1013,6 +1049,17 @@ export class WebchatConnector implements ChannelConnector {
     };
     const onInbound = this.#onInbound;
     if (onInbound === undefined) return json({ error: "connector not started" }, 503);
+    if (typeof topicId === "string") {
+      if (me.history === undefined || !this.#hasTopics(me, to)) {
+        return topicFailure(new TopicError("TOPIC_NOT_FOUND", `unknown topic "${topicId}"`));
+      }
+      try {
+        await me.history.assignTopic(to, id, topicId);
+      } catch (error) {
+        if (error instanceof TopicError) return topicFailure(error);
+        throw error;
+      }
+    }
     try {
       await onInbound(message);
     } catch (error) {
@@ -1024,7 +1071,11 @@ export class WebchatConnector implements ChannelConnector {
     // deliberately not appended here: it comes back through the sender's own
     // pseudo-session egress, which writes it once (§17.5 — one sink).
     if (message.to !== me.name) {
-      await me.history?.append(message).catch(() => undefined);
+      const fresh = await me.history?.append(message).catch(() => false);
+      // Usage counts NEW human sends only (§23.4): a retry of the same id is not one.
+      if (fresh === true && typeof topicId === "string") {
+        await me.history?.noteTopicSend(message.to, topicId).catch(() => undefined);
+      }
     }
     // Watch the recipient's queue for this id (§12.7 lifecycle) and let every
     // connected tab see the outbound + the ack. A group/tag has no queue of its own
@@ -1033,9 +1084,10 @@ export class WebchatConnector implements ChannelConnector {
     if (targetKind === "agent" && message.to !== me.name) {
       this.#tracked.set(message.id, { owner: me.name, to: message.to, phase: "queued" });
     }
-    this.#push({ type: "ack", id: message.id, to: message.to }, me.name);
-    if (message.to !== me.name) this.#push({ type: "message", record: message }, me.name);
-    return json({ queued: true, id: message.id, to: message.to });
+    const topic = this.#topicOf(me, message.to, message.id);
+    this.#push({ type: "ack", id: message.id, to: message.to, ...topic }, me.name);
+    if (message.to !== me.name) this.#push({ type: "message", record: message, ...topic }, me.name);
+    return json({ queued: true, id: message.id, to: message.to, ...topic });
   }
 
   // GET /api/peers (§12.4): the operator's agent neighbors (§10.2) with live
@@ -1434,7 +1486,20 @@ export class WebchatConnector implements ChannelConnector {
     const limit = Number.isInteger(rawLimit) ? Math.min(Math.max(rawLimit, 1), 200) : 50;
     const cursor = { ...(before !== undefined ? { before } : {}), limit };
     const self = me.isUser && peer === me.name;
-    const page = self ? await history.projected(cursor) : await history.page(peer, cursor);
+    // A topic feed (§23.3): only that topic's direct records, same cursor contract.
+    const topicId = url.searchParams.get("topicId") ?? undefined;
+    if (topicId !== undefined && (self || !this.#hasTopics(me, peer))) {
+      return topicFailure(new TopicError("TOPIC_NOT_FOUND", `unknown topic "${topicId}"`));
+    }
+    let page: HistoryPage;
+    try {
+      page = self
+        ? await history.projected(cursor)
+        : await history.page(peer, { ...cursor, ...(topicId !== undefined ? { topicId } : {}) });
+    } catch (error) {
+      if (error instanceof TopicError) return topicFailure(error);
+      throw error;
+    }
     // Reactions ride BESIDE the records (§19.5), never inside them: an envelope
     // stays verbatim (§5.3) wherever it is served — page, export, projection.
     const reactions = await this.#options.reactions?.pageMap(
@@ -1668,6 +1733,9 @@ export class WebchatConnector implements ChannelConnector {
       peer,
       records.map((record) => record.id),
     );
+    // Topics travel beside the records too (§23.3): the tree and the membership
+    // of every record outside the default topic — envelopes stay verbatim.
+    const topics = this.#hasTopics(me, peer) ? await history.topicExport(peer) : undefined;
     const body = {
       format: "muxeon-chat-history",
       version: 2,
@@ -1676,6 +1744,7 @@ export class WebchatConnector implements ChannelConnector {
       exportedAt: now,
       records,
       ...(reactions !== undefined ? { reactions } : {}),
+      ...(topics !== undefined ? topics : {}),
     };
     const safePeer = peer.replace(/[^\w.-]/g, "_"); // header-safe (§8.7)
     const day = new Date(now).toISOString().slice(0, 10);
@@ -1729,8 +1798,118 @@ export class WebchatConnector implements ChannelConnector {
     if (typeof peer !== "string" || peer.length === 0) {
       return json({ error: '"peer" (non-empty string) is required' }, 400);
     }
+    // With a topic only that topic is read (§23.3); without — the whole pair, as before.
+    const topicId = body?.topicId;
+    if (topicId !== undefined) {
+      if (typeof topicId !== "string" || topicId.length === 0 || !this.#hasTopics(me, peer)) {
+        return topicFailure(
+          new TopicError("TOPIC_NOT_FOUND", `unknown topic "${String(topicId)}"`),
+        );
+      }
+      try {
+        await me.history?.markRead(peer, topicId);
+      } catch (error) {
+        if (error instanceof TopicError) return topicFailure(error);
+        throw error;
+      }
+      return json({ ok: true });
+    }
     await me.history?.markRead(peer);
     return json({ ok: true });
+  }
+
+  // /api/topics/:agent[/:id[/clear]] (§23.3). Gated twice: the auth gate above
+  // (§10.12), then the pair — the agent must be one of THIS user's visible
+  // agent neighbours (§10.2), so a foreign user, a non-neighbour, a user peer or
+  // the self chat cannot even list topic names (404, like an unknown topic).
+  async handleTopics(
+    target: { peer: string; id?: string; clear?: true },
+    req: Request,
+    me: Identity,
+  ): Promise<Response> {
+    const history = me.history;
+    const { peer, id } = target;
+    if (history === undefined || !this.#hasTopics(me, peer)) {
+      return json({ error: `no topics for "${peer}"`, code: "TOPIC_NOT_FOUND" }, 404);
+    }
+    const method = req.method;
+    try {
+      if (id === undefined) {
+        if (method === "GET") return json(await history.topicList(peer));
+        if (method === "POST") {
+          const body = await readJsonObject(req);
+          const topic = await history.createTopic(peer, body?.path);
+          await this.#pushTopics(me, peer);
+          return json({ topic }, 201);
+        }
+        return json({ error: "method not allowed" }, 405);
+      }
+      if (target.clear === true) {
+        if (method !== "POST") return json({ error: "method not allowed" }, 405);
+        const removal = await history.clearTopic(peer, id);
+        await this.#afterRemoval(me, peer, id, removal.messageIds);
+        return new Response(null, { status: 204 });
+      }
+      if (method === "PATCH") {
+        const body = await readJsonObject(req);
+        const topics = await history.renameTopic(peer, id, body?.path);
+        await this.#pushTopics(me, peer);
+        return json({ topics });
+      }
+      if (method === "DELETE") {
+        const removal = await history.deleteTopic(peer, id);
+        await this.#afterRemoval(me, peer, id, removal.messageIds);
+        return new Response(null, { status: 204 });
+      }
+      return json({ error: "method not allowed" }, 405);
+    } catch (error) {
+      if (error instanceof TopicError) return topicFailure(error);
+      throw error;
+    }
+  }
+
+  /**
+   * After a topic delete/clear (§23.3): the reactions of the removed records go
+   * (§19.4), and every tab of the owner drops exactly those records and takes
+   * the new tree.
+   */
+  async #afterRemoval(
+    me: Identity,
+    peer: string,
+    topicId: string,
+    ids: readonly string[],
+  ): Promise<void> {
+    const history = me.history;
+    if (history === undefined) return;
+    if (ids.length > 0) {
+      const live = new Set((await history.all(peer)).map((record) => record.id));
+      await this.#options.reactions?.compact(me.name, peer, live);
+    }
+    this.#push({ type: "history-cleared", peer, topicId, ids }, me.name);
+    await this.#pushTopics(me, peer);
+  }
+
+  async #pushTopics(me: Identity, peer: string): Promise<void> {
+    const list = await me.history?.topicList(peer);
+    if (list === undefined) return;
+    this.#push({ type: "topics-changed", peer, ...list }, me.name);
+  }
+
+  /**
+   * Topics exist for a chat with an AGENT the identity can see (§23.1): not the
+   * self chat, not a user peer, not a group/tag broadcast, not a non-neighbour.
+   */
+  #hasTopics(me: Identity, peer: string): boolean {
+    if (me.isUser && peer === me.name) return false;
+    const ports = me.ports;
+    if (ports === undefined || !ports.listPeers().includes(peer)) return false;
+    return (ports.peerType?.(peer) ?? "agent") === "agent";
+  }
+
+  /** `{topicId}` for a record of an agent chat (§23.3 WS/ack), `{}` elsewhere. */
+  #topicOf(me: Identity | undefined, peer: string, id: string): { topicId?: string } {
+    if (me?.history === undefined || !this.#hasTopics(me, peer)) return {};
+    return { topicId: me.history.topicOf(peer, id) };
   }
 
   // POST /api/blobs (multipart "file") → tmp+rename under <root>/blobs/ (§12.5).
@@ -2143,6 +2322,35 @@ function asPosition(raw: unknown): number {
 }
 
 /** /api/history/<peer>/(export|clear) by segments (FR-84); null = not a sub-route. */
+/** /api/topics/<agent>[/<id>[/clear]] by segments (§23.3); null = not one. */
+function topicRoute(pathname: string): { peer: string; id?: string; clear?: true } | null {
+  if (!pathname.startsWith("/api/topics/")) return null;
+  const segments = pathname.slice("/api/topics/".length).split("/");
+  if (segments.length > 3 || (segments.length === 3 && segments[2] !== "clear")) return null;
+  const peer = decodeURIComponent(segments[0] ?? "");
+  const id = segments[1] === undefined ? undefined : decodeURIComponent(segments[1]);
+  if (peer.length === 0 || id === "") return null;
+  return {
+    peer,
+    ...(id !== undefined ? { id } : {}),
+    ...(segments.length === 3 ? { clear: true as const } : {}),
+  };
+}
+
+const TOPIC_STATUS: Record<TopicError["code"], number> = {
+  INVALID_TOPIC_PATH: 400,
+  TOPIC_EXISTS: 409,
+  TOPIC_CONFLICT: 409,
+  DEFAULT_TOPIC: 409,
+  MESSAGE_TOPIC_CONFLICT: 409,
+  TOPIC_NOT_FOUND: 404,
+};
+
+/** A refused topic operation as the API reports it (§23.3): message + code. */
+function topicFailure(error: TopicError): Response {
+  return json({ error: error.message, code: error.code }, TOPIC_STATUS[error.code]);
+}
+
 function historySubRoute(pathname: string): { peer: string; action: "export" | "clear" } | null {
   if (!pathname.startsWith("/api/history/")) return null;
   const segments = pathname.slice("/api/history/".length).split("/");

@@ -17,6 +17,25 @@
 import { appendFile, mkdir, readFile, readdir, rename, unlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { Signal } from "@muxeon/core";
+import {
+  DEFAULT_TOPIC_ID,
+  type Topic,
+  type TopicCounts,
+  TopicError,
+  type TopicState,
+  type TopicView,
+  createTopic,
+  findTopic,
+  initialTopicState as initialTopics,
+  parseTopicState,
+  pruneTopicUsage,
+  recordTopicUse,
+  removeTopic,
+  renameTopic,
+  subtreeOf,
+  topicOfMessage,
+  topicViews,
+} from "./topics";
 
 /** §12.3 defaults — deliberately wider than the queue's done/ window (§5.4). */
 export const HISTORY_DEFAULT_AGE_MS = 90 * 24 * 60 * 60 * 1000;
@@ -43,6 +62,8 @@ export interface HistoryStoreOptions {
   readonly operator: string;
   readonly retain?: HistoryRetain;
   readonly now?: () => number;
+  /** Topic id source (§23.1) — injectable so tests can predict ids. */
+  readonly newId?: () => string;
 }
 
 export interface HistoryPage {
@@ -55,7 +76,29 @@ export interface HistoryPage {
 interface PeerCache {
   records: Signal[];
   ids: Set<string>;
+  /** The pair's topic sidecar (§23.2) — in memory always, on disk once mutated. */
+  topics: TopicState;
 }
+
+/** What a topic delete/clear removed (§23.3) — the WS push and reactions need both. */
+export interface TopicRemoval {
+  readonly topicIds: readonly string[];
+  readonly messageIds: readonly string[];
+}
+
+/** The topic part of an export (§23.3): the tree and the non-default membership. */
+export interface TopicExport {
+  readonly defaultId: string;
+  readonly topics: readonly Topic[];
+  readonly messageTopics: Readonly<Record<string, string>>;
+}
+
+/**
+ * How long a label may wait for its record before the sweep counts it orphaned:
+ * a send labels BEFORE route and appends after it (§23.2), and a retention sweep
+ * landing in between must not strip a label that is about to be used.
+ */
+const LABEL_GRACE_MS = 10 * 60 * 1000;
 
 export class HistoryStore {
   readonly #dir: string;
@@ -65,7 +108,10 @@ export class HistoryStore {
   /** Length at which the append path trims back to `#count` (see HISTORY_TRIM_SLACK_RATIO). */
   readonly #trimAt: number;
   readonly #now: () => number;
+  readonly #newId: () => string;
   readonly #peers = new Map<string, PeerCache>();
+  /** Labels assigned in this process and not yet backed by a record (LABEL_GRACE_MS). */
+  readonly #freshLabels = new Map<string, number>();
   #chain: Promise<unknown> = Promise.resolve();
 
   constructor(options: HistoryStoreOptions) {
@@ -75,6 +121,7 @@ export class HistoryStore {
     this.#count = options.retain?.count ?? HISTORY_DEFAULT_COUNT;
     this.#trimAt = this.#count + Math.max(1, Math.ceil(this.#count * HISTORY_TRIM_SLACK_RATIO));
     this.#now = options.now ?? Date.now;
+    this.#newId = options.newId ?? (() => crypto.randomUUID());
   }
 
   /** The peer (agent) side of a record: the non-operator participant. */
@@ -91,9 +138,22 @@ export class HistoryStore {
       const peer = this.peerOf(record);
       const cache = await this.#load(peer);
       if (cache.ids.has(record.id)) return false;
+      // A record removed with its topic stays removed (§23.3): a re-deliver of
+      // the old envelope (at-least-once, §10.9) must not bring it back.
+      if (cache.topics.deleted[record.id] !== undefined) return false;
       cache.records.push(record);
       cache.ids.add(record.id);
       await appendFile(this.#file(peer), `${JSON.stringify(record)}\n`, "utf8");
+      // An answer joins the topic of the message it answers (§23.2) — the
+      // anchor must be a live record of THIS pair; anything else is default.
+      if (record.from !== this.#operator && record.replyTo !== undefined) {
+        const anchor = cache.topics.labels[record.replyTo];
+        if (anchor !== undefined && cache.ids.has(record.replyTo)) {
+          cache.topics.labels[record.id] = anchor;
+          await this.#saveTopics(peer, cache.topics);
+        }
+      }
+      this.#freshLabels.delete(record.id);
       // The count cap is enforced inline so a hot peer cannot grow unbounded
       // between sweeps; the age cap runs on load and in prune(). Trimming waits
       // for the slack (T287) so the append stays O(1) instead of rewriting the
@@ -103,9 +163,25 @@ export class HistoryStore {
     });
   }
 
-  /** Page backwards from `before` (exclusive) or from the newest record. */
-  page(peer: string, options: { before?: string; limit?: number } = {}): Promise<HistoryPage> {
-    return this.#serialize(async () => sliceBackwards((await this.#load(peer)).records, options));
+  /**
+   * Page backwards from `before` (exclusive) or from the newest record. With a
+   * `topicId` (§23.3) only that topic's DIRECT records are paged — the same
+   * cursor contract over the filtered list; an unknown topic is TOPIC_NOT_FOUND.
+   */
+  page(
+    peer: string,
+    options: { before?: string; limit?: number; topicId?: string } = {},
+  ): Promise<HistoryPage> {
+    return this.#serialize(async () => {
+      const cache = await this.#load(peer);
+      const { topicId } = options;
+      if (topicId === undefined) return sliceBackwards(cache.records, options);
+      requireTopic(cache.topics, topicId);
+      const records = cache.records.filter(
+        (record) => topicOfMessage(cache.topics, record.id) === topicId,
+      );
+      return sliceBackwards(records, options);
+    });
   }
 
   /** The newest record of a peer (peer-list previews, §12.7). */
@@ -162,6 +238,11 @@ export class HistoryStore {
       cache.records = [];
       cache.ids.clear();
       await this.#rewrite(peer, cache);
+      // The tree stays (§23.1: Clear chat empties every topic, keeps the topics).
+      if (Object.keys(cache.topics.labels).length > 0) {
+        cache.topics.labels = {};
+        await this.#saveTopics(peer, cache.topics);
+      }
     });
   }
 
@@ -186,8 +267,34 @@ export class HistoryStore {
         const cache = await this.#load(peer);
         const aged = this.#applyAge(cache); // re-check: load's floor is stale for cached peers
         if (aged || cache.records.length > this.#trimAt) await this.#rewrite(peer, cache);
+        if (this.#sweepTopics(cache)) await this.#saveTopics(peer, cache.topics);
       }
     });
+  }
+
+  /**
+   * The sidecar's own retention (§23.2): labels whose record is gone (age/count
+   * caps) and tombstones older than the history window go; usage slides by day.
+   * Returns whether anything changed.
+   */
+  #sweepTopics(cache: PeerCache): boolean {
+    const state = cache.topics;
+    const now = this.#now();
+    let changed = pruneTopicUsage(state, now);
+    for (const id of Object.keys(state.labels)) {
+      if (cache.ids.has(id)) continue;
+      const fresh = this.#freshLabels.get(id);
+      if (fresh !== undefined && now - fresh < LABEL_GRACE_MS) continue;
+      this.#freshLabels.delete(id);
+      delete state.labels[id];
+      changed = true;
+    }
+    for (const [id, at] of Object.entries(state.deleted)) {
+      if (now - at <= this.#ageMs) continue;
+      delete state.deleted[id];
+      changed = true;
+    }
+    return changed;
   }
 
   /** Absolute log paths — the extra blob-reference source for GC (§12.3/§5.4). */
@@ -256,9 +363,22 @@ export class HistoryStore {
   // One ts watermark per peer, persisted next to the logs (.read.json,
   // tmp+rename). Unread = inbound records newer than the watermark.
 
-  /** Mark the peer's chat as read up to its newest record. */
-  markRead(peer: string): Promise<void> {
+  /**
+   * Mark the peer's chat as read up to its newest record. With a `topicId`
+   * (§23.3) only that topic moves — other topics keep their unread.
+   */
+  markRead(peer: string, topicId?: string): Promise<void> {
     return this.#serialize(async () => {
+      if (topicId !== undefined) {
+        const cache = await this.#load(peer);
+        requireTopic(cache.topics, topicId);
+        const newest = cache.records.findLast(
+          (record) => topicOfMessage(cache.topics, record.id) === topicId,
+        );
+        cache.topics.read[topicId] = newest?.ts ?? this.#now();
+        await this.#saveTopics(peer, cache.topics);
+        return;
+      }
       const markers = await this.#loadMarkers();
       const newest = (await this.#load(peer)).records.at(-1);
       markers.set(peer, newest?.ts ?? this.#now());
@@ -269,13 +389,222 @@ export class HistoryStore {
     });
   }
 
-  /** Inbound records newer than the peer's read watermark. */
+  /**
+   * Inbound records newer than their watermark: the pair's, or their topic's
+   * when that is later (§23.3) — so the badge is the sum over the topics, and
+   * reading the whole pair still clears every one of them.
+   */
   unread(peer: string): Promise<number> {
     return this.#serialize(async () => {
-      const watermark = (await this.#loadMarkers()).get(peer) ?? 0;
-      const { records } = await this.#load(peer);
-      return records.filter((r) => r.from !== this.#operator && r.ts > watermark).length;
+      const cache = await this.#load(peer);
+      const pairMark = (await this.#loadMarkers()).get(peer) ?? 0;
+      return cache.records.filter((record) => this.#isUnread(cache, record, pairMark)).length;
     });
+  }
+
+  #isUnread(cache: PeerCache, record: Signal, pairMark: number): boolean {
+    if (record.from === this.#operator) return false;
+    const topicMark = cache.topics.read[topicOfMessage(cache.topics, record.id)] ?? 0;
+    return record.ts > Math.max(pairMark, topicMark);
+  }
+
+  // --- topics (§23) -----------------------------------------------------------
+  // Every topic operation runs on the same chain as append/clear/retention, so a
+  // delete never meets a half-written log (§23.2).
+
+  /** The pair's sorted topic tree with live counts (§23.3 GET /api/topics). */
+  topicList(peer: string): Promise<{ topics: TopicView[]; defaultId: string }> {
+    return this.#serialize(async () => {
+      const cache = await this.#load(peer);
+      const pairMark = (await this.#loadMarkers()).get(peer) ?? 0;
+      const counts = new Map<string, { messages: number; unread: number }>();
+      for (const record of cache.records) {
+        const topicId = topicOfMessage(cache.topics, record.id);
+        const entry = counts.get(topicId) ?? { messages: 0, unread: 0 };
+        entry.messages += 1;
+        if (this.#isUnread(cache, record, pairMark)) entry.unread += 1;
+        counts.set(topicId, entry);
+      }
+      return {
+        topics: topicViews(cache.topics, counts as ReadonlyMap<string, TopicCounts>, this.#now()),
+        defaultId: DEFAULT_TOPIC_ID,
+      };
+    });
+  }
+
+  /** POST /api/topics (§23.3): the new topic; missing ancestors come with it. */
+  createTopic(peer: string, path: unknown): Promise<Topic> {
+    return this.#serialize(async () => {
+      const cache = await this.#load(peer);
+      const topic = createTopic(cache.topics, path, this.#now(), this.#newId);
+      await this.#saveTopics(peer, cache.topics);
+      return { ...topic };
+    });
+  }
+
+  /** PATCH /api/topics/:id (§23.3): the re-pathed subtree. */
+  renameTopic(peer: string, id: string, path: unknown): Promise<Topic[]> {
+    return this.#serialize(async () => {
+      const cache = await this.#load(peer);
+      const moved = renameTopic(cache.topics, id, path, this.#now(), this.#newId);
+      await this.#saveTopics(peer, cache.topics);
+      return moved.map((topic) => ({ ...topic }));
+    });
+  }
+
+  /** DELETE /api/topics/:id (§23.3): the subtree AND all its messages. */
+  deleteTopic(peer: string, id: string): Promise<TopicRemoval> {
+    return this.#serialize(async () => {
+      const cache = await this.#load(peer);
+      const topicIds = removeTopic(cache.topics, id);
+      const gone = new Set(topicIds);
+      // Orphaned labels of records already gone point at nothing now.
+      for (const [messageId, topicId] of Object.entries(cache.topics.labels)) {
+        if (gone.has(topicId) && !cache.ids.has(messageId)) delete cache.topics.labels[messageId];
+      }
+      const messageIds = await this.#removeMessages(peer, cache, gone);
+      return { topicIds, messageIds };
+    });
+  }
+
+  /** POST /api/topics/:id/clear (§23.3): the subtree's messages; topics stay. */
+  clearTopic(peer: string, id: string): Promise<TopicRemoval> {
+    return this.#serialize(async () => {
+      const cache = await this.#load(peer);
+      requireTopic(cache.topics, id);
+      const topicIds = subtreeOf(cache.topics, id).map((topic) => topic.id);
+      const messageIds = await this.#removeMessages(peer, cache, new Set(topicIds));
+      return { topicIds, messageIds };
+    });
+  }
+
+  /**
+   * Fixes the topic of an outgoing message BEFORE it is routed (§23.2): the
+   * topic must exist in this pair; the same id with another topic is
+   * MESSAGE_TOPIC_CONFLICT (a retry may repeat, never re-file). Idempotent.
+   */
+  assignTopic(peer: string, messageId: string, topicId: string): Promise<void> {
+    return this.#serialize(async () => {
+      const cache = await this.#load(peer);
+      requireTopic(cache.topics, topicId);
+      const current =
+        cache.topics.labels[messageId] ??
+        (cache.ids.has(messageId) || cache.topics.deleted[messageId] !== undefined
+          ? DEFAULT_TOPIC_ID
+          : undefined);
+      if (current !== undefined && current !== topicId) {
+        throw new TopicError(
+          "MESSAGE_TOPIC_CONFLICT",
+          `message "${messageId}" already belongs to another topic`,
+        );
+      }
+      if (current === topicId || topicId === DEFAULT_TOPIC_ID) return;
+      cache.topics.labels[messageId] = topicId;
+      this.#freshLabels.set(messageId, this.#now());
+      await this.#saveTopics(peer, cache.topics);
+    });
+  }
+
+  /** One successful NEW human send into the topic (§23.4 usage). */
+  noteTopicSend(peer: string, topicId: string): Promise<void> {
+    return this.#serialize(async () => {
+      const cache = await this.#load(peer);
+      if (findTopic(cache.topics, topicId) === undefined) return; // deleted meanwhile
+      recordTopicUse(cache.topics, topicId, this.#now());
+      await this.#saveTopics(peer, cache.topics);
+    });
+  }
+
+  /**
+   * The topic of a record already in this store — synchronous, for the WS push
+   * that follows an append (§23.3). A pair not loaded yet has no labels to read,
+   * which is the default by definition.
+   */
+  topicOf(peer: string, messageId: string): string {
+    const cache = this.#peers.get(peer);
+    return cache === undefined ? DEFAULT_TOPIC_ID : topicOfMessage(cache.topics, messageId);
+  }
+
+  /** The topic part of the pair's export (§23.3). */
+  topicExport(peer: string): Promise<TopicExport> {
+    return this.#serialize(async () => {
+      const cache = await this.#load(peer);
+      const messageTopics: Record<string, string> = {};
+      for (const [id, topicId] of Object.entries(cache.topics.labels)) {
+        if (cache.ids.has(id)) messageTopics[id] = topicId;
+      }
+      return {
+        defaultId: DEFAULT_TOPIC_ID,
+        topics: cache.topics.topics.map((topic) => ({ ...topic })),
+        messageTopics,
+      };
+    });
+  }
+
+  /**
+   * Drops every record filed under `topicIds` (§23.3), crash-safe in three
+   * steps: the sidecar first records the intent (`pending`) together with the
+   * tombstones, then the log is rewritten, then the intent is cleared. A crash
+   * anywhere in between is finished by the next #load — no half delete survives
+   * a restart, and a re-deliver of a removed id is refused either way.
+   */
+  async #removeMessages(
+    peer: string,
+    cache: PeerCache,
+    topicIds: ReadonlySet<string>,
+  ): Promise<string[]> {
+    const state = cache.topics;
+    const ids = cache.records
+      .filter((record) => topicIds.has(topicOfMessage(state, record.id)))
+      .map((record) => record.id);
+    const now = this.#now();
+    for (const id of ids) {
+      delete state.labels[id];
+      state.deleted[id] = now;
+    }
+    state.pending = { ids };
+    await this.#saveTopics(peer, state);
+    await this.#dropRecords(peer, cache, new Set(ids));
+    state.pending = undefined;
+    await this.#saveTopics(peer, state);
+    return ids;
+  }
+
+  async #dropRecords(peer: string, cache: PeerCache, ids: ReadonlySet<string>): Promise<void> {
+    const kept = cache.records.filter((record) => !ids.has(record.id));
+    if (kept.length === cache.records.length) return;
+    cache.records = kept;
+    for (const id of ids) cache.ids.delete(id);
+    await this.#rewrite(peer, cache);
+  }
+
+  #topicsFile(peer: string): string {
+    return join(this.#dir, `${encodePeer(peer)}.topics.json`);
+  }
+
+  // tmp+rename in the same dir, like the log and the read markers. The name ends
+  // in `.json`, not `.jsonl`: #listFileNames must never take it for a peer log.
+  async #saveTopics(peer: string, state: TopicState): Promise<void> {
+    await mkdir(this.#dir, { recursive: true });
+    const tmp = join(this.#dir, `.tmp-${encodePeer(peer)}.topics.json`);
+    await writeFile(tmp, JSON.stringify(state), "utf8");
+    await rename(tmp, this.#topicsFile(peer));
+  }
+
+  async #loadTopics(peer: string, cache: PeerCache): Promise<void> {
+    let raw: unknown;
+    try {
+      raw = JSON.parse(await readFile(this.#topicsFile(peer), "utf8"));
+    } catch {
+      return; // no sidecar yet — the initial state (default topic only) stands
+    }
+    cache.topics = parseTopicState(raw, this.#now());
+    const pending = cache.topics.pending;
+    if (pending === undefined) return;
+    // A removal was interrupted (§23.3): finish it before anyone reads the log.
+    await this.#dropRecords(peer, cache, new Set(pending.ids));
+    cache.topics.pending = undefined;
+    await this.#saveTopics(peer, cache.topics);
   }
 
   #markers: Map<string, number> | undefined;
@@ -331,12 +660,13 @@ export class HistoryStore {
     const cached = this.#peers.get(peer);
     if (cached !== undefined) return cached;
     await mkdir(this.#dir, { recursive: true });
-    const cache: PeerCache = { records: [], ids: new Set() };
+    const cache: PeerCache = { records: [], ids: new Set(), topics: initialTopics(this.#now()) };
     let raw: string;
     try {
       raw = await readFile(this.#file(peer), "utf8");
     } catch {
       this.#peers.set(peer, cache);
+      await this.#loadTopics(peer, cache);
       return cache;
     }
     // A complete file ends with "\n"; a non-empty final chunk is a crash-torn
@@ -370,6 +700,7 @@ export class HistoryStore {
     }
     this.#peers.set(peer, cache);
     if (dropped) await this.#rewrite(peer, cache); // persist the cleaned view
+    await this.#loadTopics(peer, cache);
     return cache;
   }
 
@@ -393,6 +724,12 @@ export class HistoryStore {
     const body = cache.records.map((record) => JSON.stringify(record)).join("\n");
     await writeFile(tmp, `${body}\n`, "utf8");
     await rename(tmp, file);
+  }
+}
+
+function requireTopic(state: TopicState, id: string): void {
+  if (findTopic(state, id) === undefined) {
+    throw new TopicError("TOPIC_NOT_FOUND", `unknown topic "${id}"`);
   }
 }
 

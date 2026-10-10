@@ -677,6 +677,11 @@ export class ReactionsHub {
     await this.#options.ownerOf(owner)?.reactions.clear(peer);
   }
 
+  /** Forget the reactions of records that left the pair (§23.3 topic delete/clear). */
+  async compact(owner: string, peer: string, liveIds: ReadonlySet<string>): Promise<void> {
+    await this.#options.ownerOf(owner)?.reactions.compact(peer, liveIds);
+  }
+
   /**
    * Place or remove one reaction (§19.5/§19.7).
    *

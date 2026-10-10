@@ -418,3 +418,46 @@ describe("users-mode push (§17.5, FR-124)", () => {
     ).not.toThrow();
   });
 });
+
+// §23.1/FR-216: topics belong to the pair (signed-in user, agent). Two users with
+// the same agent have two trees, and an admin role opens nobody else's; a human
+// chat and the self chat have no topics at all.
+describe("topics are per user (§23.1, FR-216)", () => {
+  const send = (path: string, body: unknown, method: string, cookie: string): Request =>
+    new Request(`http://panel.test${path}`, {
+      method,
+      headers: {
+        "content-type": "application/json",
+        host: "panel.test",
+        cookie: `muxeon_webchat=${cookie}`,
+      },
+      body: JSON.stringify(body),
+    });
+
+  test("alex's topic with dev is invisible to kim, and kim's id does not resolve for alex", async () => {
+    const alex = await login("alex");
+    const kim = await login("kim");
+    const created = await connector.handleRequest(
+      send("/api/topics/dev", { path: "Secret" }, "POST", alex),
+    );
+    expect(created.status).toBe(201);
+    const secret = ((await created.json()) as { topic: { id: string } }).topic.id;
+    const kimList = (await (await connector.handleRequest(get("/api/topics/dev", kim))).json()) as {
+      topics: { path: string }[];
+    };
+    expect(kimList.topics.map((t) => t.path)).toEqual(["Общая"]);
+    const kimFeed = await connector.handleRequest(get(`/api/history/dev?topicId=${secret}`, kim));
+    expect(kimFeed.status).toBe(404);
+    const kimSend = await connector.handleRequest(
+      send("/api/send", { to: "dev", id: "k1", text: "x", topicId: secret }, "POST", kim),
+    );
+    expect(kimSend.status).toBe(404);
+    expect(inbound).toEqual([]);
+  });
+
+  test("a user peer and the self chat have no topics", async () => {
+    const alex = await login("alex");
+    expect((await connector.handleRequest(get("/api/topics/kim", alex))).status).toBe(404);
+    expect((await connector.handleRequest(get("/api/topics/alex", alex))).status).toBe(404);
+  });
+});
