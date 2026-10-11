@@ -1,3 +1,15 @@
+## [0.1.31](https://github.com/art-ws/muxeon/compare/v0.1.30...v0.1.31) (2026-10-11)
+
+
+### Changes
+
+* **T374:** one pending rendezvous nudge per pair — a busy target no longer piles them up
+
+  A rendezvous round (FR-105) was timed from the SEND of its notice. A target busy on one long turn never saw the notice, the 15s window elapsed anyway, and the next attempt — a new id, `rv:<A>:<B>:<attempt+1>` — was queued beside the unread one; the done/ dedup cannot merge different ids. ([79b2046](https://github.com/art-ws/muxeon/commit/79b204648333ee934ad7847f89e3e7ace0fb8996))
+* **T376:** the topic field is quiet at rest — no fill, no frame
+
+  Operator request: the header topic field should not catch the eye. At rest it now has a transparent background and a transparent border, and the leaf drops from 600 to 500 weight — it reads as the chat's context, not as a button. ([5d3224b](https://github.com/art-ws/muxeon/commit/5d3224b236b9bac5ab1af6fd6a70fd3472ce08e7))
+
 ## [0.1.30](https://github.com/art-ws/muxeon/compare/v0.1.29...v0.1.30) (2026-10-10)
 
 
