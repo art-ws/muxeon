@@ -17,7 +17,7 @@
 //     serialized with the output stream: everything before the capture is in the
 //     capture, everything after it arrives as `%output`. No gap, no double paint.
 
-import { exactTarget, tmuxOrThrow } from "./run";
+import { exactTarget, runTmux, tmuxOrThrow } from "./run";
 
 /** Scrollback lines primed into a freshly opened console (same cap as FR-147). */
 export const CONSOLE_PRIME_HISTORY_LINES = 500;
@@ -147,6 +147,35 @@ export function primingFrame(capture: readonly string[], state: PaneState): stri
 }
 
 /**
+ * Client-flag argv of `attach-session`, by tmux version (§12.9.1). `-f` with
+ * `ignore-size,read-only` exists from tmux 3.2 (CHANGES 3.1c → 3.2); older
+ * builds reject the option outright ("unknown option -- f"), which used to make
+ * the console impossible on e.g. Ubuntu 20.04's tmux 3.0a. On those builds a
+ * CONTROL-mode client is already invisible without the flag: it never opens a
+ * tty, so it takes no part in the window-size calculation, and its stdin is a
+ * command stream rather than key input. `-r` keeps the read-only half of the
+ * promise; send-keys commands are unaffected (read-only gates keys only).
+ */
+export function attachClientFlags(version: string): readonly string[] {
+  const match = /(\d+)\.(\d+)/.exec(version);
+  // An unparseable banner is a development build ("next-", "master"): treat it
+  // as new, because choosing the old path would cost the agent a reflow.
+  if (match === null) return ["-f", "ignore-size,read-only"];
+  const major = Number(match[1]);
+  const minor = Number(match[2]);
+  return major > 3 || (major === 3 && minor >= 2) ? ["-f", "ignore-size,read-only"] : ["-r"];
+}
+
+/** The flags for the tmux actually installed, probed once per process. */
+let attachFlagsProbe: Promise<readonly string[]> | undefined;
+function attachFlags(): Promise<readonly string[]> {
+  attachFlagsProbe ??= runTmux(["-V"]).then(({ exitCode, stdout, stderr }) =>
+    attachClientFlags(exitCode === 0 ? stdout : stderr),
+  );
+  return attachFlagsProbe;
+}
+
+/**
  * Attaches to `session`'s active pane and returns a live console (§12.9, FR-160).
  * Rejects when the session is gone or tmux refuses the attach — the caller turns
  * that into the socket's error frame; a half-open console is never returned.
@@ -165,21 +194,19 @@ export async function attachConsole(
   ).trim();
   if (!/^%\d+$/.test(pane)) throw new Error(`tmux gave no pane for session "${session}"`);
 
-  const proc = Bun.spawn(
-    ["tmux", "-C", "attach-session", "-t", sessionTarget, "-f", "ignore-size,read-only"],
-    {
-      stdin: "pipe",
-      stdout: "pipe",
-      stderr: "pipe",
-      // `attach-session` is the ONE tmux command that cares whether the caller is
-      // itself inside tmux: with `$TMUX` set it refuses as a nested attach
-      // ("sessions should be nested with care"). capture-pane/send-keys do not,
-      // so a server started from a tmux pane would work everywhere EXCEPT the
-      // console. Dropping the variable for this child costs nothing and makes
-      // the console independent of how the server was launched.
-      env: { ...process.env, TMUX: undefined },
-    },
-  );
+  const flags = await attachFlags();
+  const proc = Bun.spawn(["tmux", "-C", "attach-session", "-t", sessionTarget, ...flags], {
+    stdin: "pipe",
+    stdout: "pipe",
+    stderr: "pipe",
+    // `attach-session` is the ONE tmux command that cares whether the caller is
+    // itself inside tmux: with `$TMUX` set it refuses as a nested attach
+    // ("sessions should be nested with care"). capture-pane/send-keys do not,
+    // so a server started from a tmux pane would work everywhere EXCEPT the
+    // console. Dropping the variable for this child costs nothing and makes
+    // the console independent of how the server was launched.
+    env: { ...process.env, TMUX: undefined },
+  });
 
   const command = (line: string): void => {
     try {

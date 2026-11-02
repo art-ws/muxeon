@@ -4,7 +4,13 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { randomUUID } from "node:crypto";
 import { capturePane } from "../src/capture";
-import { attachConsole, parsePaneState, primingFrame, unescapeOutput } from "../src/control";
+import {
+  attachClientFlags,
+  attachConsole,
+  parsePaneState,
+  primingFrame,
+  unescapeOutput,
+} from "../src/control";
 import { hasTmux, runTmux } from "../src/run";
 import { killSession, newSession } from "../src/session";
 
@@ -73,6 +79,24 @@ describe("pane geometry reply (§12.9)", () => {
       alternate: true,
     });
     expect(frame.startsWith("\u001b[?1049h")).toBe(true);
+  });
+});
+
+describe("attach client flags by tmux version (§12.9.1)", () => {
+  test("tmux 3.2+ takes the documented client flags", () => {
+    for (const version of ["tmux 3.2", "tmux 3.2a", "tmux 3.5", "tmux 4.0", "tmux next-3.2"]) {
+      expect(attachClientFlags(version)).toEqual(["-f", "ignore-size,read-only"]);
+    }
+  });
+
+  test("older tmux rejects -f; control mode is invisible there without it", () => {
+    for (const version of ["tmux 3.0a", "tmux 3.1c", "tmux 2.9a"]) {
+      expect(attachClientFlags(version)).toEqual(["-r"]);
+    }
+  });
+
+  test("an unrecognizable build is treated as new", () => {
+    expect(attachClientFlags("tmux master")).toEqual(["-f", "ignore-size,read-only"]);
   });
 });
 
