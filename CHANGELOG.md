@@ -1,3 +1,12 @@
+## [0.1.32](https://github.com/art-ws/muxeon/compare/v0.1.31...v0.1.32) (2026-11-02)
+
+
+### Changes
+
+* **T377:** console attaches on tmux older than 3.2 (Ubuntu 20.04)
+
+  The console socket spawned `attach-session -f ignore-size,read-only`, but client flags on attach-session exist only since tmux 3.2 (CHANGES 3.1c -> 3.2). On Ubuntu 20.04's tmux 3.0a every attach died before the upgrade with "tmux: unknown option -- f", so the panel's Console never opened. ([13a8c89](https://github.com/art-ws/muxeon/commit/13a8c89ddb625c91c4524a71a80e33ca88fba2ee))
+
 ## [0.1.31](https://github.com/art-ws/muxeon/compare/v0.1.30...v0.1.31) (2026-10-11)
 
 
